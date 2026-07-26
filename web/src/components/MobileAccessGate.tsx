@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   getAccessBlockReason,
@@ -19,15 +20,13 @@ import {
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 const GITHUB_URL = "https://github.com/Aiml3ss/sexualsync";
 
-// A few real screens, shown inline so desktop visitors see the room before they
-// reach for their phone. Served from dist/ (copied with the presentation deck).
-const SHOTS: { src: string; alt: string }[] = [
-  { src: "/docs/screenshots/share/03-sexboard-home.png", alt: "The Sexboard — the room's home screen" },
-  { src: "/docs/screenshots/share/05-ask-detail.png", alt: "An Ask, with acts, timing, and the reply" },
-  { src: "/docs/screenshots/share/07-new-ask.png", alt: "Composing a new Ask" },
-  { src: "/docs/screenshots/share/08-inspiration.png", alt: "Inspiration — kinks and fantasies before plans" },
-  { src: "/docs/screenshots/share/13-pile-revealed.png", alt: "The Pile — only the overlap reveals" },
-];
+// Desktop visitors get the full product site instead of an install prompt.
+// Dynamically imported so the marketing page (and its CSS) never loads inside
+// the mobile app shell — phones only ever pay for the gate itself.
+const ProductSite = dynamic(() => import("@/components/ProductSite"), {
+  ssr: false,
+  loading: () => <div className="mobile-access-loading" aria-hidden="true" />,
+});
 
 function GithubMark() {
   return (
@@ -53,13 +52,6 @@ function evaluateAccess(): GateState {
 }
 
 function copyTextFor(reason: AccessBlockReason) {
-  if (reason === "embedded") {
-    return {
-      eyebrow: "Open in browser",
-      title: "Open Sexualsync in Safari or Chrome.",
-      body: "You are inside an in-app browser. Open this same link in your phone browser, then add it to your Home Screen.",
-    };
-  }
   if (reason === "ios-browser") {
     return {
       eyebrow: "Safari required",
@@ -67,12 +59,12 @@ function copyTextFor(reason: AccessBlockReason) {
       body: "iPhone can add Sexualsync to the Home Screen from Safari. Open this link in Safari, then use the Share menu.",
     };
   }
+  // "embedded" — plus an unreachable fallback for the desktop reason, which
+  // renders the full ProductSite instead of this panel.
   return {
-    eyebrow: "Mobile only",
-    title: "Get Curious. Get in Sync.",
-    description: "A private room for two — explore what you want, trade ideas and kinks, and turn a quiet curiosity into a clear ask. No feed, no profiles, no one else in the room.",
-    body: "The app is built for a private mobile browser or a Home Screen install, so this is as far as desktop goes.",
-    selfHost: "There is no public sign-up. The whole thing is open source — run your own copy and your data never leaves your server.",
+    eyebrow: "Open in browser",
+    title: "Open Sexualsync in Safari or Chrome.",
+    body: "You are inside an in-app browser. Open this same link in your phone browser, then add it to your Home Screen.",
   };
 }
 
@@ -80,9 +72,6 @@ function MobileAccessPage({ reason }: { reason: AccessBlockReason }) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const wavesRef = useRef<SVGSVGElement | null>(null);
   const copy = copyTextFor(reason);
-  // Show the app showcase on the desktop "mobile-only" state, not on the
-  // in-app-browser / iOS-Safari install prompts (those are small + instructional).
-  const showcase = reason !== "embedded" && reason !== "ios-browser";
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -193,13 +182,7 @@ function MobileAccessPage({ reason }: { reason: AccessBlockReason }) {
         <div className="mobile-access-lead">
           <p className="mobile-access-eyebrow">{copy.eyebrow}</p>
           <h1 id="mobile-access-title">{copy.title}</h1>
-          {"description" in copy && copy.description && (
-            <p className="mobile-access-description">{copy.description}</p>
-          )}
           <p className="mobile-access-body">{copy.body}</p>
-          {"selfHost" in copy && copy.selfHost && (
-            <p className="mobile-access-selfhost">{copy.selfHost}</p>
-          )}
 
           <div className="mobile-access-actions">
             <a className="mobile-access-primary pressable" href="/presentation.html">
@@ -211,19 +194,6 @@ function MobileAccessPage({ reason }: { reason: AccessBlockReason }) {
             </a>
           </div>
         </div>
-
-        {showcase && (
-          <div className="mobile-access-shots" aria-label="A look inside the app">
-            <div className="mobile-access-shots-track">
-              {SHOTS.map((shot) => (
-                <figure className="mobile-access-shot" key={shot.src}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
-                </figure>
-              ))}
-            </div>
-          </div>
-        )}
       </section>
     </main>
   );
@@ -272,7 +242,9 @@ export default function MobileAccessGate({ children }: { children: ReactNode }) 
   if (!deployment.ready || state.status === "checking") {
     content = <div className="mobile-access-loading" aria-hidden="true" />;
   } else if (state.status === "blocked") {
-    content = <MobileAccessPage reason={state.reason} />;
+    // Desktop gets the full product site; in-app browsers and non-Safari iOS
+    // keep the compact install instructions.
+    content = state.reason === "desktop" ? <ProductSite /> : <MobileAccessPage reason={state.reason} />;
   } else {
     content = children;
   }
