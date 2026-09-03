@@ -79,6 +79,26 @@ test("a sent message lands in the thread with a monotonic seq", async () => {
   assert.equal(stored.seq, 1);
 });
 
+test("Sext push delivery is attached to the request lifetime", async () => {
+  const env = await setup();
+  const backgroundTasks = [];
+  const res = await chat({
+    request: new Request("http://localhost/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId: WORKSPACE_ID, text: "notify partner" }),
+    }),
+    env,
+    waitUntil(task) {
+      backgroundTasks.push(Promise.resolve(task));
+    },
+  });
+
+  assert.equal(res.status, 201);
+  assert.equal(backgroundTasks.length, 1, "chat push must be registered with waitUntil before the response ends");
+  await Promise.all(backgroundTasks);
+});
+
 test("a message can reply to another: replyToId is persisted and returned", async () => {
   const env = await setup({
     thread: {

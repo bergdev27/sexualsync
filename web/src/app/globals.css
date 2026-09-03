@@ -13176,3 +13176,83 @@ button.card:active,
   color: rgb(var(--cream-rgb) / 0.7);
   font-size: 14px;
 }
+
+/* Installed-PWA session recovery. Kept visually neutral because this route can
+   appear in Safari as well as inside the Home Screen app. */
+.pwa-reconnect {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: max(34px, env(safe-area-inset-top)) 22px max(34px, env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 50% 20%, rgb(var(--accent-rgb) / 0.12), transparent 42%),
+    var(--bg);
+}
+.pwa-reconnect-glow {
+  position: absolute;
+  width: min(84vw, 430px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: rgb(var(--accent-rgb) / 0.08);
+  filter: blur(70px);
+  pointer-events: none;
+}
+.pwa-reconnect-card {
+  position: relative;
+  width: min(100%, 430px);
+  padding: 32px 26px;
+  border: 1px solid rgb(var(--cream-rgb) / 0.12);
+  border-radius: 24px;
+  background: rgb(var(--surface-rgb) / 0.9);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 0.28);
+  text-align: center;
+}
+.pwa-reconnect-wordmark {
+  display: block;
+  width: 118px;
+  margin: 0 auto 26px;
+}
+.pwa-reconnect-card h1 {
+  margin: 8px 0 12px;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: clamp(31px, 9vw, 43px);
+  font-weight: 500;
+  line-height: 1;
+}
+.pwa-reconnect-card > p:not(.eyebrow) {
+  margin: 0 auto 22px;
+  max-width: 34ch;
+  color: var(--cream-muted);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.pwa-reconnect-card .btn-primary {
+  width: 100%;
+  justify-content: center;
+}
+.pwa-reconnect-card .pwa-reconnect-copy {
+  width: 100%;
+  margin-top: 10px;
+}
+.pwa-reconnect-card .pwa-reconnect-manual {
+  margin: 14px 0 0;
+  max-width: none;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.pwa-reconnect-card .pwa-reconnect-manual a {
+  color: var(--cream);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pwa-reconnect-card .pwa-reconnect-status {
+  margin-top: 16px;
+  margin-bottom: 0;
+  color: var(--cream-faint);
+  font-size: 12px;
+}

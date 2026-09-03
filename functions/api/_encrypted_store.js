@@ -21,6 +21,10 @@ export const DATA_ENCRYPTED_STORES = [
   ...DB_PRIMARY_STORES,
   "sexualsync-presence",
   "push",
+  // Short-lived Safari → installed-PWA reconnect grants. Each grant is already
+  // secret-sealed, but encrypt the containing request list too so identifiers,
+  // timing, and approval state never sit as plaintext infrastructure metadata.
+  "sexualsync-pwa-handoff",
   "sexualsync-narration-cache",
   // Direct-message thread. In an E2EE room the bodies are already client-side
   // ciphertext; this envelope protects the plaintext bodies of non-E2EE rooms

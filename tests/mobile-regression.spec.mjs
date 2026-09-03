@@ -396,6 +396,21 @@ async function mockApi(page, state = {}) {
         headers: { location: "/sexboard" },
       });
     }
+    if (pathname === "/api/auth/pwa-handoff" && method === "POST") {
+      const body = route.request().postDataJSON();
+      state.pwaHandoffActions = [...(state.pwaHandoffActions || []), body];
+      if (body.action === "start") {
+        return json({
+          ok: true,
+          id: "handoff-test",
+          secret: "handoff-secret",
+          expiresAt: Date.now() + (10 * 60 * 1000),
+          returnTo: body.returnTo || "/sexboard",
+        }, 201);
+      }
+      if (body.action === "redeem") return json({ ok: true, pending: true }, 202);
+      return json({ ok: true, approved: true });
+    }
     if (pathname === "/api/config") {
       return json({
         appVersion: "test",
@@ -799,8 +814,38 @@ test("standalone PWA launch prefers browser-session reconnect over saved email m
   await mockApi(page, state);
   await page.goto("/signin?source=pwa");
 
-  await expect.poll(() => state.googleAuthAttempts || 0, { timeout: 4000 }).toBe(1);
-  await expect(page).toHaveURL(/\/sexboard/);
+  await expect(page).toHaveURL(/\/pwa-reconnect\?/);
+  const reconnectUrl = new URL(page.url());
+  expect(reconnectUrl.searchParams.get("returnTo")).toBe("/sexboard");
+  expect(reconnectUrl.searchParams.get("provider")).toBe("email");
+  expect(reconnectUrl.searchParams.get("source")).toBe("pwa-launch");
+  // iOS Home Screen apps can't hand a same-origin link to real Safari; the
+  // x-safari-https: scheme is the only route that reaches Safari's session.
+  const openSafari = page.getByRole("link", { name: "Open Safari to reconnect" });
+  await expect(openSafari).toBeVisible();
+  const safariHref = await openSafari.getAttribute("href");
+  expect(safariHref).toMatch(/^x-safari-https?:\/\/[^/]+\/pwa-reconnect\?approve=handoff-test#secret=handoff-secret$/);
+  expect(await openSafari.getAttribute("target")).toBeNull();
+  expect(state.googleAuthAttempts || 0).toBe(0);
+  expect(state.pwaHandoffActions?.[0]?.action).toBe("start");
+});
+
+test("standalone PWA reconnect offers a copyable link when Safari can't be opened", async ({ page, context }) => {
+  await emulateStandalonePwa(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+
+  const state = { bootstrapUnauthorized: true };
+  await mockApi(page, state);
+  await page.goto("/signin?source=pwa");
+  await expect(page).toHaveURL(/\/pwa-reconnect\?/);
+
+  await page.getByRole("button", { name: "Copy link instead" }).click();
+  await expect(page.getByRole("button", { name: "Link copied" })).toBeVisible();
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toMatch(/^https?:\/\/[^/]+\/pwa-reconnect\?approve=handoff-test#secret=handoff-secret$/);
+  // Copying counts as "opened": the app starts polling for the approval.
+  await expect(page.locator(".pwa-reconnect-status")).toContainText("Waiting for Safari to approve");
+  await expect.poll(() => (state.pwaHandoffActions || []).some((action) => action.action === "redeem")).toBe(true);
 });
 
 test("standalone PWA launch reconnects after an old sign-out marker expires", async ({ page }) => {
@@ -813,8 +858,13 @@ test("standalone PWA launch reconnects after an old sign-out marker expires", as
   await mockApi(page, state);
   await page.goto("/signin?source=pwa");
 
-  await expect.poll(() => state.googleAuthAttempts || 0, { timeout: 4000 }).toBe(1);
-  await expect(page).toHaveURL(/\/sexboard/);
+  await expect(page).toHaveURL(/\/pwa-reconnect\?/);
+  const reconnectUrl = new URL(page.url());
+  expect(reconnectUrl.searchParams.get("provider")).toBe("google");
+  expect(reconnectUrl.searchParams.get("source")).toBe("pwa-launch");
+  await expect(page.getByRole("link", { name: "Open Safari to reconnect" })).toBeVisible();
+  expect(state.googleAuthAttempts || 0).toBe(0);
+  expect(state.pwaHandoffActions?.[0]?.action).toBe("start");
 });
 
 test("Space omits the redundant paired-space summary card", async ({ page }) => {

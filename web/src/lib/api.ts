@@ -282,21 +282,22 @@ export function maybeReconnectStandalonePwa(
     // Storage is only loop protection. If unavailable, still attempt the reconnect.
   }
 
-  if (!options.preferBrowserSession && lastAuthProvider() === "email") {
-    const params = new URLSearchParams({ signin: "email", returnTo: target, source: "pwa-auto" });
-    window.location.replace(`/signin?${params.toString()}`);
-    return true;
-  }
-
-  if (!options.preferBrowserSession && lastAuthProvider() === "local") {
-    const params = new URLSearchParams({ signin: "local", returnTo: target, source: "pwa-auto" });
-    window.location.replace(`/signin?${params.toString()}`);
-    return true;
-  }
-
-  const source = options.preferBrowserSession ? "pwa-launch" : "pwa-auto";
-  const params = new URLSearchParams({ returnTo: target, source });
-  window.location.replace(`/api/auth/google?${params.toString()}`);
+  // iOS keeps an installed PWA's cookies separate from Safari after install.
+  // Redirecting OAuth inside the PWA therefore cannot reuse Safari's valid
+  // session and asks for credentials again. Route through a short-lived
+  // browser handoff instead: Safari proves identity, then this PWA redeems a
+  // one-time grant for its own first-party session cookie.
+  const provider = lastAuthProvider() === "local"
+    ? "local"
+    : lastAuthProvider() === "email"
+      ? "email"
+      : "google";
+  const params = new URLSearchParams({
+    returnTo: target,
+    provider,
+    source: options.preferBrowserSession ? "pwa-launch" : "pwa-auto",
+  });
+  window.location.replace(`/pwa-reconnect?${params.toString()}`);
   return true;
 }
 

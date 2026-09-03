@@ -312,13 +312,20 @@ export async function onRequest(context) {
       });
       const recipients = partnerEmailsFor(workspace, actorEmail);
       if (recipients.length) {
-        notifyWorkspaceEvent(context, workspace.id, actorEmail, {
+        const notificationTask = notifyWorkspaceEvent(context, workspace.id, actorEmail, {
           title: "Sexualsync",
           body: "New message in your room.",
           tag: "chat-message",
           url: "/chat",
           onlyEmail: recipients[0]
-        }).catch(() => {});
+        }).catch(() => null);
+        if (typeof context?.waitUntil === "function") {
+          context.waitUntil(notificationTask);
+        } else {
+          // Self-host runtimes do not expose Cloudflare's waitUntil. Await there
+          // so the response cannot end before Web Push has left the process.
+          await notificationTask;
+        }
       }
     }
     return jsonResponse(result.replay ? 200 : 201, {
