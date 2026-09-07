@@ -1,16 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import BrandWordmark from "@/components/BrandWordmark";
 import {
   clearPwaReconnectAttempt,
   clearReconnectAttemptLog,
 } from "@/lib/api";
-import { clearIntentionalSignOut } from "@/lib/auth-state";
+import { clearIntentionalSignOut, markIntentionalSignOut } from "@/lib/auth-state";
 import { getPwaEnvironment } from "@/lib/pwa-environment";
 
 const HANDOFF_STORAGE_KEY = "ss:pwa-browser-handoff";
 const APPROVAL_SECRET_PREFIX = "ss:pwa-browser-approval:";
+
+// Poll quickly while Safari is most likely still open, then ease off. The
+// redeem endpoint is rate-limited per IP and both partners usually share one
+// home network, so two installed apps polling every 5s for the whole handoff
+// window would trip the limit for each other.
+const REDEEM_FAST_INTERVAL_MS = 5 * 1000;
+const REDEEM_SLOW_INTERVAL_MS = 10 * 1000;
+const REDEEM_FAST_WINDOW_MS = 60 * 1000;
+const REDEEM_MIN_BACKOFF_MS = 5 * 1000;
+const REDEEM_MAX_BACKOFF_MS = 60 * 1000;
+// The server is authoritative on expiry; this only stops the wait from
+// running on forever if the server's 400 never reaches us.
+const EXPIRY_GRACE_MS = 30 * 1000;
 
 type PendingHandoff = {
   id: string;
@@ -92,6 +105,14 @@ function safariHandoffHref(path: string): string {
   return `${scheme}://${window.location.host}${path}`;
 }
 
+// The sign-in page skips its automatic reconnect redirect while the
+// intentional sign-out marker is fresh. That is exactly the opening a manual
+// in-app sign-in needs; the marker clears itself after two minutes or on the
+// next successful sign-in.
+function allowInAppSignIn(): void {
+  markIntentionalSignOut();
+}
+
 async function copyText(value: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(value);
@@ -115,9 +136,16 @@ async function handoffRequest(payload: Record<string, unknown>): Promise<Respons
   });
 }
 
+function backoffFromResponse(response: Response): number {
+  const retryAfterSeconds = Number(response.headers.get("retry-after")) || 0;
+  return Math.min(Math.max(retryAfterSeconds * 1000, REDEEM_MIN_BACKOFF_MS), REDEEM_MAX_BACKOFF_MS);
+}
+
 export default function PwaReconnectPage() {
   const [screen, setScreen] = useState<Screen>({ kind: "loading", message: "Preparing a secure reconnect." });
   const [copyState, setCopyState] = useState<"idle" | "copied" | "manual">("idle");
+  // Bumped by "Restart reconnect" so the setup effect runs again in place.
+  const [attempt, setAttempt] = useState(0);
   const redeemingRef = useRef(false);
   const params = useMemo(
     () => typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search),
@@ -133,7 +161,10 @@ export default function PwaReconnectPage() {
       const secret = approvalSecret(approveId);
       if (!secret) {
         const timer = window.setTimeout(() => {
-          setScreen({ kind: "error", message: "This reconnect link is incomplete. Start again from the installed app." });
+          setScreen({
+            kind: "error",
+            message: "This reconnect link is missing its secret. In the installed app, tap Copy link instead and paste the whole link into Safari.",
+          });
         }, 0);
         return () => window.clearTimeout(timer);
       }
@@ -172,7 +203,9 @@ export default function PwaReconnectPage() {
     const returnTo = safeReturnTo(params.get("returnTo"));
     (async () => {
       try {
-        let pending = loadPending(returnTo);
+        // A restart always mints a fresh handoff; the stored one belongs to the
+        // attempt that just failed.
+        let pending = attempt > 0 ? null : loadPending(returnTo);
         if (!pending) {
           const response = await handoffRequest({ action: "start", returnTo });
           const body = await response.json().catch(() => ({}));
@@ -193,34 +226,53 @@ export default function PwaReconnectPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [params]);
+  }, [params, attempt]);
 
   useEffect(() => {
     if (screen.kind !== "pwa" || !screen.opened) return;
+    const { pending } = screen;
     let cancelled = false;
+    let timer = 0;
+    let pausedUntil = 0;
+    const startedAt = Date.now();
+
+    const fail = (message: string) => {
+      savePending(null);
+      setScreen({ kind: "error", message });
+    };
 
     async function redeem() {
-      if (cancelled || redeemingRef.current || screen.kind !== "pwa") return;
+      if (cancelled || redeemingRef.current || Date.now() < pausedUntil) return;
+      if (Date.now() > pending.expiresAt + EXPIRY_GRACE_MS) {
+        fail("Safari didn't approve in time. Start a fresh reconnect.");
+        return;
+      }
       redeemingRef.current = true;
       try {
         const response = await handoffRequest({
           action: "redeem",
-          id: screen.pending.id,
-          secret: screen.pending.secret,
-          returnTo: screen.pending.returnTo,
+          id: pending.id,
+          secret: pending.secret,
+          returnTo: pending.returnTo,
         });
         if (response.status === 202) return;
+        if (response.status === 429 || response.status >= 500) {
+          // Rate-limited (the other partner may be reconnecting on the same
+          // network) or a transient upstream blip. The approval can still
+          // land, so back off instead of ending the handoff with an error.
+          pausedUntil = Date.now() + backoffFromResponse(response);
+          return;
+        }
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          savePending(null);
-          setScreen({ kind: "error", message: body.error || "Reconnect request expired. Try again." });
+          if (!cancelled) fail(body.error || "Reconnect request expired. Try again.");
           return;
         }
         savePending(null);
         clearIntentionalSignOut();
         clearPwaReconnectAttempt();
         clearReconnectAttemptLog();
-        window.location.replace(safeReturnTo(body.returnTo || screen.pending.returnTo));
+        window.location.replace(safeReturnTo(body.returnTo || pending.returnTo));
       } catch {
         // Switching to Safari often suspends PWA network activity. Retry when
         // the app becomes visible again instead of surfacing a false failure.
@@ -229,27 +281,57 @@ export default function PwaReconnectPage() {
       }
     }
 
-    const interval = window.setInterval(() => void redeem(), 5000);
+    const schedule = () => {
+      if (cancelled) return;
+      const delay = Date.now() - startedAt < REDEEM_FAST_WINDOW_MS
+        ? REDEEM_FAST_INTERVAL_MS
+        : REDEEM_SLOW_INTERVAL_MS;
+      timer = window.setTimeout(() => { void redeem().then(schedule); }, delay);
+    };
     const onFocus = () => void redeem();
     const onVisibility = () => {
       if (document.visibilityState === "visible") void redeem();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
-    void redeem();
+    void redeem().then(schedule);
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      window.clearTimeout(timer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [screen]);
 
+  // Restart in place. Bouncing through /signin?source=pwa (the old restart
+  // link) re-entered the launch path, whose loop guards — the two-minute
+  // cooldown and the attempt cap — treat a manual retry like a runaway
+  // redirect and either park the user on the sign-in hero or send them to
+  // /auth-blocked. A manual restart is not a loop, so reset those guards and
+  // mint a new handoff right here.
+  const restart = useCallback(() => {
+    savePending(null);
+    clearPwaReconnectAttempt();
+    clearReconnectAttemptLog();
+    redeemingRef.current = false;
+    setCopyState("idle");
+    if (params.has("approve")) {
+      // A stale approval id would send the next attempt down the browser path.
+      params.delete("approve");
+      const search = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${search ? `?${search}` : ""}`);
+    }
+    setScreen({ kind: "loading", message: "Starting a fresh reconnect." });
+    setAttempt((count) => count + 1);
+  }, [params]);
+
   if (screen.kind === "pwa") {
     const browserPath = `/pwa-reconnect?approve=${encodeURIComponent(screen.pending.id)}#secret=${encodeURIComponent(screen.pending.secret)}`;
     const browserName = env.ios ? "Safari" : "your browser";
     const absoluteUrl = `${window.location.origin}${browserPath}`;
-    const markOpened = () => setScreen({ ...screen, opened: true });
+    const markOpened = () => {
+      if (!screen.opened) setScreen({ ...screen, opened: true });
+    };
     const copyLink = async () => {
       const copied = await copyText(absoluteUrl);
       setCopyState(copied ? "copied" : "manual");
@@ -283,6 +365,9 @@ export default function PwaReconnectPage() {
           </p>
         ) : null}
         <p className="pwa-reconnect-status" role="status">{status}</p>
+        <p className="pwa-reconnect-alt">
+          <a href="/signin" onClick={allowInAppSignIn}>Sign in here instead</a>
+        </p>
       </ReconnectShell>
     );
   }
@@ -313,10 +398,23 @@ export default function PwaReconnectPage() {
   }
 
   if (screen.kind === "error") {
+    if (!env.standalone) {
+      return (
+        <ReconnectShell eyebrow="Reconnect stopped" title="Try again from the app.">
+          <p role="alert">{screen.message}</p>
+          <p>Open the installed app from your Home Screen and tap Restart reconnect there.</p>
+        </ReconnectShell>
+      );
+    }
     return (
-      <ReconnectShell eyebrow="Reconnect stopped" title="Try again from the app.">
+      <ReconnectShell eyebrow="Reconnect stopped" title="Start a fresh reconnect.">
         <p role="alert">{screen.message}</p>
-        <a className="btn-primary pressable" href="/signin?source=pwa">Restart reconnect</a>
+        <button type="button" className="btn-primary pressable" onClick={restart}>
+          Restart reconnect
+        </button>
+        <p className="pwa-reconnect-alt">
+          <a href="/signin" onClick={allowInAppSignIn}>Sign in here instead</a>
+        </p>
       </ReconnectShell>
     );
   }

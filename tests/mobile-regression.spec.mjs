@@ -400,6 +400,9 @@ async function mockApi(page, state = {}) {
       const body = route.request().postDataJSON();
       state.pwaHandoffActions = [...(state.pwaHandoffActions || []), body];
       if (body.action === "start") {
+        if (state.pwaHandoffStartStatus) {
+          return json({ error: "Too many attempts. Try again soon." }, state.pwaHandoffStartStatus);
+        }
         return json({
           ok: true,
           id: "handoff-test",
@@ -408,7 +411,19 @@ async function mockApi(page, state = {}) {
           returnTo: body.returnTo || "/sexboard",
         }, 201);
       }
-      if (body.action === "redeem") return json({ ok: true, pending: true }, 202);
+      if (body.action === "redeem") {
+        const redeemStatus = state.pwaHandoffRedeemStatus || 202;
+        if (redeemStatus === 200) {
+          return json({ ok: true, returnTo: body.returnTo || "/sexboard", provider: "google" });
+        }
+        if (redeemStatus === 202) return json({ ok: true, pending: true }, 202);
+        return route.fulfill({
+          status: redeemStatus,
+          contentType: "application/json",
+          headers: { "retry-after": "1" },
+          body: JSON.stringify({ error: "Too many attempts. Try again soon." }),
+        });
+      }
       return json({ ok: true, approved: true });
     }
     if (pathname === "/api/config") {
@@ -846,6 +861,73 @@ test("standalone PWA reconnect offers a copyable link when Safari can't be opene
   // Copying counts as "opened": the app starts polling for the approval.
   await expect(page.locator(".pwa-reconnect-status")).toContainText("Waiting for Safari to approve");
   await expect.poll(() => (state.pwaHandoffActions || []).some((action) => action.action === "redeem")).toBe(true);
+});
+
+test("standalone PWA reconnect restarts in place after a failed start", async ({ page }) => {
+  await emulateStandalonePwa(page);
+
+  const state = { bootstrapUnauthorized: true, pwaHandoffStartStatus: 429 };
+  await mockApi(page, state);
+  await page.goto("/signin?source=pwa");
+
+  await expect(page).toHaveURL(/\/pwa-reconnect\?/);
+  // Scope to the card: Next's route announcer is an empty role="alert" too.
+  await expect(page.locator(".pwa-reconnect-card [role='alert']")).toContainText("Too many attempts");
+  const errorUrl = page.url();
+  // Dev-mode StrictMode double-fires the mount effect, so count relative to
+  // the failed attempt rather than asserting an absolute number.
+  const starts = () => (state.pwaHandoffActions || []).filter((action) => action.action === "start").length;
+  const startsBefore = starts();
+  const bootstrapBefore = state.bootstrapCalls || 0;
+
+  // The old restart link bounced through /signin?source=pwa, where the launch
+  // path's cooldown and attempt cap swallowed the retry. Restart now mints a
+  // fresh handoff right here without leaving the page.
+  state.pwaHandoffStartStatus = 0;
+  await page.getByRole("button", { name: "Restart reconnect" }).click();
+
+  await expect(page.getByRole("link", { name: "Open Safari to reconnect" })).toBeVisible();
+  expect(page.url()).toBe(errorUrl);
+  expect(starts()).toBe(startsBefore + 1);
+  // No trip through /signin: the sign-in page's bootstrap never ran again.
+  expect(state.bootstrapCalls || 0).toBe(bootstrapBefore);
+  expect(state.googleAuthAttempts || 0).toBe(0);
+  await expect(page.getByRole("link", { name: "Sign in here instead" })).toBeVisible();
+});
+
+test("standalone PWA reconnect keeps waiting through a rate-limited redeem", async ({ page, context }) => {
+  await emulateStandalonePwa(page);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+
+  const state = { bootstrapUnauthorized: true, pwaHandoffRedeemStatus: 429 };
+  await mockApi(page, state);
+  await page.goto("/signin?source=pwa");
+  await expect(page).toHaveURL(/\/pwa-reconnect\?/);
+
+  await page.getByRole("button", { name: "Copy link instead" }).click();
+  const redeems = () => (state.pwaHandoffActions || []).filter((action) => action.action === "redeem").length;
+  await expect.poll(redeems, { timeout: 15_000 }).toBeGreaterThan(0);
+
+  // A 429 used to end the handoff with an error screen. Both partners share
+  // one home IP, so the other phone's polling can trip the limit; the
+  // approval may still land, so the app backs off and keeps waiting.
+  await expect(page.locator(".pwa-reconnect-status")).toContainText("Waiting for Safari to approve");
+  await expect(page.locator(".pwa-reconnect-card [role='alert']")).toHaveCount(0);
+
+  state.pwaHandoffRedeemStatus = 200;
+  state.bootstrapUnauthorized = false;
+  await expect(page).toHaveURL(/\/sexboard/, { timeout: 20_000 });
+  expect(redeems()).toBeGreaterThan(1);
+});
+
+test("browser approval without a secret points back to the installed app", async ({ page }) => {
+  const state = { bootstrapUnauthorized: true };
+  await mockApi(page, state);
+  await page.goto("/pwa-reconnect?approve=handoff-test");
+
+  await expect(page.locator(".pwa-reconnect-card [role='alert']")).toContainText("missing its secret");
+  await expect(page.getByRole("button", { name: "Restart reconnect" })).toHaveCount(0);
+  await expect(page.getByText(/Open the installed app from your Home Screen/)).toBeVisible();
 });
 
 test("standalone PWA launch reconnects after an old sign-out marker expires", async ({ page }) => {
