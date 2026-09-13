@@ -7,6 +7,7 @@ import {
   clearReconnectAttemptLog,
 } from "@/lib/api";
 import { clearIntentionalSignOut, markIntentionalSignOut } from "@/lib/auth-state";
+import { markLaunchAuthenticated } from "@/lib/launch-auth";
 import { getPwaEnvironment } from "@/lib/pwa-environment";
 
 const HANDOFF_STORAGE_KEY = "ss:pwa-browser-handoff";
@@ -24,6 +25,19 @@ const REDEEM_MAX_BACKOFF_MS = 60 * 1000;
 // The server is authoritative on expiry; this only stops the wait from
 // running on forever if the server's 400 never reaches us.
 const EXPIRY_GRACE_MS = 30 * 1000;
+// iOS can leave a request hanging while the app is backgrounded or on a bad
+// network. Without a ceiling the setup screen sits on "One moment" forever.
+const REQUEST_TIMEOUT_MS = 15 * 1000;
+// A restart that fails the same way again re-renders an identical screen in a
+// few milliseconds, which reads as "nothing happened". Hold the loading state
+// long enough to be seen.
+const RESTART_MIN_LOADING_MS = 700;
+// Reusing a stored handoff only makes sense if there is still time to switch
+// to Safari and back before it expires.
+const REUSE_MIN_REMAINING_MS = 2 * 60 * 1000;
+// After this many consecutive failures, signing in inside the app becomes the
+// main action; retrying the same broken path is no longer the best advice.
+const FAILURES_BEFORE_SIGN_IN_PRIMARY = 2;
 
 type PendingHandoff = {
   id: string;
@@ -38,7 +52,25 @@ type Screen =
   | { kind: "approved" }
   | { kind: "browser-auth"; signInUrl: string }
   | { kind: "browser-info" }
-  | { kind: "error"; message: string };
+  | {
+      kind: "error";
+      message: string;
+      // HTTP status of the failing request, 0 for network errors/timeouts.
+      status?: number;
+      // When a rate limit lifts (epoch ms); 0 when retrying is allowed now.
+      retryAt?: number;
+      failedAt?: number;
+    };
+
+class HandoffError extends Error {
+  status: number;
+  retryAfterMs: number;
+  constructor(message: string, status: number, retryAfterMs = 0) {
+    super(message);
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
 
 function isStandaloneDisplay(): boolean {
   return window.matchMedia?.("(display-mode: standalone)")?.matches === true
@@ -71,6 +103,10 @@ function approvalSecret(id: string): string {
   }
 }
 
+// Any still-fresh handoff is reusable, whatever page the app was on when it
+// was minted: the server doesn't bind returnTo to the handoff (redeem takes it
+// from the request), so only the destination is updated. Minting a new one per
+// page burned the per-IP start limit both partners share.
 function loadPending(returnTo: string): PendingHandoff | null {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(HANDOFF_STORAGE_KEY) || "null");
@@ -78,10 +114,9 @@ function loadPending(returnTo: string): PendingHandoff | null {
       parsed
       && typeof parsed.id === "string"
       && typeof parsed.secret === "string"
-      && Number(parsed.expiresAt) > Date.now()
-      && parsed.returnTo === returnTo
+      && Number(parsed.expiresAt) - Date.now() > REUSE_MIN_REMAINING_MS
     ) {
-      return parsed as PendingHandoff;
+      return { ...(parsed as PendingHandoff), returnTo };
     }
   } catch {}
   return null;
@@ -128,17 +163,79 @@ async function copyText(value: string): Promise<boolean> {
 }
 
 async function handoffRequest(payload: Record<string, unknown>): Promise<Response> {
-  return fetch("/api/auth/pwa-handoff", {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch("/api/auth/pwa-handoff", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+// Raw fetch on purpose: the shared API client answers a 401 in the installed
+// app by starting another reconnect, which is the flow this page already is.
+async function sessionIsActive(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/bootstrap", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function retryAfterMs(response: Response): number {
+  return (Number(response.headers.get("retry-after")) || 0) * 1000;
 }
 
 function backoffFromResponse(response: Response): number {
-  const retryAfterSeconds = Number(response.headers.get("retry-after")) || 0;
-  return Math.min(Math.max(retryAfterSeconds * 1000, REDEEM_MIN_BACKOFF_MS), REDEEM_MAX_BACKOFF_MS);
+  return Math.min(Math.max(retryAfterMs(response), REDEEM_MIN_BACKOFF_MS), REDEEM_MAX_BACKOFF_MS);
+}
+
+function delay(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => window.setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function formatClock(epochMs: number): string {
+  try {
+    return new Date(epochMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
+// Everything a successful reconnect has to settle before leaving this page.
+// The launch marker matters: the protected-page gate logs the user out again
+// when it can't see that this launch was authenticated, and the one-shot
+// launch cookie from the redeem response is exactly what a lost or suspended
+// response fails to deliver.
+function finishReconnect(returnTo: string): void {
+  savePending(null);
+  clearIntentionalSignOut();
+  clearPwaReconnectAttempt();
+  clearReconnectAttemptLog();
+  markLaunchAuthenticated();
+  window.location.replace(safeReturnTo(returnTo));
 }
 
 export default function PwaReconnectPage() {
@@ -146,6 +243,11 @@ export default function PwaReconnectPage() {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "manual">("idle");
   // Bumped by "Restart reconnect" so the setup effect runs again in place.
   const [attempt, setAttempt] = useState(0);
+  // Consecutive failed attempts, shown on the error screen so a retry that
+  // fails again still visibly changes something.
+  const [failures, setFailures] = useState(0);
+  // Ticks once a second while a rate-limit countdown is on screen.
+  const [now, setNow] = useState(() => Date.now());
   const redeemingRef = useRef(false);
   const params = useMemo(
     () => typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search),
@@ -201,15 +303,29 @@ export default function PwaReconnectPage() {
     }
 
     const returnTo = safeReturnTo(params.get("returnTo"));
+    const showNoSoonerThan = attempt > 0 ? Date.now() + RESTART_MIN_LOADING_MS : 0;
     (async () => {
       try {
         // A restart always mints a fresh handoff; the stored one belongs to the
         // attempt that just failed.
         let pending = attempt > 0 ? null : loadPending(returnTo);
+        // A reused handoff may already be approved: iOS often kills the
+        // backgrounded app while Safari is in front, so this is a fresh launch
+        // coming back from Safari. Start checking right away.
+        const reused = Boolean(pending);
         if (!pending) {
           const response = await handoffRequest({ action: "start", returnTo });
           const body = await response.json().catch(() => ({}));
-          if (!response.ok) throw new Error(body.error || "Couldn't start reconnect.");
+          if (!response.ok) {
+            const fallback = response.status === 429
+              ? "Too many reconnect attempts from this network."
+              : "Couldn't start reconnect.";
+            throw new HandoffError(
+              body.error || fallback,
+              response.status,
+              response.status === 429 ? retryAfterMs(response) : 0,
+            );
+          }
           pending = {
             id: body.id,
             secret: body.secret,
@@ -218,11 +334,36 @@ export default function PwaReconnectPage() {
           };
           savePending(pending);
         }
-        if (!cancelled) setScreen({ kind: "pwa", pending, opened: false });
-      } catch (error) {
+        await delay(showNoSoonerThan - Date.now());
         if (!cancelled) {
-          setScreen({ kind: "error", message: error instanceof Error ? error.message : "Couldn't start reconnect." });
+          setFailures(0);
+          setScreen({ kind: "pwa", pending, opened: reused });
         }
+      } catch (error) {
+        await delay(showNoSoonerThan - Date.now());
+        if (cancelled) return;
+        const failedAt = Date.now();
+        if (error instanceof HandoffError) {
+          setScreen({
+            kind: "error",
+            message: error.message,
+            status: error.status,
+            retryAt: error.retryAfterMs > 0 ? failedAt + error.retryAfterMs : 0,
+            failedAt,
+          });
+        } else {
+          const timedOut = error instanceof DOMException && error.name === "AbortError";
+          setScreen({
+            kind: "error",
+            message: timedOut
+              ? "The server didn't answer in time. Check your connection, then try again."
+              : "Couldn't reach Sexualsync. Check your connection, then try again.",
+            status: 0,
+            retryAt: 0,
+            failedAt,
+          });
+        }
+        setFailures((count) => count + 1);
       }
     })();
     return () => { cancelled = true; };
@@ -234,11 +375,16 @@ export default function PwaReconnectPage() {
     let cancelled = false;
     let timer = 0;
     let pausedUntil = 0;
+    // Set when a redeem request died in flight. The server may have consumed
+    // the handoff and issued the session before the response was lost, in
+    // which case the next poll sees "invalid" even though sign-in worked.
+    let lostResponse = false;
     const startedAt = Date.now();
 
-    const fail = (message: string) => {
+    const fail = (message: string, status?: number) => {
       savePending(null);
-      setScreen({ kind: "error", message });
+      setFailures((count) => count + 1);
+      setScreen({ kind: "error", message, status, retryAt: 0, failedAt: Date.now() });
     };
 
     async function redeem() {
@@ -265,17 +411,18 @@ export default function PwaReconnectPage() {
         }
         const body = await response.json().catch(() => ({}));
         if (!response.ok) {
-          if (!cancelled) fail(body.error || "Reconnect request expired. Try again.");
+          if (lostResponse && await sessionIsActive()) {
+            if (!cancelled) finishReconnect(pending.returnTo);
+            return;
+          }
+          if (!cancelled) fail(body.error || "Reconnect request expired. Try again.", response.status);
           return;
         }
-        savePending(null);
-        clearIntentionalSignOut();
-        clearPwaReconnectAttempt();
-        clearReconnectAttemptLog();
-        window.location.replace(safeReturnTo(body.returnTo || pending.returnTo));
+        finishReconnect(body.returnTo || pending.returnTo);
       } catch {
         // Switching to Safari often suspends PWA network activity. Retry when
         // the app becomes visible again instead of surfacing a false failure.
+        lostResponse = true;
       } finally {
         redeemingRef.current = false;
       }
@@ -324,6 +471,21 @@ export default function PwaReconnectPage() {
     setScreen({ kind: "loading", message: "Starting a fresh reconnect." });
     setAttempt((count) => count + 1);
   }, [params]);
+
+  // Rate-limit countdown: tick while locked, then retry once on its own so the
+  // user isn't left tapping a button that can't work yet.
+  const lockedUntil = screen.kind === "error" ? screen.retryAt || 0 : 0;
+  useEffect(() => {
+    if (!lockedUntil) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    const retry = window.setTimeout(() => {
+      if (document.visibilityState === "visible") restart();
+    }, Math.max(0, lockedUntil - Date.now()) + 250);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(retry);
+    };
+  }, [lockedUntil, restart]);
 
   if (screen.kind === "pwa") {
     const browserPath = `/pwa-reconnect?approve=${encodeURIComponent(screen.pending.id)}#secret=${encodeURIComponent(screen.pending.secret)}`;
@@ -406,14 +568,56 @@ export default function PwaReconnectPage() {
         </ReconnectShell>
       );
     }
+    const remainingMs = screen.retryAt ? screen.retryAt - now : 0;
+    const locked = remainingMs > 0;
+    // Once retrying has failed twice, or can't be retried yet, signing in
+    // right here is the dependable way in, so it takes the primary slot.
+    const signInFirst = locked || failures >= FAILURES_BEFORE_SIGN_IN_PRIMARY;
+    const details = [
+      failures > 1 ? `Attempt ${failures}` : "",
+      screen.failedAt ? `failed at ${formatClock(screen.failedAt)}` : "",
+      screen.status ? `HTTP ${screen.status}` : screen.status === 0 ? "no response" : "",
+    ].filter(Boolean).join(" · ");
+    const restartButton = (
+      <button
+        type="button"
+        className={`${signInFirst ? "btn-ghost pwa-reconnect-secondary" : "btn-primary"} pressable`}
+        onClick={restart}
+        disabled={locked}
+      >
+        Restart reconnect
+      </button>
+    );
+    const signInLink = (
+      <a
+        href="/signin"
+        onClick={allowInAppSignIn}
+        className={signInFirst ? "btn-primary pressable" : undefined}
+      >
+        Sign in here instead
+      </a>
+    );
     return (
-      <ReconnectShell eyebrow="Reconnect stopped" title="Start a fresh reconnect.">
+      <ReconnectShell eyebrow="Reconnect stopped" title={signInFirst ? "Sign in on this phone." : "Start a fresh reconnect."}>
         <p role="alert">{screen.message}</p>
-        <button type="button" className="btn-primary pressable" onClick={restart}>
-          Restart reconnect
-        </button>
-        <p className="pwa-reconnect-alt">
-          <a href="/signin" onClick={allowInAppSignIn}>Sign in here instead</a>
+        {signInFirst ? (
+          <>
+            <p>
+              {locked
+                ? "This network has hit the reconnect limit for now. Signing in here doesn't use it."
+                : "The Safari reconnect keeps failing. Signing in here works without Safari."}
+            </p>
+            {signInLink}
+            {restartButton}
+          </>
+        ) : (
+          <>
+            {restartButton}
+            <p className="pwa-reconnect-alt">{signInLink}</p>
+          </>
+        )}
+        <p className="pwa-reconnect-status" role="status">
+          {locked ? `Reconnect unlocks in ${formatCountdown(remainingMs)} and retries on its own.` : details}
         </p>
       </ReconnectShell>
     );

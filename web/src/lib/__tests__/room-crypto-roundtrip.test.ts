@@ -44,7 +44,7 @@ describe("room-crypto: encrypt/decrypt round-trip", () => {
     expect(hasUnlockedRoomE2eeKey(ws)).toBe(true);
     const box = await encryptRoomJson(ws, "note", { hello: "world", n: 42 });
     expect(isRoomEncryptedBox(box)).toBe(true);
-    expect((box as Record<string, unknown>)[ROOM_E2EE_MARKER]).toBe(true);
+    expect((box as unknown as Record<string, unknown>)[ROOM_E2EE_MARKER]).toBe(true);
     expect(box.version).toBe(ROOM_E2EE_VERSION);
     expect(box.algorithm).toBe("AES-GCM");
     expect(typeof box.iv).toBe("string");

@@ -13256,6 +13256,13 @@ button.card:active,
   color: var(--cream-faint);
   font-size: 12px;
 }
+.pwa-reconnect-card .pwa-reconnect-secondary {
+  width: 100%;
+  margin-top: 10px;
+}
+.pwa-reconnect-card .pwa-reconnect-secondary:disabled {
+  opacity: 0.55;
+}
 .pwa-reconnect-card .pwa-reconnect-alt {
   margin: 18px 0 0;
   font-size: 13px;

@@ -110,8 +110,11 @@ async function parseJson(request) {
 }
 
 async function applyRateLimit(context, action) {
+  // Keyed per IP, and partners on one home network share it. Each installed
+  // app launch that finds no reusable handoff spends a start, so 20 was easy
+  // to exhaust between two phones and a few retries.
   const limits = {
-    start: { limit: 20, windowSeconds: 15 * 60 },
+    start: { limit: 60, windowSeconds: 15 * 60 },
     approve: { limit: 30, windowSeconds: 15 * 60 },
     redeem: { limit: 180, windowSeconds: 15 * 60 },
   };
