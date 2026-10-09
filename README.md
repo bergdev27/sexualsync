@@ -26,21 +26,26 @@ commercial or hosted-service use is reserved. See the [license](#license).
 
 ## What's inside
 
-- **Sexboard** — the home screen: active asks, what your partner has been up to,
-  overlaps, and anything waiting on you.
-- **Asks** — send a concrete request with acts, timing, and a filming preference.
-  Your partner can accept, counter, pass, park it, or answer later.
-- **Sext** — a private message thread for two. Images are encrypted in the browser
-  before they upload, and shared GIFs stay reveal-gated in the thread.
-- **Reveals** — Sex Quiz, Green Lights, The Pile, and Blind Reveal let both people
-  answer privately before anything is shown.
-- **Inspiration and Shelf** — save kinks, links, clips, and passages before they
-  turn into a plan.
-- **Limits** — hard nos, talk-first items, and soft limits, with ask-blocking when
-  a line would be crossed.
-- **Vault** — private media encrypted in the browser with a passphrase the server
-  never sees.
-- Notes, data export, account deletion, PWA install, and generic notifications.
+Five tabs: **Home**, **Play**, **Ask**, **Sext** and **Us**.
+
+- **Home** — what needs you, what you're waiting on, what you've planned, and
+  what your partner has been up to. The **mood light** sits on top: switch it
+  on and your partner only finds out if theirs is on too.
+- **Ask** — the raised + in the middle of the tab bar. Send a concrete request
+  with acts, timing and a filming preference. Your partner answers on one card
+  (yes, maybe, pass, or a counter), and when you both say yes either of you can
+  plan it for a time.
+- **Sext** — a private message thread for two. Images are encrypted in the
+  browser before they upload; messages written offline send when you're back.
+- **Play** — Sex Quiz, Green Lights, The Pile and Blind Reveal let both people
+  answer privately before anything is shown, plus Inspiration: kinks, links,
+  clips and passages saved on the Shelf before they turn into a plan.
+- **Us** — limits (hard nos, talk-first items, soft limits, with ask-blocking
+  when a line would be crossed), your acts library, health stats, private
+  notes, and the **Vault**: media encrypted in the browser with a passphrase
+  the server never sees. Settings (notification presets, Room Encryption,
+  account) open as a sheet.
+- Data export, account deletion, PWA install, and generic notifications.
 
 ## Privacy and security
 
@@ -69,11 +74,19 @@ Encryption for anything high-risk.
 
 ### Docker
 
+No clone needed. Grab the compose file and start the published image:
+
 ```bash
-git clone https://github.com/Aiml3ss/sexualsync.git
-cd sexualsync
-docker compose up --build
+mkdir sexualsync && cd sexualsync
+curl -fsSLO https://raw.githubusercontent.com/bergdev27/sexualsync/main/docker-compose.yml
+docker compose up -d
 ```
+
+Update later with `docker compose pull && docker compose up -d`. Images are
+published to `ghcr.io/bergdev27/sexualsync` for amd64 and arm64, tagged
+`latest` and per release (`SEXUALSYNC_VERSION=2.0.1 docker compose up -d`
+pins one). To build from source instead, clone the repo and run
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up --build`.
 
 Open http://localhost:8788.
 
