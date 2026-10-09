@@ -25,7 +25,8 @@ const ACTION_LABELS = {
     created: "Ask drafted",
     sent: "New Ask landed",
     reviewed: "Ask reviewed",
-    passed: "Ask passed",
+    said_yes: "Said yes",
+    passed: "Passed for now",
     maybe: "Ask got a maybe",
     counter_accepted: "Counter accepted",
     revoked: "Ask taken back",
@@ -35,7 +36,8 @@ const ACTION_LABELS = {
     completed: "Ask completed",
     expire: "Ask expired",
     planned: "Plan set",
-    unplanned: "Plan cleared",
+    unplanned: "Change of plans",
+    withdrawn: "Change of plans",
     updated: "Sexboard updated"
   },
   "fantasy-backlog": {
@@ -50,6 +52,9 @@ const ACTION_LABELS = {
     focused: "",
     revealed: "Opened a Shelf save",
     reacted: "Shelf reaction landed",
+    // Only fires when both partners saved the same thing; a lone private
+    // save never reaches the feed.
+    matched: "You both saved the same thing",
     updated: "Shelf updated",
     deleted: "Shelf item removed"
   },
@@ -80,10 +85,13 @@ const ACTION_LABELS = {
     archived: "Blind Reveal closed",
     promoted: "Saved to Inspiration"
   },
-  // Only the shared match is ever recorded — never one partner's on/off, which
-  // the double-blind mood light must not disclose.
+  // Only the shared match is ever recorded — never one partner's on/off or
+  // state, which the double-blind mood light must not disclose. One row per
+  // match kind, worded the same for both members (no actor, no "who's which").
   mood: {
-    match: "You're both horny"
+    match: "You're both horny",
+    match_mixed: "You're both up for it",
+    match_open: "You're both open to it"
   }
 };
 
@@ -115,15 +123,35 @@ function readKey(workspaceId) {
   return `read:${clean(workspaceId, 120)}`;
 }
 
+// A pass always reads warm (research rec #2): the default names no reason and
+// asks for none, and an optional reassurance the reviewer picked is said in
+// their place. Mirrors web/src/lib/pass-reassurance.ts passActivityText.
+const PASS_ACTIVITY_COPY = {
+  passed: (actor) => `${actor} passed for now. No reason needed`,
+  passed_still_want: (actor) => `Not tonight, but ${actor} still wants you`,
+  passed_love_asked: (actor) => `${actor} passed for now, and loved that you asked`,
+  passed_this_weekend: (actor) => `${actor} said ask again this weekend`,
+  passed_next_week: (actor) => `${actor} took a rain check for next week`
+};
+
+function isPassAction(action) {
+  return Object.prototype.hasOwnProperty.call(PASS_ACTIVITY_COPY, action);
+}
+
+function passLabel(action, actor) {
+  return (PASS_ACTIVITY_COPY[action] || PASS_ACTIVITY_COPY.passed)(actor);
+}
+
 function labelFor(resource, action, actorName = "") {
   if (action === "focused") {
     const actor = firstName(actorName);
     if (resource === "fantasy-backlog") return `This kink got ${actor} thinking dirty.`;
     if (resource === "shelf") return `${actor} came back for another taste.`;
   }
-  if (resource === "request-board" && (action === "passed" || action === "maybe")) {
+  if (resource === "request-board" && action === "said_yes") return `${firstName(actorName) || "Partner"} said yes`;
+  if (resource === "request-board" && (isPassAction(action) || action === "maybe")) {
     const actor = firstName(actorName);
-    return action === "passed" ? `${actor} passed` : `${actor} said maybe`;
+    return action === "maybe" ? `${actor} said maybe` : passLabel(action, actor);
   }
   return ACTION_LABELS[resource]?.[action] || `${RESOURCE_LABELS[resource] || "Activity"} updated`;
 }

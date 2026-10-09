@@ -22,6 +22,7 @@ import { actsKey } from "../approved-acts.js";
 import { ideasKey, graveyardKey } from "../fantasy-backlog.js";
 // Blind reveals already ship a raw, side-effect-free per-workspace+legacy reader.
 import { readRevealsForWorkspace } from "../blind-reveals.js";
+import { visibleShelfItems } from "../shelf.js";
 import { e2eeReencryptAvailable } from "./_reencrypt_gate.js";
 
 const LEGACY_WORKSPACE_ID = "legacy-couple";
@@ -234,7 +235,8 @@ export async function onRequest(context) {
     ...(Array.isArray(graveyard) ? graveyard : [])
   ], dataWorkspaceIds);
   const blindCounts = countBlindReveals(Array.isArray(blindReveals) ? blindReveals : [], dataWorkspaceIds);
-  const shelfCounts = countShelf(shelfItems);
+  // A partner's private saves are not this viewer's to count (or migrate).
+  const shelfCounts = countShelf(visibleShelfItems(shelfItems, identity.email));
   const surfaces = {
     requests: requestCounts.asks,
     replies: requestCounts.replies,

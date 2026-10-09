@@ -49,6 +49,8 @@ export interface Profile {
     theme?: "light" | "dark" | "system";
     defaultWorkspaceId?: string;
     shareAttentionSignals?: boolean;
+    promptSpice?: "mild" | "spicy" | "filthy";
+    explicitVoice?: "gentle" | "standard" | "filthy";
     [key: string]: unknown;
   };
 }
@@ -377,6 +379,7 @@ export interface HealthEventAct {
   emoji: string;
 }
 
+// A moment: what you enjoyed together and when. No per-person attribution.
 export interface HealthEvent {
   id: string;
   type: "ask" | "pile";
@@ -384,30 +387,22 @@ export interface HealthEvent {
   at: string;
   acts: string[];
   actSummaries?: HealthEventAct[];
-  actorName: string;
-  partnerName: string;
   sourceId: string;
-  sourceStatus: string;
   sourceHref: string;
 }
 
+// Moments and overlaps by default. Totals, rhythm and per-act counts are only
+// present when THIS person opted in (`showCounts`, their own private setting).
 export interface HealthResponse {
   workspaceId: string;
   range: HealthRange;
-  totals: HealthTotals;
-  rhythm: HealthRhythmBucket[];
-  topActs: HealthActCount[];
+  showCounts: boolean;
   events: HealthEvent[];
-  insights: {
-    lastEventAt: string;
-    daysSinceLast: number | null;
-    newActs: HealthActCount[];
-    requesterSplit: Array<{ name: string; count: number }>;
-    sourceSplit: {
-      ask: number;
-      pile: number;
-    };
-  };
+  keepsShowingUp: HealthEventAct[];
+  firsts: HealthEventAct[];
+  totals?: HealthTotals;
+  rhythm?: HealthRhythmBucket[];
+  topActs?: HealthActCount[];
 }
 
 // ---------- Request board ----------
@@ -437,6 +432,8 @@ export interface DecisionItem {
   actId: string;
 }
 
+export type PassNoteId = "still_want" | "love_asked" | "this_weekend" | "next_week";
+
 export interface RequestRecord {
   id: string;
   workspaceId: string;
@@ -464,9 +461,20 @@ export interface RequestRecord {
   acceptedFilmingCounter?: DecisionItem | null;
   counterAcceptedAt?: string;
   restoredAt?: string;
+  // Legacy stamp for withdrawing an agreed Ask (now `withdrawnAt`).
   passedAt?: string;
   passedByEmail?: string;
   passedByName?: string;
+  // "Change of plans": either partner withdrew an Ask you both said yes to.
+  // Never a pass or a cancellation, and never counted by Health.
+  withdrawnAt?: string;
+  withdrawnByEmail?: string;
+  withdrawnByName?: string;
+  // Optional reassurance on a plain pass (fixed ids, see lib/pass-reassurance)
+  // and, for a rain check, when the Ask comes back to the asker as a suggestion.
+  passNote?: PassNoteId;
+  rainCheckAt?: string;
+  rainCheckDismissedAt?: string;
   // Set when the reviewer defers ("Maybe") instead of giving a final answer.
   // The Ask stays repliable; these only record who deferred and when.
   maybeAt?: string;
@@ -483,8 +491,8 @@ export interface RequestRecord {
   sentAt?: string;
   reviewedAt?: string;
   completedAt?: string;
-  // Reminder tracking — shared by the automatic 4h/24h nudge and the manual
-  // "Remind" button. The UI uses lastReminderAt to show cooldown + "reminded Xm ago".
+  // The asker's one manual nudge for this Ask (there are no automatic
+  // reminders). lastReminderAt marks that it has been used.
   lastReminderAt?: string;
   reminderCount?: number;
   reminderDelivery?: string;
@@ -604,7 +612,12 @@ export type KinkReactionId =
   | "tell_me_more"
   | "me_too"
   | "give_me_a_minute"
+  | "save_for_later"
   | "not_for_me";
+
+// What the sharer means by a Kink: so a fantasy is never mistaken for a
+// request. Unset by default.
+export type KinkIntent = "fantasy" | "talk" | "try";
 
 export interface KinkReactionOption {
   id: KinkReactionId;
@@ -696,6 +709,7 @@ export interface KinkIdea {
   encryptedText?: RoomEncryptedBox;
   e2eeLocked?: boolean;
   tags: string[];
+  intent?: KinkIntent;
   addedByEmail: string;
   addedByName: string;
   notes: Record<string, string>;
@@ -727,7 +741,7 @@ export interface FantasyBacklogResponse {
 
 // ---------- Shelf ----------
 
-export type ShelfReactionId = "think" | "fire" | "drool" | "wrecked" | "pass";
+export type ShelfReactionId = "think" | "fire" | "drool" | "wrecked" | "later" | "pass";
 
 export interface ShelfReactionOption {
   id: ShelfReactionId;
@@ -757,7 +771,13 @@ export interface ShelfItem {
   addedByName: string;
   addedAt: string;
   reactions: Record<string, ShelfReactionId>;
+  // "private" saves are only ever returned to their saver until the partner
+  // saves the same thing (then `mutual` is true and both see it).
+  share?: ShelfShareMode;
+  mutual?: boolean;
 }
+
+export type ShelfShareMode = "send" | "together" | "private";
 
 export interface ShelfResponse {
   workspaceId?: string;
@@ -765,6 +785,7 @@ export interface ShelfResponse {
   item?: ShelfItem;
   items: ShelfItem[];
   duplicate?: boolean;
+  mutual?: boolean;
 }
 
 // ---------- Vault ----------
@@ -849,10 +870,15 @@ export interface PileView {
   targetMaxDropCount?: number;
   actPoolCount?: number;
   isRevealed: boolean;
+  /** Drops each partner needs before the reveal can open. */
+  minDropCount?: number;
   mine: string[];
   encryptedMine?: PileEncryptedLabel[];
   counts: Record<string, number>;
+  /** True once the partner has dropped at least the minimum ("they're in"). Never says 0 vs 1. */
   partnerHasDropped?: boolean;
+  /** Reveal time passed but someone is still under the minimum. Neutral: same for a partner's 0 or 1. */
+  waitingForDrops?: boolean;
   partnerLabels: Record<string, string[]> | null;
   encryptedPartnerLabels?: Record<string, PileEncryptedLabel[]>;
   overlap: string[] | null;
@@ -871,7 +897,8 @@ export interface PileSession {
   encryptedActs?: PileEncryptedLabel[];
   overlap?: string[];
   encryptedOverlap?: PileEncryptedLabel[];
-  quietDropCount: number;
+  /** Legacy sessions only. Never shown: no count of misses is kept. */
+  quietDropCount?: number;
   revealAt: string;
   startedAt: string;
   lockedAt: string;
@@ -893,8 +920,9 @@ export interface BlindRevealEntry {
   encryptedText?: RoomEncryptedBox;
   e2eeLocked?: boolean;
   promotedIdeaId: string;
-  createdAt: string;
-  updatedAt: string;
+  // Only present on MY entry: a partner entry never carries its timestamps.
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface BlindReveal {
@@ -948,18 +976,29 @@ export interface SexQuizResponse {
   requiredCount: number;
   mySubmitted: boolean;
   partnerSubmitted: boolean;
-  updatedAt: string;
-  revealedAt: string;
+  // Rounds: answers freeze per round; a change after a reveal starts the next
+  // one and both lock in again. Only my own submit time is ever sent.
+  round?: number;
+  mySubmittedAt?: string;
+  // Both are in but the re-reveal cooldown is still running.
+  revealOpensAt?: string;
+  minAnswers?: number;
   myRatings: Record<string, SexQuizRating>;
   myTopPicks: string[];
   matches: SexQuizMatch[];
   curiousTogether: Array<{ cardId: string }>;
-  syncScore: number | null;
   partnerTopPicks: string[];
   partnerName: string;
   fullRevealMine: boolean;
-  fullRevealPartner: boolean;
+  // True only when BOTH opted in (the full deck is open). The partner's own
+  // opt-in is never sent on its own.
+  fullRevealOpen?: boolean;
   partnerRatings: Record<string, SexQuizRating> | null;
+  // A new round waiting on me: how many of their answers changed since the
+  // last reveal (null when there's nothing to compare), and whether the change
+  // is small enough that "keep my answers" is off and I look over mine again.
+  partnerChangedCount?: number | null;
+  reanswerRequired?: boolean;
 }
 
 // ---------- Green Lights (comfort & agreements) ----------
@@ -978,22 +1017,41 @@ export interface GreenLightsResponse {
   requiredCount: number;
   mySubmitted: boolean;
   partnerSubmitted: boolean;
-  updatedAt: string;
-  revealedAt: string;
+  round?: number;
+  mySubmittedAt?: string;
+  revealOpensAt?: string;
+  minAnswers?: number;
   myAnswers: Record<string, GreenLightAnswer>;
   partnerName: string;
-  // Reveal-gated: the partner's full answer set. All the buckets (green lights,
-  // agreed limits, talk-about-these, cadence gaps, sync %) are computed
-  // client-side from myAnswers + partnerAnswers via the deck — the single
-  // source of truth for each card's answer scale.
+  // My own opt-in to compare where we differ, and whether it is open (both in).
+  compareMine?: boolean;
+  compareOpen?: boolean;
+  // Same as SexQuizResponse: their change count since the last reveal, and
+  // whether I have to look over my answers instead of one-tap keeping them.
+  partnerChangedCount?: number | null;
+  reanswerRequired?: boolean;
+  // Reveal-gated. Only the partner answers that EQUAL mine (agreements), unless
+  // the comparison is open, then the full set. The buckets are computed
+  // client-side from myAnswers + partnerAnswers via the deck.
   partnerAnswers: Record<string, GreenLightAnswer>;
 }
 
 // ---------- Mood light ----------
 
+/**
+ * Which kind of "on": horny, or not there yet but open to being seduced.
+ * Any mix of the two matches.
+ */
+export type MoodState = "horny" | "open";
+
+/** Kind of match: everyone horny, everyone open, or one of each. */
+export type MoodMatchKind = "horny" | "open" | "mixed";
+
 /** My own mood-light state. Never carries anything about the partner. */
 export interface MoodMine {
   on: boolean;
+  /** My state while on; null when off. Older servers omit it (read as horny). */
+  state?: MoodState | null;
   /** ISO time my current window started; null when off. */
   since: string | null;
   /** ISO time my light switches itself off; null when off. */
@@ -1008,6 +1066,10 @@ export interface MoodMatch {
   since: string;
   /** The earlier of the two end times: the match ends then unless extended. */
   until: string;
+  /** Older servers omit it (read as horny). */
+  kind?: MoodMatchKind;
+  /** The partner's state. Only ever sent inside a match. */
+  partnerState?: MoodState;
 }
 
 export interface MoodResponse {

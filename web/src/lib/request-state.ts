@@ -29,6 +29,18 @@ export function hasPendingRequestCounter(request: RequestRecord): boolean {
   return !request.counterAcceptedAt && requestCounterItems(request).length > 0;
 }
 
+/**
+ * An agreed Ask one of you took back ("Change of plans"). Final for that yes:
+ * it can't be restored, only asked again. Mirrors the server's
+ * isWithdrawnRequest (functions/api/request-board.js); `passedAt` on an archived
+ * Ask with a Yes is the legacy stamp for the same thing.
+ */
+export function isWithdrawnRequest(request: RequestRecord): boolean {
+  if (request.withdrawnAt) return true;
+  if (request.status !== "archived" || !request.passedAt) return false;
+  return (request.decisions || []).some((decision) => decision.decision === "Yes");
+}
+
 export function isApprovedSexActRequest(request: RequestRecord): boolean {
   if (hasPendingRequestCounter(request)) return false;
   const hasApprovedActDecision = (request.decisions || []).some((decision) => (
@@ -194,14 +206,17 @@ export function askStatusLabel(
       return { label: "Draft", tone: "neutral" };
     case "pending":
     case "sent":
-      return { label: mine ? `Waiting on ${partnerName}` : "Waiting on you", tone: "neutral" };
+      // The reviewer is never told an Ask is "waiting on" them (research rec #1:
+      // approach framing, no guilt). It's simply for them.
+      return { label: mine ? `Waiting on ${partnerName}` : "For you", tone: "neutral" };
     case "maybe":
       return { label: mine ? `${partnerName} said maybe` : "You said maybe", tone: "neutral" };
     case "reviewed":
     case "on_deck":
       if (hasPendingRequestCounter(request)) return { label: "Countered", tone: "neutral" };
       if (request.counterAcceptedAt || anyYes) return { label: "Yes", tone: "yes" };
-      if (allNo) return { label: "Passed", tone: "no" };
+      // A pass is "for now", never a cold verdict (research rec #2).
+      if (allNo) return { label: "Passed for now", tone: "neutral" };
       if (request.status === "on_deck") return { label: "Yes", tone: "yes" };
       return { label: mine ? `${partnerName} replied` : "You replied", tone: "neutral" };
     case "completed":
@@ -209,7 +224,9 @@ export function askStatusLabel(
     case "expired":
       return { label: "Expired", tone: "neutral" };
     case "archived":
-      if (request.passedAt || allNo) return { label: "Passed", tone: "no" };
+      // An agreed Ask either partner withdrew: no blame, not a pass or a cancel.
+      if (request.withdrawnAt || (request.passedAt && anyYes)) return { label: "Change of plans", tone: "neutral" };
+      if (request.passedAt || allNo) return { label: "Passed for now", tone: "neutral" };
       return { label: "Archived", tone: "neutral" };
     default:
       return { label: "Open", tone: "neutral" };

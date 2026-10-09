@@ -1,6 +1,6 @@
 import { getStore } from "./_kv.js";
 import { mutateKey } from "./_state.js";
-import { requestsKey } from "./request-board.js";
+import { passActivityAction, passReplyFields, requestsKey, reviewActivityAction } from "./request-board.js";
 import {
   LEGACY_WORKSPACE_ID,
   getAuthenticatedIdentity,
@@ -336,6 +336,8 @@ function publicRequest(request) {
     createdAt: request.createdAt || "",
     updatedAt: request.updatedAt || ""
   };
+  if (request.passNote) out.passNote = request.passNote;
+  if (request.rainCheckAt) out.rainCheckAt = request.rainCheckAt;
   if (encryptedPayload) out.encryptedPayload = encryptedPayload;
   if (encryptedReply) out.encryptedReply = encryptedReply;
   return out;
@@ -460,6 +462,8 @@ export async function onRequest(context) {
   if (roomE2eeRequired(access.workspace) && !encryptedReply) {
     return jsonResponse(400, { error: "Room Encryption requires encrypted replies." });
   }
+  // Same optional pass reassurance + rain check as the in-app reply.
+  const passFields = passReplyFields(payload, decisions, Date.parse(now));
   const reviewPatch = {
     status: "reviewed",
     decisions,
@@ -468,7 +472,8 @@ export async function onRequest(context) {
     reviewedAt: now,
     reviewedByEmail: identity.email,
     reviewedByName: actorName,
-    updatedAt: now
+    updatedAt: now,
+    ...passFields
   };
   if (encryptedReply) reviewPatch.encryptedReply = encryptedReply;
 
@@ -539,9 +544,10 @@ export async function onRequest(context) {
       entityId: token.id
     });
   }
+  const passedEverything = decisions.every((item) => item.decision === "No" && !item.counter && !item.counterActId);
   broadcastRoomEvent(context, token.workspaceId, {
     resource: "request-board",
-    action: "reviewed",
+    action: passedEverything ? passActivityAction(passFields.passNote) : reviewActivityAction(decisions),
     entityId: reviewed.id,
     actorEmail: identity.email,
     actorName,

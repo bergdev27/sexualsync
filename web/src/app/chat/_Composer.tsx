@@ -10,6 +10,7 @@
 
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { sendChatTyping } from "@/lib/api";
+import { mergeHandoffDraft } from "@/lib/chat-draft";
 
 export const MAX_INPUT = 4000;
 const TYPING_THROTTLE_MS = 3000;
@@ -39,6 +40,8 @@ export type ComposerHandle = {
   append: (text: string) => void;
   /** Put an unsent message back, after anything already typed. */
   restore: (text: string) => void;
+  /** Words handed in from elsewhere (a plan teaser, a Kink, a prompt): see mergeHandoffDraft. */
+  handoff: (text: string, isKnownPrefill: (text: string) => boolean) => void;
   /** Empty the field. */
   clear: () => void;
   /** Send what's typed, as the submit button would. */
@@ -115,6 +118,7 @@ const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(
     set: (text: string) => setDraft(text),
     append: (text: string) => setDraft((d) => (d + text).slice(0, MAX_INPUT)),
     restore: (text: string) => setDraft((d) => (d.trim() ? `${d}\n${text}` : text).slice(0, MAX_INPUT)),
+    handoff: (text: string, isKnownPrefill: (text: string) => boolean) => setDraft((d) => mergeHandoffDraft(d, text, isKnownPrefill).slice(0, MAX_INPUT)),
     clear: () => {
       setDraft("");
       // A sent message must not come back as a draft after a quick reload.

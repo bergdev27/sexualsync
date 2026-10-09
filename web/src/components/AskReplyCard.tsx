@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import AskCounterSheet from "@/components/AskCounterSheet";
 import { splitActLabel } from "@/lib/act-label";
 import { announce } from "@/lib/announce";
-import type { Act, Decision, Filming, Timing } from "@/lib/types";
+import { PASS_REASSURANCES, rainCheckTimeFor } from "@/lib/pass-reassurance";
+import type { Act, Decision, Filming, PassNoteId, Timing } from "@/lib/types";
 
 export type ReplyDecisionPayload = {
   label: string;
@@ -18,11 +19,21 @@ export type ReplyDecisionPayload = {
 
 export type QuickReply = "yes" | "maybe" | "pass";
 export type ReplyKind = QuickReply | "counter";
+// The optional reassurance a pass can carry (research rec #2). Choosing none
+// sends a plain pass, which the asker still reads as warm.
+export type PassExtra = { passNote?: PassNoteId; rainCheckAt?: string };
 
 // How long a one-tap answer waits before it is sent. Long enough to catch a
 // mis-tap, short enough that walking away doesn't leave it unsent (it also
 // flushes immediately if the screen is left or hidden).
 export const REPLY_UNDO_MS = 4000;
+// A pass holds a little longer so the optional reassurance chips can be read.
+// Tapping one sends at once; the pass itself never needs more than one tap.
+export const PASS_UNDO_MS = 8000;
+
+function undoWindowMs(kind: QuickReply) {
+  return kind === "pass" ? PASS_UNDO_MS : REPLY_UNDO_MS;
+}
 
 const QUICK_COPY: Record<QuickReply, { pending: string; sending: string }> = {
   yes: { pending: "Sending your yes", sending: "Sending your yes…" },
@@ -142,7 +153,7 @@ export default function AskReplyCard({
   allowMaybe: boolean;
   onCreateAct: (label: string) => Promise<Act>;
   // Resolve = sent (or queued); reject = show the error and stay on the card.
-  onSubmit: (decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) => Promise<void>;
+  onSubmit: (decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind, extra?: PassExtra) => Promise<void>;
   onMaybe?: () => Promise<void>;
 }) {
   const headingId = useId();
@@ -165,7 +176,7 @@ export default function AskReplyCard({
     headingRef.current?.focus({ preventScroll: true });
   }, []);
 
-  const commit = useCallback(async (kind: QuickReply) => {
+  const commit = useCallback(async (kind: QuickReply, extra?: PassExtra) => {
     setPending(null);
     setSending(kind);
     setError(null);
@@ -174,7 +185,7 @@ export default function AskReplyCard({
         if (!onMaybe) throw new Error("Maybe isn't available here.");
         await onMaybe();
       } else {
-        await onSubmit(allActDecisions(categories, kind === "yes" ? "Yes" : "No"), "", kind);
+        await onSubmit(allActDecisions(categories, kind === "yes" ? "Yes" : "No"), "", kind, kind === "pass" ? extra : undefined);
       }
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn't send your answer. Try again.");
@@ -194,12 +205,13 @@ export default function AskReplyCard({
   useEffect(() => {
     if (!pending) return;
     const startedAt = Date.now();
+    const windowMs = undoWindowMs(pending);
     const tick = window.setInterval(() => {
-      setRemaining(Math.max(1, Math.ceil((REPLY_UNDO_MS - (Date.now() - startedAt)) / 1000)));
+      setRemaining(Math.max(1, Math.ceil((windowMs - (Date.now() - startedAt)) / 1000)));
     }, 250);
     const fire = window.setTimeout(() => {
       commitRef.current(pending);
-    }, REPLY_UNDO_MS);
+    }, windowMs);
     return () => {
       window.clearInterval(tick);
       window.clearTimeout(fire);
@@ -242,7 +254,7 @@ export default function AskReplyCard({
     if (sending) return;
     setError(null);
     if (navigator.vibrate) navigator.vibrate(6);
-    setRemaining(Math.ceil(REPLY_UNDO_MS / 1000));
+    setRemaining(Math.ceil(undoWindowMs(kind) / 1000));
     setUndone(null);
     setPending(kind);
   }
@@ -260,7 +272,7 @@ export default function AskReplyCard({
 
   const busy = Boolean(sending);
   const statusText = pending
-    ? `${QUICK_COPY[pending].pending}. Undo within ${Math.ceil(REPLY_UNDO_MS / 1000)} seconds.`
+    ? `${QUICK_COPY[pending].pending}. Undo within ${Math.ceil(undoWindowMs(pending) / 1000)} seconds.`
     : sending && sending !== "counter"
       ? QUICK_COPY[sending].sending
       : "";
@@ -307,8 +319,31 @@ export default function AskReplyCard({
               <span className="reply-undo-count" aria-hidden="true">{remaining}s</span>
             </div>
             <div className="reply-undo-track" aria-hidden="true">
-              <div className="reply-undo-fill" style={{ animationDuration: `${REPLY_UNDO_MS}ms` }} />
+              <div className="reply-undo-fill" style={{ animationDuration: `${undoWindowMs(pending)}ms` }} />
             </div>
+            {pending === "pass" && (
+              <div className="reply-pass-notes" role="group" aria-labelledby={`${headingId}-pass-notes`}>
+                <p id={`${headingId}-pass-notes`} className="reply-pass-notes-label">
+                  Add a few warm words for {partnerName}? Optional.
+                </p>
+                <div className="reply-pass-chips">
+                  {PASS_REASSURANCES.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="reply-pass-chip pressable"
+                      data-testid={`ask-pass-note-${item.id}`}
+                      onClick={() => {
+                        const at = item.rainCheck ? rainCheckTimeFor(item.id) : null;
+                        commit("pass", { passNote: item.id, ...(at ? { rainCheckAt: at.toISOString() } : {}) });
+                      }}
+                    >
+                      {item.chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="reply-undo-actions">
               <button
                 ref={undoButtonRef}

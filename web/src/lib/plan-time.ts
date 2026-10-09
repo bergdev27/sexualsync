@@ -86,6 +86,43 @@ export function planPhrase(date: Date, now: Date = new Date()): string {
   return `${lead}, ${planTimeLabel(date)}`;
 }
 
+/**
+ * The belief line shown wherever a plan is made. Planned sex was as satisfying
+ * as spontaneous sex in a 21-day diary study of 121 couples, and participants
+ * said planning built anticipation (Kovacevic, Muise et al. 2023); reading a
+ * short summary of that research led to more sex and higher desire over two
+ * weeks in a randomized experiment with parents of young children (Kovacevic
+ * et al. 2025). One sentence, never a quota or a reminder.
+ */
+export const PLAN_BELIEF_LINE = "Couples who plan sex enjoy it as much as the spontaneous kind, and the waiting is half the fun.";
+
+/**
+ * Warm countdown for a planned time: "In 40 minutes", "In 3 hours",
+ * "In 2 days", "Any minute now". Rounded, never to-the-second.
+ */
+export function planCountdown(date: Date, now: Date = new Date()): string {
+  const minutes = Math.round((date.getTime() - now.getTime()) / 60_000);
+  if (minutes < 0) return "It’s time";
+  if (minutes <= 5) return "Any minute now";
+  if (minutes < 55) return `In ${minutes} minutes`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return hours === 1 ? "In an hour" : `In ${hours} hours`;
+  const days = dayDiff(date, now);
+  return days <= 1 ? "Tomorrow" : `In ${days} days`;
+}
+
+/**
+ * Opening words for a teaser sext before a plan: the composer is prefilled
+ * with this (never sent for you). Partner-directed, so the fantasy is about
+ * them: "Tonight I'm going to ", "Saturday I'm going to ".
+ */
+export function planTeaserDraft(date: Date, now: Date = new Date()): string {
+  const day = planDayLabel(date, now);
+  if (day === "Today") return "Later I'm going to ";
+  if (dayDiff(date, now) >= 7) return "When it's time, I'm going to ";
+  return `${day} I'm going to `;
+}
+
 /** Which quick slot (if any) a stored plan corresponds to, for re-opening the picker. */
 export function slotForPlan(date: Date | null, now: Date = new Date()): PlanSlot | null {
   if (!date) return null;
@@ -113,4 +150,9 @@ export function isPlannableTime(date: Date | null, now: Date = new Date()): date
   if (!date) return false;
   const ms = date.getTime();
   return ms >= now.getTime() - 5 * 60 * 1000 && ms <= now.getTime() + PLAN_MAX_AHEAD_DAYS * 86_400_000;
+}
+
+/** True when `text` is only a plan teaser stem (what planTeaserDraft starts Sext with), nothing typed after it. */
+export function isPlanTeaserStem(text: string): boolean {
+  return /^(?:Later|When it's time,|Tonight|Today|Tomorrow|[A-Z][a-z]+day) I'm going to\s*$/.test(String(text || "").trimStart());
 }

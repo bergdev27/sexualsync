@@ -14,6 +14,7 @@
 import { enqueueWrite, generateIdempotencyKey } from "./offline-queue";
 import { encryptChatImage, decryptChatImage } from "./chat-media-crypto";
 import { invalidateResource } from "./resource-cache";
+import { quietHoursPayload } from "./quiet-hours";
 
 const PROFILE_STALE_EVENT = "ss:profile-stale";
 function dispatchProfileStale(): void {
@@ -43,6 +44,7 @@ import type {
   GreenLightsResponse,
   GreenLightAnswer,
   MoodResponse,
+  MoodState,
   ChatMessage,
   ChatMedia,
   ChatThreadResponse,
@@ -53,6 +55,7 @@ import type {
   PublicStatsResponse,
   RequestBoardResponse,
   RequestRecord,
+  PassNoteId,
   ReviewTokenResolveResponse,
   ReviewTokenSubmitResponse,
   RoomEncryptedBox,
@@ -68,6 +71,8 @@ import type {
   HealthResponse,
   ShelfReactionId,
   ShelfResponse,
+  ShelfShareMode,
+  KinkIntent,
   SexboardResponse,
   VaultReactionId,
   VaultResponse,
@@ -600,6 +605,9 @@ export function getProfile(signal?: AbortSignal): Promise<ProfileResponse> {
 
 export async function updateProfileSettings(payload: {
   shareAttentionSignals?: boolean;
+  healthShowCounts?: boolean;
+  promptSpice?: "mild" | "spicy" | "filthy";
+  explicitVoice?: "gentle" | "standard" | "filthy";
 }): Promise<ProfileResponse> {
   const next = await request<ProfileResponse>("/api/profile", {
     method: "POST",
@@ -882,10 +890,13 @@ export async function createRequest(payload: CreateRequestPayload): Promise<{
   }, undefined, { queueable: true, intent: "ask:create" }));
 }
 
+// "withdraw" is "Change of plans" on an agreed Ask (never recorded as a pass or
+// a cancel); "dismiss_rain_check" sets aside a rain-check suggestion on Home.
+// "pass" is the legacy name for "withdraw".
 export async function updateRequestAction(payload: {
   workspaceId: string;
   id: string;
-  action: "revoke" | "accept_counter" | "archive" | "pass" | "restore" | "on_deck" | "completed" | "expire";
+  action: "revoke" | "accept_counter" | "archive" | "pass" | "withdraw" | "dismiss_rain_check" | "restore" | "on_deck" | "completed" | "expire";
 }): Promise<{ request?: RequestRecord; revoked?: boolean } & RequestBoardResponse> {
   return decryptRequestBoardResponse(await request<{ request?: RequestRecord; revoked?: boolean } & RequestBoardResponse>("/api/request-board", {
     method: "PATCH",
@@ -906,9 +917,9 @@ export async function planAsk(payload: {
   }));
 }
 
-// Manual "Remind" — nudge your partner to come look at a pending Ask you sent.
-// Sends a push (email fallback) and stamps lastReminderAt. A too-soon tap throws
-// (server enforces a short cooldown); the UI also disables the button meanwhile.
+// Manual nudge: ONE per Ask, ever, a few hours after sending and only while it
+// has no first answer. Sends a calm push (email fallback) and stamps
+// lastReminderAt. A second or too-early tap comes back as a gentle 409.
 export async function remindAsk(payload: {
   workspaceId: string;
   id: string;
@@ -945,6 +956,10 @@ export async function replyToRequest(payload: {
     counterActId?: string;
   }>;
   note?: string;
+  // Optional reassurance on a plain pass, from a fixed list of ids (never free
+  // text, so it needs no Room Encryption), plus a rain check's resurface time.
+  passNote?: PassNoteId;
+  rainCheckAt?: string;
 }): Promise<{ request?: RequestRecord; emailResult?: unknown } & RequestBoardResponse> {
   const body = await prepareReplyPayload(payload);
   return decryptRequestBoardResponse(await request<{ request?: RequestRecord; emailResult?: unknown } & RequestBoardResponse>("/api/request-board", {
@@ -1241,6 +1256,8 @@ export async function submitReviewToken(payload: {
     counterActId?: string;
   }>;
   note?: string;
+  passNote?: PassNoteId;
+  rainCheckAt?: string;
 }): Promise<ReviewTokenSubmitResponse> {
   const body = await prepareReviewTokenSubmitPayload(payload);
   return decryptReviewTokenSubmitResponse(await request<ReviewTokenSubmitResponse>("/api/review-token", {
@@ -1339,9 +1356,11 @@ export function savePushSubscription(payload: {
   subscription: PushSubscriptionJSON;
   preferences: Record<string, boolean>;
 }): Promise<{ ok: boolean }> {
+  // Every save carries this device's quiet hours (or null when off), so a
+  // background re-save can never silently drop them on the server.
   return request("/api/push-subscribe", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, quietHours: quietHoursPayload() }),
   });
 }
 
@@ -1375,6 +1394,7 @@ export async function createKink(payload: {
   workspaceId: string;
   text: string;
   tags?: string[];
+  intent?: KinkIntent;
 }): Promise<FantasyBacklogResponse> {
   const body = await prepareKinkTextPayload(payload);
   return afterKinkMutation(decryptFantasyBacklogResponse(await request<FantasyBacklogResponse>("/api/fantasy-backlog", {
@@ -1389,6 +1409,8 @@ export async function updateKinkText(payload: {
   workspaceId: string;
   id: string;
   text: string;
+  // Sent with every edit so an encrypted room re-seals the label with the text.
+  intent?: KinkIntent | "";
 }): Promise<FantasyBacklogResponse> {
   const body = await prepareKinkTextPayload(payload);
   return decryptFantasyBacklogResponse(await request<FantasyBacklogResponse>("/api/fantasy-backlog", {
@@ -1508,6 +1530,7 @@ export function saveShelfItem(payload: {
   workspaceId: string;
   content: string;
   title?: string;
+  mode?: ShelfShareMode;
 }): Promise<ShelfResponse> {
   return prepareShelfItemPayload(payload)
     .then((body) => request<ShelfResponse>("/api/shelf", {
@@ -1929,6 +1952,29 @@ export function retakeGreenLights(workspaceId: string): Promise<GreenLightsRespo
   });
 }
 
+// A new round started after a reveal: keep my saved answers and lock in again.
+export function confirmSexQuiz(workspaceId: string): Promise<SexQuizResponse> {
+  return request<SexQuizResponse>("/api/sex-quiz", {
+    method: "POST",
+    body: JSON.stringify({ workspaceId, action: "confirm" }),
+  });
+}
+
+export function confirmGreenLights(workspaceId: string): Promise<GreenLightsResponse> {
+  return request<GreenLightsResponse>("/api/green-lights", {
+    method: "POST",
+    body: JSON.stringify({ workspaceId, action: "confirm" }),
+  });
+}
+
+// Opt in (or out) of comparing where we differ. Opens only when both opt in.
+export function setGreenLightsCompare(payload: { workspaceId: string; on: boolean }): Promise<GreenLightsResponse> {
+  return request<GreenLightsResponse>("/api/green-lights", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, action: "compare" }),
+  });
+}
+
 // ---------- Mood light (double-blind) ----------
 
 /**
@@ -1956,12 +2002,12 @@ export function getMood(workspaceId: string): Promise<MoodResponse> {
  * server rejects a past time, clamps to at most 24h from now and at least 15
  * minutes. Not offline-queued: a mood signal replayed later would be stale.
  */
-export async function setMood(workspaceId: string, until: Date | string): Promise<MoodResponse> {
+export async function setMood(workspaceId: string, until: Date | string, state: MoodState = "horny"): Promise<MoodResponse> {
   const untilIso = typeof until === "string" ? until : until.toISOString();
   try {
     return await request<MoodResponse>("/api/mood", {
       method: "POST",
-      body: JSON.stringify({ workspaceId, action: "on", until: untilIso }),
+      body: JSON.stringify({ workspaceId, action: "on", until: untilIso, state }),
     });
   } catch (error) {
     if (error instanceof ApiFailureError && error.status === 429) {
@@ -1973,6 +2019,17 @@ export async function setMood(workspaceId: string, until: Date | string): Promis
     }
     throw error;
   }
+}
+
+/**
+ * Switch between horny and open while my light is on, keeping its window.
+ * An update, not a new switch-on: never forms or ends a match. Not queued.
+ */
+export function setMoodState(workspaceId: string, state: MoodState): Promise<MoodResponse> {
+  return request<MoodResponse>("/api/mood", {
+    method: "POST",
+    body: JSON.stringify({ workspaceId, action: "state", state }),
+  });
 }
 
 /** Switch my mood light off. Ends any match for both partners. */

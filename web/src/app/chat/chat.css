@@ -217,18 +217,59 @@
   color: var(--cream);
 }
 
-.chat-seen {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: var(--fs-12);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: rgb(var(--accent-rgb) / 0.92);
-  padding: 1px 6px 0;
+/* Warm one-tap replies under the partner's newest message. No "Seen"
+   receipts anywhere: a sext never puts anyone on the clock. */
+.chat-quick-reacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 
-.chat-seen svg { opacity: 0.9; }
+.chat-quick-react {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--cream-a08);
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--cream);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.chat-quick-react:focus-visible,
+.chat-prompt-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Partner-directed prompt chips above the composer (optional, toggled). */
+.chat-prompt-row {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 2px 8px;
+  scrollbar-width: none;
+}
+
+.chat-prompt-row::-webkit-scrollbar { display: none; }
+
+.chat-prompt-chip {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--accent-fog);
+  border-radius: var(--r-pill);
+  background: var(--accent-mist);
+  color: var(--cream);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  white-space: nowrap;
+}
 
 .chat-react-btn {
   font-size: var(--fs-20);

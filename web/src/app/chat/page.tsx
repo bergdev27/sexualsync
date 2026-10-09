@@ -46,6 +46,9 @@ import { LIVE_ROOM_EVENT, LIVE_ROOM_PRESENCE, useLiveRoomReload, type LiveRoomEv
 import { partnerOf } from "@/lib/workspace";
 import { redgifsIdFromUrl } from "@/lib/shelf-source";
 import type { AuthInfo, ChatMedia, ChatMessage, ChatReaction, ProfileResponse, Workspace } from "@/lib/types";
+import { sextPromptsFor, useDesireSettings, voiced } from "@/lib/desire-voice";
+import { consumeChatDraft } from "@/lib/chat-draft";
+import { isPlanTeaserStem } from "@/lib/plan-time";
 import "./chat.css";
 
 // Same vocabulary as Kink reactions (functions/api/fantasy-backlog.js
@@ -53,11 +56,19 @@ import "./chat.css";
 // an iOS-style picker on a long-press of a message.
 const REACTION_CHOICES: ReadonlyArray<{ glyph: string; label: string }> = [
   { glyph: "🤔", label: "Curious" },
-  { glyph: "🔥", label: "Hell yeah" },
+  { glyph: "🔥", label: "Into it" },
   { glyph: "👀", label: "Tell me more" },
   { glyph: "🤤", label: "Me too" },
+  { glyph: "🔖", label: "Saving this for later" },
   { glyph: "💭", label: "Give me a minute" },
   { glyph: "🌷", label: "Not for me" },
+];
+// Warm one-tap answers under the newest message from your partner, so a sext
+// can land without anyone owing a sext back.
+const QUICK_REACTIONS: ReadonlyArray<{ glyph: string; label: string }> = [
+  { glyph: "🔥", label: "Into it" },
+  { glyph: "👀", label: "Tell me more" },
+  { glyph: "🔖", label: "Saving this for later" },
 ];
 // Tap-to-insert palette for the composer — the filthier end of the keyboard,
 // one tap away instead of buried in the system picker.
@@ -278,12 +289,21 @@ function ChatRoom({
 
   const messages = state.messages;
   const readCursors = state.readCursors;
-  const readAt = state.readAt || {};
   // Order-independent so an optimistic (pending) message — appended out of band —
   // doesn't depend on array position. The server clamps the read cursor anyway.
+  // Read cursors only drive your own unread badge: there is no "Seen" receipt,
+  // so nobody is on the clock to answer.
   const latestSeq = messages.reduce((max, m) => Math.max(max, m.seq), 0);
-  const partnerReadSeq = Number(readCursors[partnerEmail]) || 0;
-  const partnerReadAt = readAt[partnerEmail] || "";
+  const { spice, voice } = useDesireSettings();
+  const sextPrompts = useMemo(() => sextPromptsFor(spice), [spice]);
+  // A draft that is only app copy (a plan teaser stem or a prompt chip) is
+  // replaced by the next handoff instead of stacking up.
+  const isKnownPrefill = useCallback((text: string) => (
+    isPlanTeaserStem(text) || sextPrompts.some((prompt) => prompt.trim() === text.trim())
+  ), [sextPrompts]);
+  const isKnownPrefillRef = useRef(isKnownPrefill);
+  useEffect(() => { isKnownPrefillRef.current = isKnownPrefill; }, [isKnownPrefill]);
+  const [showPrompts, setShowPrompts] = useState(() => state.messages.length === 0);
 
   // The server supports `after` (seq-filtered incremental fetch), but only new
   // messages get fresh seqs — reactions/edits/unsends mutate a message IN
@@ -298,6 +318,23 @@ function ChatRoom({
   const needsFullFetchRef = useRef(false);
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Arriving with something to say prefills the composer: `?draft=` carries
+  // fixed app copy (the plan teaser, "Tonight I'm going to "), and
+  // `?compose=1` picks up a one-shot handoff of the person's own words (Kink
+  // detail's "Talk first"; lib/chat-draft keeps those out of the URL). It only
+  // ever fills the field, never sends, goes after anything already typed, and
+  // the marker is dropped from the URL so a reload doesn't add it twice.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const fromHandoff = url.searchParams.get("compose") === "1";
+    if (!fromHandoff && !url.searchParams.has("draft")) return;
+    const draft = (fromHandoff ? consumeChatDraft() : url.searchParams.get("draft") || "").slice(0, 1000);
+    url.searchParams.delete("draft");
+    url.searchParams.delete("compose");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    if (draft.trim()) composerRef.current?.handoff(draft, isKnownPrefillRef.current);
+  }, []);
 
   useEffect(() => {
     function onChatEvent(event: Event) {
@@ -747,7 +784,13 @@ function ChatRoom({
     [sortedMessages, visibleCount, hiddenCount],
   );
   const messagesById = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages]);
-  const lastMineSeq = useMemo(() => messages.filter((m) => m.email.toLowerCase() === myEmail && !m.deletedAt).reduce((max, m) => Math.max(max, m.seq), 0), [messages, myEmail]);
+  // The newest message from your partner gets the quick warm replies, until
+  // you've reacted to it in any way.
+  const quickReactId = useMemo(() => {
+    const latest = sortedMessages.slice().reverse().find((m) => !m.pending && m.email.toLowerCase() !== myEmail);
+    if (!latest || latest.deletedAt) return "";
+    return (latest.reactions || []).some((r) => (r.by || "").toLowerCase() === myEmail) ? "" : latest.id;
+  }, [sortedMessages, myEmail]);
 
   return (
     <AppShell>
@@ -783,7 +826,11 @@ function ChatRoom({
                   <path d="M14 30 C 14 14, 40 14, 50 30 C 60 46, 86 46, 86 30 C 86 14, 60 14, 50 30 C 40 46, 14 46, 14 30 Z" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
                 </svg>
               </span>
-              <p className="chat-empty">Just the two of you here. Say something only {partnerName} gets to read.</p>
+              <p className="chat-empty">{voiced(voice, {
+                gentle: `Just the two of you here. Tell ${partnerName} something you love about them.`,
+                standard: `Just the two of you here. Say something only ${partnerName} gets to read.`,
+                filthy: `Just the two of you here. Tell ${partnerName} exactly what you want done to you.`,
+              })}</p>
             </div>
           ) : (
             grouped.slice().reverse().map((group) => (
@@ -799,7 +846,6 @@ function ChatRoom({
                   // and only the last shows the timestamp.
                   const firstInRun = !prev || prev.email.toLowerCase() !== sender;
                   const lastInRun = !next || next.email.toLowerCase() !== sender;
-                  const seen = mine && message.seq === lastMineSeq && partnerReadSeq >= message.seq;
                   const original = message.replyToId ? messagesById.get(message.replyToId) : undefined;
                   const quote = message.replyToId
                     ? {
@@ -816,8 +862,7 @@ function ChatRoom({
                       mine={mine}
                       firstInRun={firstInRun}
                       lastInRun={lastInRun}
-                      seen={seen}
-                      seenAt={seen ? partnerReadAt : ""}
+                      quickReact={message.id === quickReactId}
                       active={activeId === message.id}
                       reacting={reactingId === message.id}
                       quote={quote}
@@ -938,6 +983,20 @@ function ChatRoom({
             </div>
           </div>
         )}
+        {showPrompts && !editingId && sextPrompts.length > 0 && (
+          <div className="chat-prompt-row" role="group" aria-label="Sext prompts">
+            {sextPrompts.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                className="chat-prompt-chip pressable"
+                onClick={() => { composerRef.current?.handoff(prompt, isKnownPrefill); setShowPrompts(false); }}
+              >
+                {prompt.trim()}
+              </button>
+            ))}
+          </div>
+        )}
         <form
           className="chat-composer"
           onSubmit={(e) => { e.preventDefault(); composerRef.current?.submit(); }}
@@ -982,10 +1041,22 @@ function ChatRoom({
               </button>
               <button
                 type="button"
+                className={`chat-attach pressable ${showPrompts ? "is-on" : ""}`}
+                aria-label="Prompts"
+                aria-pressed={showPrompts}
+                onClick={() => { setShowPrompts((v) => !v); setShowEmoji(false); setShowGifSearch(false); }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 18.5V6.5A2.5 2.5 0 0 1 7.5 4h9A2.5 2.5 0 0 1 19 6.5v6a2.5 2.5 0 0 1-2.5 2.5H9.2L5 18.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                  <path d="M9 9.5h6M9 12h3.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
                 className={`chat-attach pressable ${showEmoji ? "is-on" : ""}`}
                 aria-label="Emojis"
                 aria-pressed={showEmoji}
-                onClick={() => { setShowEmoji((v) => !v); setShowGifSearch(false); }}
+                onClick={() => { setShowEmoji((v) => !v); setShowGifSearch(false); setShowPrompts(false); }}
               >
                 😈
               </button>
@@ -1032,8 +1103,7 @@ function ChatBubble({
   mine,
   firstInRun,
   lastInRun,
-  seen,
-  seenAt,
+  quickReact,
   active,
   reacting,
   quote,
@@ -1052,8 +1122,7 @@ function ChatBubble({
   mine: boolean;
   firstInRun: boolean;
   lastInRun: boolean;
-  seen: boolean;
-  seenAt: string;
+  quickReact: boolean;
   active: boolean;
   reacting: boolean;
   quote: { targetId: string; author: string; preview: string } | null;
@@ -1310,11 +1379,16 @@ function ChatBubble({
             {timeLabel(message.at)}{message.editedAt ? " · edited" : ""}
           </span>
         ) : null}
-        {seen && (
-          <span className="chat-seen">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12.5l5 5 11-12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            Seen{seenAt ? ` ${timeLabel(seenAt)}` : ""}
-          </span>
+        {/* No "Seen" read receipt: it turns a sext into a reply owed (research
+            recs #4 and #8; Currin, Hubach et al. on non-reciprocated sexts). */}
+        {quickReact && !mine && !message.deletedAt && (
+          <div className="chat-quick-reacts" role="group" aria-label="Quick replies">
+            {QUICK_REACTIONS.map(({ glyph, label }) => (
+              <button key={glyph} type="button" className="chat-quick-react pressable" onClick={() => onReact(glyph)}>
+                <span aria-hidden="true">{glyph}</span> {label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -1338,8 +1412,7 @@ const ChatBubbleMemo = memo(ChatBubble, (prev, next) => {
     && prev.mine === next.mine
     && prev.firstInRun === next.firstInRun
     && prev.lastInRun === next.lastInRun
-    && prev.seen === next.seen
-    && prev.seenAt === next.seenAt
+    && prev.quickReact === next.quickReact
     && prev.active === next.active
     && prev.reacting === next.reacting;
 });

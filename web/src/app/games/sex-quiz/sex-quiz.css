@@ -107,13 +107,6 @@
   line-height: 1;
 }
 
-.rg-reveal-title {
-  margin-top: 2px;
-  color: var(--cream);
-  font-size: var(--fs-24);
-  font-weight: 600;
-}
-
 .rg-edge {
   display: flex;
   flex-direction: column;
@@ -125,4 +118,31 @@
   max-width: 32ch;
   font-size: var(--fs-12);
   text-align: center;
+}
+
+/* What lights them up: a closed-by-default disclosure, never a list to clear. */
+.lights-them-up-toggle {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cream);
+  cursor: pointer;
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  font-weight: 600;
+  text-align: left;
+}
+
+.lights-them-up-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 6px;
 }

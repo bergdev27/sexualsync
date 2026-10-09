@@ -4,11 +4,13 @@
  * - "off":   both strokes faint.
  * - "mine":  your stroke lit, the other stays a ghost. It never changes with
  *            the partner's state, so the mark can't leak it.
+ * - "open":  like "mine", but your stroke is drawn as a lit dotted line: on,
+ *            not there yet, open to being seduced.
  * - "both":  both strokes lit and interlaced (the match).
  *
  * Purely decorative; the surrounding copy carries the meaning.
  */
-export type MoodRibbonState = "off" | "mine" | "both";
+export type MoodRibbonState = "off" | "mine" | "open" | "both";
 
 export default function MoodRibbonMark({
   state = "both",

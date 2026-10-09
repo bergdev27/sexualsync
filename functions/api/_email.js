@@ -171,11 +171,11 @@ export async function sendRequestReminderEmail(env, { to, fromName, toName, revi
   return sendEmail(env, {
     to,
     subject: GENERIC_SUBJECT,
-    title: "An ask is still waiting",
-    intro: `${fromName || "Your partner"} is waiting on your answer in ${workspaceDisplayName || APP_NAME}.`,
+    title: "Your partner is thinking about you",
+    intro: `${fromName || "Your partner"} sent a little nudge about their ask in ${workspaceDisplayName || APP_NAME}.`,
     body: [
-      "Open the private review link below when you have a minute.",
-      `Hi ${toName || ""}, a clean answer is enough: yes, maybe, talk first, counter, or no.`
+      "Open the private review link below whenever it suits you. There's no rush.",
+      `Hi ${toName || ""}, any answer is a good one: yes, maybe, a counter, or a pass with no reason needed.`
     ],
     ctaLabel: "Answer the ask",
     ctaUrl: reviewUrl,

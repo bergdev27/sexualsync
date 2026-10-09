@@ -1,5 +1,18 @@
 "use client";
 
+/**
+ * Health — what you've enjoyed together, not how much.
+ *
+ * The default view is moments and overlaps: recent approved Asks and Pile
+ * overlaps, the acts that keep coming back, and firsts. No "days since", no
+ * streaks, no who-asked-more, no targets. Counts and the rhythm chart are a
+ * private, per-person opt-in (off by default, stored on your own profile and
+ * never shown to your partner); the server only sends them to someone who
+ * turned them on. Research: instructed frequency lowered wanting
+ * (Loewenstein et al. 2015) and visible benchmarks create a "should"
+ * (Muise, Schimmack & Impett 2016).
+ */
+
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
@@ -9,6 +22,7 @@ import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
   getHealthDashboard,
+  updateProfileSettings,
 } from "@/lib/api";
 import { getProfileCached } from "@/lib/profile-cache";
 import type {
@@ -36,6 +50,7 @@ type LoadState =
 export default function HealthPage() {
   const [range, setRange] = useState<HealthRangeId>("all");
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +84,12 @@ export default function HealthPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [range]);
+  }, [range, reloadKey]);
+
+  async function setShowCounts(on: boolean) {
+    await updateProfileSettings({ healthShowCounts: on });
+    setReloadKey((value) => value + 1);
+  }
 
   return (
     <AppShell>
@@ -77,12 +97,13 @@ export default function HealthPage() {
         back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Health"
-        subtitle="Approved Asks and Pile overlaps count as sex."
+        subtitle="What you've enjoyed together."
       />
       <Body
         state={state}
         range={range}
         onRange={setRange}
+        onShowCounts={setShowCounts}
       />
     </AppShell>
   );
@@ -92,10 +113,12 @@ function Body({
   state,
   range,
   onRange,
+  onShowCounts,
 }: {
   state: LoadState;
   range: HealthRangeId;
   onRange: (range: HealthRangeId) => void;
+  onShowCounts: (on: boolean) => Promise<void>;
 }) {
   if (state.kind === "loading") return <SkeletonList count={4} />;
   if (state.kind === "unauthorized") {
@@ -120,14 +143,21 @@ function Body({
     );
   }
 
+  const health = state.health;
   return (
     <div className="health-stage">
       <RangePicker value={range} onChange={onRange} />
-      <HealthSummary health={state.health} />
-      <RhythmCard health={state.health} />
-      <TopActs health={state.health} />
-      <Balance health={state.health} />
-      <SourceHistory events={state.health.events} />
+      <Moments events={health.events} />
+      <ActChips title="Keeps coming back" label="Acts that keep coming back" acts={health.keepsShowingUp} />
+      <ActChips title="Firsts" label="First times" acts={health.firsts} prefix="First time: " />
+      {health.showCounts && (
+        <>
+          <HealthSummary health={health} />
+          <RhythmCard health={health} />
+          <TopActs health={health} />
+        </>
+      )}
+      <CountsSetting on={health.showCounts} onChange={onShowCounts} />
     </div>
   );
 }
@@ -164,12 +194,13 @@ function RangePicker({
 }
 
 function HealthSummary({ health }: { health: HealthResponse }) {
-  const { totals } = health;
+  const totals = health.totals;
+  if (!totals) return null;
   return (
     <section className="health-summary" aria-label="Health summary">
       <div className="health-summary-head">
         <p className="eyebrow">{health.range.label}</p>
-        <span className="health-rule-pill">approved = counted</span>
+        <span className="health-rule-pill">only you see this</span>
       </div>
       <div className="health-hero-stat">
         <RollingNumber value={totals.sexEvents} className="health-hero-num" />
@@ -201,7 +232,7 @@ function RhythmCard({ health }: { health: HealthResponse }) {
     <section className="health-section" aria-label="Rhythm">
       <div className="health-section-head">
         <h2>Rhythm</h2>
-        <span>{lastEventLabel(health.insights.daysSinceLast)}</span>
+        <span>by day</span>
       </div>
       <div className="health-card health-rhythm-card">
         <div className="health-bars" aria-hidden="true">
@@ -217,7 +248,7 @@ function RhythmCard({ health }: { health: HealthResponse }) {
           })}
         </div>
         <p>
-          Same-night approved Asks and Pile overlaps stay separate in the total, then group by day here.
+          Approved Asks and Pile overlaps, grouped by day. A picture, not a target.
         </p>
       </div>
     </section>
@@ -225,16 +256,17 @@ function RhythmCard({ health }: { health: HealthResponse }) {
 }
 
 function TopActs({ health }: { health: HealthResponse }) {
-  if (!health.topActs.length) return null;
-  const max = Math.max(1, ...health.topActs.map((act) => act.count));
+  const topActs = health.topActs || [];
+  if (!topActs.length) return null;
+  const max = Math.max(1, ...topActs.map((act) => act.count));
   return (
     <section className="health-section" aria-label="Act counts">
       <div className="health-section-head">
         <h2>Acts showing up</h2>
-        <span>top {Math.min(5, health.topActs.length)}</span>
+        <span>top {Math.min(5, topActs.length)}</span>
       </div>
       <div className="health-card health-act-list">
-        {health.topActs.slice(0, 5).map((act, index) => (
+        {topActs.slice(0, 5).map((act, index) => (
           <div key={act.label} className="health-act-row">
             <span>
               <strong>{act.label}</strong>
@@ -255,57 +287,21 @@ function TopActs({ health }: { health: HealthResponse }) {
   );
 }
 
-function Balance({ health }: { health: HealthResponse }) {
-  const split = health.insights.requesterSplit;
-  const splitLabel = split.length >= 2
-    ? `${split[0].count} / ${split[1].count}`
-    : split.length === 1
-    ? `${split[0].count} Ask${split[0].count === 1 ? "" : "s"}`
-    : "No Asks";
-
-  return (
-    <section className="health-section" aria-label="Balance">
-      <div className="health-section-head">
-        <h2>Balance</h2>
-        <span>not a grade</span>
-      </div>
-      <div className="health-balance-grid">
-        <article className="health-card health-balance-card">
-          <strong>{splitLabel}</strong>
-          <span>Ask starts in this range.</span>
-        </article>
-        <article className="health-card health-balance-card">
-          <strong>{health.insights.newActs.length}</strong>
-          <span>new-to-you Acts landed here.</span>
-        </article>
-      </div>
-      {health.insights.newActs.length > 0 && (
-        <div className="health-chip-row" role="group" aria-label="New Acts">
-          {health.insights.newActs.slice(0, 4).map((act) => (
-            <span key={act.label} className="chip-primary">First time: {act.label}</span>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function SourceHistory({ events }: { events: HealthEvent[] }) {
+function Moments({ events }: { events: HealthEvent[] }) {
   if (!events.length) {
     return (
       <EmptyState
-        title="Nothing counted yet."
-        body="Approved Asks and Pile overlaps will appear here automatically."
+        title="Nothing here yet."
+        body="Approved Asks and Pile overlaps show up here as moments you shared."
         action={<Link href="/ask" className="btn-ghost">Send an Ask</Link>}
       />
     );
   }
 
   return (
-    <section className="health-section" aria-label="Source history">
+    <section className="health-section" aria-label="Moments">
       <div className="health-section-head">
-        <h2>Source history</h2>
-        <span>{events.length} counted</span>
+        <h2>Lately</h2>
       </div>
       <div className="health-card health-event-list">
         {events.slice(0, 8).map((event) => (
@@ -314,8 +310,8 @@ function SourceHistory({ events }: { events: HealthEvent[] }) {
               {event.type === "pile" ? "Pile" : "Ask"}
             </span>
             <span className="health-event-copy">
-              <strong>{event.title}</strong>
-              <span>{formatDate(event.at)} · {event.acts.length} Act{event.acts.length === 1 ? "" : "s"}</span>
+              <strong>{event.acts.slice(0, 3).join(", ")}{event.acts.length > 3 ? "…" : ""}</strong>
+              <span>{formatDate(event.at)}</span>
             </span>
             {/* The emoji row reads as one image named by the act list. */}
             <span className="health-event-acts" role="img" aria-label={event.acts.join(", ")}>
@@ -324,11 +320,75 @@ function SourceHistory({ events }: { events: HealthEvent[] }) {
                   {act.emoji}
                 </span>
               ))}
-              {event.acts.length > 4 && <span className="health-act-more">+{event.acts.length - 4}</span>}
             </span>
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+function ActChips({
+  title,
+  label,
+  acts,
+  prefix = "",
+}: {
+  title: string;
+  label: string;
+  acts: Array<{ label: string; emoji: string }>;
+  prefix?: string;
+}) {
+  if (!acts.length) return null;
+  return (
+    <section className="health-section" aria-label={label}>
+      <div className="health-section-head">
+        <h2>{title}</h2>
+      </div>
+      <div className="health-chip-row" role="group" aria-label={label}>
+        {acts.map((act) => (
+          <span key={act.label} className="chip">{act.emoji} {prefix}{act.label}</span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Counts and the rhythm chart are each person's own choice. The setting lives
+// on your profile; your partner never sees it or your numbers.
+function CountsSetting({ on, onChange }: { on: boolean; onChange: (on: boolean) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function toggle() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try { await onChange(!on); }
+    catch { setError("Couldn't save that. Try again."); }
+    finally { setBusy(false); }
+  }
+  return (
+    <section className="health-section health-counts-setting" aria-label="Counts">
+      <div className="health-card">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          className="settings-row pressable"
+          onClick={toggle}
+          disabled={busy}
+          data-testid="health-counts-toggle"
+        >
+          <span>
+            <span className="settings-row-title">Show counts and rhythm</span>
+            <span className="settings-row-sub">Off unless you turn it on. Only you see this choice and these numbers.</span>
+          </span>
+          <span className={`switch ${on ? "is-on" : ""}`} aria-hidden="true">
+            <span className="switch-thumb" />
+          </span>
+        </button>
+      </div>
+      {error && <p className="health-counts-error" role="alert">{error}</p>}
     </section>
   );
 }
@@ -370,9 +430,10 @@ function emojiFromLabel(label: string) {
 }
 
 function compactRhythm(health: HealthResponse) {
-  if (health.rhythm.length >= 12) return health.rhythm.slice(-12);
-  if (health.rhythm.length > 0) {
-    const existing = health.rhythm.slice();
+  const rhythm = health.rhythm || [];
+  if (rhythm.length >= 12) return rhythm.slice(-12);
+  if (rhythm.length > 0) {
+    const existing = rhythm.slice();
     const start = new Date(existing[0].date);
     const pads = [];
     for (let index = 12 - existing.length; index > 0; index -= 1) {
@@ -392,13 +453,6 @@ function compactRhythm(health: HealthResponse) {
     buckets.push({ date: key, sexEvents: 0, sexActs: 0, askEvents: 0, pileEvents: 0 });
   }
   return buckets;
-}
-
-function lastEventLabel(days: number | null) {
-  if (days == null) return "no history";
-  if (days <= 0) return "today";
-  if (days === 1) return "1d ago";
-  return `${days}d ago`;
 }
 
 function formatDate(value: string) {

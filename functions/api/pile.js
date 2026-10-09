@@ -1,7 +1,10 @@
 // v2 · Sprint A · Tonight Pile — server-backed collaborative async asking.
 // Both partners drop acts during the day. Until revealAt, each partner only
 // sees their own contributions plus a masked signal that the other has joined.
-// After revealAt, server returns full contributions plus the derived overlap.
+// After revealAt, the server returns the overlap plus the viewer's OWN drops.
+// The partner's misses never leave the server, and neither does any count of
+// misses: "misses disappear" has to be literally true for the double-blind to
+// lower the stakes of dropping something.
 
 import { getStore } from "./_kv.js";
 import { mutateKey, readKeyStrong } from "./_state.js";
@@ -48,6 +51,7 @@ const BUILT_IN_PILE_ACT_LABELS = [
   "✋ Mutual Masturbation",
   "🪑 Face Sitting",
   "🎭 Roleplay",
+  "🪶 Slow touch, no finish line",
 ];
 
 function pileStore(env) { return getStore(env, STORE_NAME); }
@@ -136,8 +140,19 @@ function randomInteger(min, max) {
   return low + Math.floor(Math.random() * span);
 }
 
+// Minimum drops per partner before a Pile can reveal, bounded by the Pile's
+// own cap. A one-drop round would make the reveal a single yes/no read on one
+// act; two or more keeps any one miss ambiguous.
+export const PILE_MIN_DROPS = 2;
+
 export function randomPileMaxDropCount(totalActCount) {
-  return randomInteger(1, pileDropCapMax(totalActCount));
+  const cap = pileDropCapMax(totalActCount);
+  return randomInteger(Math.min(PILE_MIN_DROPS, cap), cap);
+}
+
+export function pileMinDropCount(pile) {
+  const max = pileMaxDropCount(pile);
+  return max > 0 ? Math.min(PILE_MIN_DROPS, max) : PILE_MIN_DROPS;
 }
 
 function pileMaxDropCount(pile) {
@@ -149,14 +164,19 @@ function pileDropLimit(pile) {
 }
 
 function pileHasTwoDroppingPartners(pile) {
+  const min = pileMinDropCount(pile);
   return Object.values(pile?.contributions || {})
-    .filter((labels) => Array.isArray(labels) && labels.length > 0)
+    .filter((labels) => Array.isArray(labels) && labels.length >= min)
     .length >= 2;
 }
 
-function pileIsRevealed(pile, now = Date.now()) {
+function revealTimePassed(pile, now = Date.now()) {
   const revealAt = pile?.revealAt ? new Date(pile.revealAt).getTime() : 0;
-  return revealAt > 0 && now >= revealAt && pileHasTwoDroppingPartners(pile);
+  return revealAt > 0 && now >= revealAt;
+}
+
+export function pileIsRevealed(pile, now = Date.now()) {
+  return revealTimePassed(pile, now) && pileHasTwoDroppingPartners(pile);
 }
 
 export async function pileActPoolCount(env, workspace, actorEmail, options = {}) {
@@ -244,14 +264,6 @@ export async function readPileSessions(env, workspaceId) {
   } catch { return []; }
 }
 
-function quietDropCount(pile, overlapLabels) {
-  const overlap = new Set((overlapLabels || []).map((label) => String(label).toLowerCase()));
-  return Object.values(pile?.contributions || {}).reduce((count, labels) => {
-    const safeLabels = Array.isArray(labels) ? labels : [];
-    return count + safeLabels.filter((label) => !overlap.has(String(label).toLowerCase())).length;
-  }, 0);
-}
-
 // Public view: hide partner's labels AND counts until revealAt has passed.
 // Sprint 0.8 — leaking the partner's count before reveal creates implicit
 // pressure ("they've dropped 5, I've dropped 0"). Each partner sees only
@@ -266,9 +278,11 @@ export function publicPile(pile, viewerEmail) {
   const mine = (contributions[me] || []).slice();
   const masked = {};
   const counts = {};
-  // Has-the-partner-engaged-at-all signal — boolean only, no number.
-  // Lets the UI render "your partner is dropping picks" without revealing
-  // how many.
+  // "They're in" — boolean only, no number, and true only once the partner has
+  // dropped the minimum the reveal needs. A partner with one drop reads exactly
+  // like a partner with none, before AND after the reveal time, so a reveal
+  // that didn't open never tells you they dropped exactly one.
+  const minDropCount = pileMinDropCount(pile);
   let partnerHasDropped = false;
   let overlapLabels = [];
   let onlyMineLabels = [];
@@ -281,13 +295,15 @@ export function publicPile(pile, viewerEmail) {
       return;
     }
     if (isRevealed) {
-      counts[norm] = safeLabels.length;
-      masked[norm] = safeLabels.slice();
+      // Only the partner drops that matched one of yours. Their misses (and
+      // how many there were) stay private, same as yours do for them.
+      const myKeys = new Set(mine.map((label) => String(label).toLowerCase()));
+      masked[norm] = safeLabels.filter((label) => myKeys.has(String(label).toLowerCase()));
     } else {
       // Pre-reveal: hide both the labels and the count from the viewer.
-      // The boolean `partnerHasDropped` (below) lets the UI show a
-      // generic "they're in" state without leaking the magnitude.
-      if (safeLabels.length > 0) partnerHasDropped = true;
+      // The boolean `partnerHasDropped` lets the UI show a generic "they're
+      // in" state without leaking the magnitude.
+      if (safeLabels.length >= minDropCount) partnerHasDropped = true;
     }
   });
   if (isRevealed) {
@@ -296,20 +312,8 @@ export function publicPile(pile, viewerEmail) {
       overlapLabels = (contributions[me] || []).filter((label) =>
         all.every((arr) => arr.includes(label.toLowerCase()))
       );
-      // Labels from the partner side that the VIEWER didn't drop. Diff against
-      // the viewer's own set — not the first contributor's (key order is
-      // arbitrary, so the non-starter viewer used to diff the partner's labels
-      // against the partner's own set and always see an empty list here).
-      const myLabelSet = new Set((contributions[me] || []).map((s) => s.toLowerCase()));
+      // The partner's unmatched drops are never sent (see masked above).
       onlyTheirsLabels = [];
-      Object.entries(contributions).forEach(([email, labels]) => {
-        if (normalizeEmail(email) === me) return;
-        (labels || []).forEach((label) => {
-          if (!myLabelSet.has(label.toLowerCase())) {
-            onlyTheirsLabels.push(label);
-          }
-        });
-      });
       onlyMineLabels = mine.filter((label) =>
         !overlapLabels.map((s) => s.toLowerCase()).includes(label.toLowerCase())
       );
@@ -328,9 +332,12 @@ export function publicPile(pile, viewerEmail) {
     targetMaxDropCount: safePositiveInteger(pile.targetMaxDropCount),
     actPoolCount: safePositiveInteger(pile.actPoolCount),
     isRevealed,
+    minDropCount,
+    // The reveal time has passed but someone is still under the minimum. The
+    // same neutral state whether the partner dropped none or one.
+    waitingForDrops: !isRevealed && revealTimePassed(pile),
     mine,
-    // Pre-reveal: `counts` only contains the viewer's own count.
-    // Post-reveal: contains both. Client treats missing keys as opaque.
+    // Only ever the viewer's own count, before and after the reveal.
     counts,
     partnerHasDropped: isRevealed ? undefined : partnerHasDropped,
     partnerLabels: isRevealed ? masked : null,
@@ -652,7 +659,6 @@ export async function onRequest(context) {
         workspaceId: ws.id,
         acts: fresh.roomE2ee ? overlapLabels.map(() => "Encrypted pile match") : overlapLabels,
         overlap: fresh.roomE2ee ? overlapLabels.map(() => "Encrypted pile match") : overlapLabels,
-        quietDropCount: quietDropCount(fresh, overlapLabels),
         revealAt: fresh.revealAt,
         startedAt: fresh.startedAt,
         lockedAt: claim.at,

@@ -289,6 +289,9 @@ async function migrateShelf(workspaceId: string) {
         title: "",
       });
       if (body.encryptedContent) patch.encryptedContent = body.encryptedContent;
+      // The keyed blind index, so a migrated private save can still match the
+      // partner's save of the same thing.
+      if (body.encryptedContent && body.matchKey) patch.matchKey = body.matchKey;
     }
     if (!encrypted(item.encryptedTitle) && meaningfulText(item.title)) {
       const body = await prepareShelfTitlePayload({ workspaceId, title: item.title });

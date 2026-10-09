@@ -81,7 +81,7 @@ export async function onRequest(context) {
   const legacyPeople = legacyPeopleFromWorkspace(legacyWorkspace);
 
   const [requests, fantasy, boundaries, acts] = await Promise.all([
-    readRequestBoardForWorkspace(env, workspaceId, { expireInMemory: true, workspaceIds: dataWorkspaceIds, legacyPeople }),
+    readRequestBoardForWorkspace(env, workspaceId, { expireInMemory: true, workspaceIds: dataWorkspaceIds, legacyPeople, viewerEmail: auth.email }),
     readFantasyBacklogForWorkspace(env, workspaceId, auth.email, { workspaceIds: dataWorkspaceIds, legacyPeople }),
     readBoundariesForWorkspace(env, workspaceId, { workspaceIds: dataWorkspaceIds, legacyPeople }),
     readActsForWorkspace(env, workspaceId, { workspaceIds: dataWorkspaceIds, legacyPeople })

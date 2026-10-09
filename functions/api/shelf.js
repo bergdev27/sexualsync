@@ -36,6 +36,8 @@ const SHELF_REACTIONS = [
   { id: "fire", emoji: "🔥", label: "Hot", caption: "{name} says it is hot.", tone: "positive" },
   { id: "drool", emoji: "🤤", label: "Want this", caption: "{name} wants this.", tone: "positive" },
   { id: "wrecked", emoji: "🥵", label: "Wrecked", caption: "{name} is wrecked.", tone: "positive" },
+  // Warm and costless: liked it, not right now. Nothing follows from it.
+  { id: "later", emoji: "🔖", label: "Saving for later", caption: "{name} is saving this for later.", tone: "positive" },
   { id: "pass", emoji: "😅", label: "Not for me", caption: "Not {name}'s vibe — try another.", tone: "pass" }
 ];
 const SHELF_REACTION_ALIASES = {
@@ -50,6 +52,63 @@ const SHELF_REACTION_ALIASES = {
 const VALID_REACTIONS = new Set(SHELF_REACTIONS.map((reaction) => reaction.id));
 const SHELF_REACTION_CATALOG = SHELF_REACTIONS.map(({ id, emoji, label, caption, tone }) => ({ id, emoji, label, caption, tone }));
 const SHELF_URL = "/?tab=backlog&shelf=1";
+
+// How a save is shared. "send" (the default, and every save before this field
+// existed) and "together" are visible to both partners; "together" adds a
+// "watch this with me" framing. "private" is a save-for-me: invisible to the
+// partner (no tile, no count, no activity) UNLESS the partner saves the same
+// thing too, at which point it becomes a mutual find both of them see.
+const SHARE_MODES = new Set(["send", "together", "private"]);
+const MATCH_KEY_RE = /^sxs-bi-v1:[A-Za-z0-9_-]{16,128}$/;
+
+// A client-computed blind index for an encrypted item, or "" if malformed.
+export function cleanShelfMatchKey(value) {
+  const key = String(value || "").trim().slice(0, 160);
+  return MATCH_KEY_RE.test(key) ? key : "";
+}
+
+export function cleanShareMode(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return SHARE_MODES.has(raw) ? raw : "send";
+}
+
+function isPrivateUnmatched(item) {
+  return item?.share === "private" && !item?.mutualAt;
+}
+
+// Visible to this viewer: everything shared, their own private saves, and
+// private saves that became mutual. A partner's unmatched private save is
+// never returned, counted, or broadcast.
+export function visibleShelfItems(items, actorEmail) {
+  const actor = normalizeEmail(actorEmail);
+  return (Array.isArray(items) ? items : []).filter((item) => (
+    !isPrivateUnmatched(item) || normalizeEmail(item?.addedByEmail) === actor
+  ));
+}
+
+function normalizeMatchUrl(raw) {
+  try {
+    const url = new URL(String(raw || "").trim());
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    const path = url.pathname.replace(/\/+$/, "");
+    return `url:${host}${path}${url.search}`;
+  } catch {
+    return "";
+  }
+}
+
+// Server-side match key for a plaintext item. Encrypted items carry a
+// client-computed blind index instead (the server never sees the link).
+export function derivedMatchKey(item) {
+  if (!item) return "";
+  if (item.type === "encrypted") return cleanShort(item.matchKey, 160);
+  if (item.type === "gif" && item.sourceId) return `gif:${item.source || ""}:${String(item.sourceId).toLowerCase()}`;
+  if (item.type === "passage") {
+    const text = String(item.passageText || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return text ? `text:${text}` : "";
+  }
+  return normalizeMatchUrl(item.sourceUrl);
+}
 
 function shelfKey(workspaceId) { return `shelf:${workspaceId}`; }
 function cleanShort(value, max) {
@@ -277,9 +336,22 @@ function scheduleRedgifsBackfill(context, env, workspaceId, items) {
   // see the populated fields.
 }
 
+// Who a mutual find belongs to: both savers. Older mutual rows without the list
+// fall back to the original saver plus the partner who matched it.
+function shelfMembers(item) {
+  if (!item?.mutualAt) return [normalizeEmail(item?.addedByEmail)].filter(Boolean);
+  const list = Array.isArray(item.savedByEmails) && item.savedByEmails.length
+    ? item.savedByEmails
+    : [item.addedByEmail, item.mutualWithEmail];
+  return [...new Set(list.map(normalizeEmail).filter(Boolean))];
+}
+
 // Public-facing item shape — same as stored, but make sure shape is stable
-// for the client.
-function publicItem(item) {
+// for the client. A mutual find is attributed to both of you and dated when it
+// matched: it never says which of you saved it privately first, or when.
+function publicItem(item, viewerEmail = "") {
+  const mutual = Boolean(item.mutualAt);
+  const viewer = normalizeEmail(viewerEmail);
   const out = {
     id: item.id,
     type: item.type,
@@ -294,10 +366,14 @@ function publicItem(item) {
     videoSdUrl: item.videoSdUrl || "",
     passageText: item.passageText || "",
     title: item.title || "",
-    addedByEmail: item.addedByEmail || "",
-    addedByName: item.addedByName || "",
-    addedAt: item.addedAt || "",
+    addedByEmail: mutual
+      ? (shelfMembers(item).includes(viewer) ? viewer : "")
+      : item.addedByEmail || "",
+    addedByName: mutual ? "" : item.addedByName || "",
+    addedAt: mutual ? item.mutualAt : item.addedAt || "",
     reactions: cleanReactions(item.reactions),
+    share: mutual ? "together" : item.share === "private" || item.share === "together" ? item.share : "send",
+    mutual,
   };
   const encryptedContent = cleanRoomEncryptedBox(item.encryptedContent, 60000);
   const encryptedTitle = cleanRoomEncryptedBox(item.encryptedTitle, 12000);
@@ -306,9 +382,10 @@ function publicItem(item) {
   return out;
 }
 
+// The saver owns an item; a mutual find is owned by both savers.
 function ownsItem(item, actorEmail) {
-  const owner = normalizeEmail(item?.addedByEmail);
-  return Boolean(owner) && owner === normalizeEmail(actorEmail);
+  const actor = normalizeEmail(actorEmail);
+  return Boolean(actor) && shelfMembers(item).includes(actor);
 }
 
 export async function onRequest(context) {
@@ -331,13 +408,14 @@ export async function onRequest(context) {
   const actorName  = identity.displayName
     || ws.members?.find((m) => normalizeEmail(m.email) === actorEmail)?.displayName
     || "";
+  const view = (item) => publicItem(item, actorEmail);
 
   if (method === "GET") {
     const items = await readShelf(env, ws.id);
     // Lazily backfill RedGifs direct URLs for items saved before the API
     // integration shipped. Runs in waitUntil after the response goes out.
     scheduleRedgifsBackfill(context, env, ws.id, items);
-    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, items: items.map(publicItem) });
+    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, items: visibleShelfItems(items, actorEmail).map(view) });
   }
 
   if (method === "POST") {
@@ -396,6 +474,12 @@ export async function onRequest(context) {
       addedAt: now,
       reactions: {},
     };
+    const shareMode = cleanShareMode(payload.mode);
+    if (shareMode !== "send") base.share = shareMode;
+    if (encryptedContent) {
+      const clientKey = cleanShort(payload.matchKey, 160);
+      if (MATCH_KEY_RE.test(clientKey)) base.matchKey = clientKey;
+    }
     if (encryptedContent) base.encryptedContent = encryptedContent;
     if (encryptedTitle) base.encryptedTitle = encryptedTitle;
 
@@ -403,8 +487,34 @@ export async function onRequest(context) {
     // can't slip in a duplicate or clobber this one.
     let isDuplicate = false;
     let duplicateItem = null;
+    let mutualItem = null;
+    const baseMatchKey = derivedMatchKey(base);
     const casResult = await mutateShelf(env, ws.id, (current) => {
-      const dupe = current.find((it) => {
+      // A partner's unmatched private save of the same thing turns into a
+      // mutual find instead of a second tile. Checked before the dupe scan,
+      // which only looks at what this viewer can already see, so a duplicate
+      // response can never confirm a private save exists.
+      if (baseMatchKey) {
+        const idx = current.findIndex((it) => (
+          isPrivateUnmatched(it)
+          && !ownsItem(it, actorEmail)
+          && derivedMatchKey(it) === baseMatchKey
+        ));
+        if (idx >= 0) {
+          // Becomes a shared tile owned by both of you, dated now. The private
+          // save's own timestamp is dropped so nothing says who saved first.
+          mutualItem = {
+            ...current[idx],
+            share: "together",
+            addedAt: now,
+            mutualAt: now,
+            mutualWithEmail: actorEmail,
+            savedByEmails: [normalizeEmail(current[idx].addedByEmail), actorEmail].filter(Boolean),
+          };
+          return { value: current.map((it, i) => (i === idx ? mutualItem : it)) };
+        }
+      }
+      const dupe = visibleShelfItems(current, actorEmail).find((it) => {
         if (encryptedContent) return false;
         if (draft.kind === "gif"     && it.type === "gif"     && it.sourceId === draft.sourceId) return true;
         if (draft.kind === "story"   && it.type === "story"   && it.sourceUrl === draft.sourceUrl) return true;
@@ -419,24 +529,43 @@ export async function onRequest(context) {
       return { value: [base, ...current] };
     });
     const next = casResult.items;
-    if (isDuplicate) {
-      return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: publicItem(duplicateItem), items: next.map(publicItem), duplicate: true });
+    const visibleNext = visibleShelfItems(next, actorEmail);
+    if (mutualItem) {
+      await appendAudit(env, ws.id, {
+        type: "shelf_matched", actorEmail, actorName,
+        entityType: "shelf", entityId: mutualItem.id,
+      });
+      broadcastRoomEvent(context, ws.id, {
+        resource: "shelf",
+        action: "matched",
+        entityId: mutualItem.id,
+        actorEmail,
+        actorName,
+      });
+      return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: view(mutualItem), items: visibleNext.map(view), mutual: true });
     }
-    await appendAudit(env, ws.id, {
-      type: "shelf_added", actorEmail, actorName,
-      entityType: "shelf", entityId: base.id,
-    });
-    broadcastRoomEvent(context, ws.id, {
-      resource: "shelf",
-      action: "added",
-      entityId: base.id,
-      actorEmail,
-      actorName,
-    });
+    if (isDuplicate) {
+      return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: view(duplicateItem), items: visibleNext.map(view), duplicate: true });
+    }
+    // A save-for-me stays out of the shared activity feed and the audit trail;
+    // only the saver's own list changes.
+    if (shareMode !== "private") {
+      await appendAudit(env, ws.id, {
+        type: "shelf_added", actorEmail, actorName,
+        entityType: "shelf", entityId: base.id,
+      });
+      broadcastRoomEvent(context, ws.id, {
+        resource: "shelf",
+        action: "added",
+        entityId: base.id,
+        actorEmail,
+        actorName,
+      });
+    }
     if (draft.kind === "gif" && draft.source === "redgifs" && draft.sourceId && !videoHdUrl && !videoSdUrl) {
       scheduleRedgifsBackfill(context, env, ws.id, next);
     }
-    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: publicItem(base), items: next.map(publicItem) });
+    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: view(base), items: visibleNext.map(view) });
   }
 
   if (method === "PATCH") {
@@ -445,10 +574,19 @@ export async function onRequest(context) {
 
     // "revealed" and "focused" are passive activity pings — broadcast only, no KV write.
     if (["revealed", "focused"].includes(cleanShort(payload.action, 40))) {
-      const items = await readShelf(env, ws.id);
+      const items = visibleShelfItems(await readShelf(env, ws.id), actorEmail);
       const item = items.find((it) => it.id === id);
       if (!item) return jsonResponse(404, { error: "Not found." });
       const now = new Date();
+      if (isPrivateUnmatched(item)) {
+        // Your own save-for-me: nothing to tell the partner about.
+        return jsonResponse(200, {
+          workspaceId: ws.id,
+          reactionCatalog: SHELF_REACTION_CATALOG,
+          item: view(item),
+          items: items.map(view),
+        });
+      }
       if (cleanShort(payload.action, 40) === "focused") {
         const focus = await broadcastFocusRoomEvent(context, ws.id, {
           resource: "shelf",
@@ -460,8 +598,8 @@ export async function onRequest(context) {
         return jsonResponse(200, {
           workspaceId: ws.id,
           reactionCatalog: SHELF_REACTION_CATALOG,
-          item: publicItem(item),
-          items: items.map(publicItem),
+          item: view(item),
+          items: items.map(view),
           ...focus,
         });
       }
@@ -470,7 +608,7 @@ export async function onRequest(context) {
       try {
         const resolved = await resolveRedgifsDirectUrlForItem(env, ws.id, item);
         if (resolved?.items?.length) {
-          responseItems = resolved.items;
+          responseItems = visibleShelfItems(resolved.items, actorEmail);
           responseItem = resolved.item || resolved.items.find((it) => it.id === id) || item;
         }
       } catch {
@@ -491,8 +629,8 @@ export async function onRequest(context) {
       return jsonResponse(200, {
         workspaceId: ws.id,
         reactionCatalog: SHELF_REACTION_CATALOG,
-        item: publicItem(responseItem),
-        items: responseItems.map(publicItem),
+        item: view(responseItem),
+        items: responseItems.map(view),
         activityRecorded: true,
       });
     }
@@ -514,12 +652,17 @@ export async function onRequest(context) {
       }
     }
 
+    let patchedPrivate = false;
     const casResult = await mutateShelf(env, ws.id, (current) => {
       const idx = current.findIndex((it) => it.id === id);
       if (idx < 0) return { error: { status: 404, message: "Not found." } };
+      if (isPrivateUnmatched(current[idx]) && !ownsItem(current[idx], actorEmail)) {
+        return { error: { status: 404, message: "Not found." } };
+      }
+      patchedPrivate = isPrivateUnmatched(current[idx]);
       const item = { ...current[idx] };
       if (hasTitle) {
-        if (normalizeEmail(item.addedByEmail) !== actorEmail) {
+        if (!ownsItem(item, actorEmail)) {
           return { error: { status: 403, message: "Only the saver can rename this." } };
         }
         item.title = encryptedTitle ? "Encrypted title" : cleanShort(payload.title, MAX_TITLE_LEN);
@@ -538,46 +681,74 @@ export async function onRequest(context) {
     });
     if (casResult.error) return jsonResponse(casResult.error.status, { error: casResult.error.message });
     const item = casResult.items.find((it) => it.id === id);
-    await appendAudit(env, ws.id, {
-      type: "shelf_updated", actorEmail, actorName,
-      entityType: "shelf", entityId: item.id,
-    });
-    broadcastRoomEvent(context, ws.id, {
-      resource: "shelf",
-      action: Object.prototype.hasOwnProperty.call(payload, "reaction") ? "reacted" : "updated",
-      entityId: item.id,
-      actorEmail,
-      actorName,
-    });
-    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: publicItem(item), items: casResult.items.map(publicItem) });
+    if (!patchedPrivate) {
+      await appendAudit(env, ws.id, {
+        type: "shelf_updated", actorEmail, actorName,
+        entityType: "shelf", entityId: item.id,
+      });
+      broadcastRoomEvent(context, ws.id, {
+        resource: "shelf",
+        action: Object.prototype.hasOwnProperty.call(payload, "reaction") ? "reacted" : "updated",
+        entityId: item.id,
+        actorEmail,
+        actorName,
+      });
+    }
+    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, item: view(item), items: visibleShelfItems(casResult.items, actorEmail).map(view) });
   }
 
   if (method === "DELETE") {
     const id = String(payload.id || "");
     if (!id) return jsonResponse(400, { error: "id required." });
     let removedItem = null;
+    let keptForPartner = false;
     const casResult = await mutateShelf(env, ws.id, (current) => {
       const item = current.find((it) => it.id === id);
-      if (!item) return { error: { status: 404, message: "Not found." } };
+      if (!item || (isPrivateUnmatched(item) && !ownsItem(item, actorEmail))) {
+        return { error: { status: 404, message: "Not found." } };
+      }
       if (!ownsItem(item, actorEmail)) {
         return { error: { status: 403, message: "Only the saver can remove this." } };
       }
       removedItem = item;
+      // A mutual find is both of yours: removing it takes it off YOUR Shelf
+      // only. The other saver keeps it, back as their own save-for-me.
+      const others = item.mutualAt ? shelfMembers(item).filter((email) => email !== actorEmail) : [];
+      if (others.length) {
+        keptForPartner = true;
+        const keeper = others[0];
+        const rest = { ...item };
+        delete rest.mutualAt;
+        delete rest.mutualWithEmail;
+        delete rest.savedByEmails;
+        const reactions = { ...(rest.reactions || {}) };
+        delete reactions[actorEmail];
+        const kept = {
+          ...rest,
+          share: "private",
+          addedByEmail: keeper,
+          addedByName: ws.members?.find((m) => normalizeEmail(m.email) === keeper)?.displayName || "",
+          reactions,
+        };
+        return { value: current.map((it) => (it.id === id ? kept : it)) };
+      }
       return { value: current.filter((it) => it.id !== id) };
     });
     if (casResult.error) return jsonResponse(casResult.error.status, { error: casResult.error.message });
-    await appendAudit(env, ws.id, {
-      type: "shelf_deleted", actorEmail, actorName,
-      entityType: "shelf", entityId: removedItem.id,
-    });
-    broadcastRoomEvent(context, ws.id, {
-      resource: "shelf",
-      action: "deleted",
-      entityId: removedItem.id,
-      actorEmail,
-      actorName,
-    });
-    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, items: casResult.items.map(publicItem) });
+    if (!keptForPartner && !isPrivateUnmatched(removedItem)) {
+      await appendAudit(env, ws.id, {
+        type: "shelf_deleted", actorEmail, actorName,
+        entityType: "shelf", entityId: removedItem.id,
+      });
+      broadcastRoomEvent(context, ws.id, {
+        resource: "shelf",
+        action: "deleted",
+        entityId: removedItem.id,
+        actorEmail,
+        actorName,
+      });
+    }
+    return jsonResponse(200, { workspaceId: ws.id, reactionCatalog: SHELF_REACTION_CATALOG, items: visibleShelfItems(casResult.items, actorEmail).map(view) });
   }
 
   return jsonResponse(405, { error: "Method not allowed." });

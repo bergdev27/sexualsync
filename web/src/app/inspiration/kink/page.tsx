@@ -24,6 +24,7 @@ import type {
   FantasyBacklogResponse,
   KinkComment,
   KinkIdea,
+  KinkIntent,
   KinkReaction,
   KinkReactionOption,
   ProfileResponse,
@@ -33,7 +34,21 @@ import { useFocusActivity } from "@/lib/use-focus-activity";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { normalizeEmail, partnerOf } from "@/lib/workspace";
 import { relativeAge } from "@/lib/relative-time";
+import { INTENT_LABELS, isHighRisk, normTagFor } from "@/lib/fantasy-themes";
+import { CHAT_DRAFT_HANDOFF_HREF, stashChatDraft } from "@/lib/chat-draft";
 import "./kink-detail.css";
+import "../desire.css";
+
+// Warm one-tap replies, first in line. None of them asks for anything back.
+// `fallback` is the server's own catalog entry, used if a cached catalog
+// predates it.
+const QUICK_REPLIES: Array<{ id: string; text: string; fallback: KinkReactionOption }> = [
+  { id: "hell_yeah", text: "Hell yeah", fallback: { id: "hell_yeah", glyph: "🔥", label: "Hell yeah", caption: "", tone: "positive" } },
+  { id: "tell_me_more", text: "Tell me more", fallback: { id: "tell_me_more", glyph: "👀", label: "Tell me more", caption: "", tone: "positive" } },
+  { id: "save_for_later", text: "Saving this for later", fallback: { id: "save_for_later", glyph: "🔖", label: "Saving this for later", caption: "", tone: "positive" } },
+];
+const QUICK_REPLY_IDS = new Set(QUICK_REPLIES.map((reply) => reply.id));
+const INTENT_OPTIONS: KinkIntent[] = ["fantasy", "talk", "try"];
 
 type LoadState =
   | { kind: "loading" }
@@ -307,6 +322,8 @@ function KinkDetail({
   const [savingComment, setSavingComment] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(state.kink.text);
+  const [editIntent, setEditIntent] = useState<KinkIntent | "">(state.kink.intent || "");
+  const [talkFirstOpen, setTalkFirstOpen] = useState(false);
   const [busyIdea, setBusyIdea] = useState("");
   const [reactionError, setReactionError] = useState("");
   const [commentError, setCommentError] = useState("");
@@ -315,7 +332,6 @@ function KinkDetail({
   const me = normalizeEmail(state.auth.email);
   const partner = partnerOf(state.workspace, state.auth.email);
   const partnerName = partner?.displayName?.split(" ")[0] || "your partner";
-  const partnerPossessive = possessiveName(partnerName);
   const activeReaction = state.kink.reactions.find((reaction) => normalizeEmail(reaction.by) === me) || null;
   const active = responseForEmail(state.kink, me);
   // Optimistic reaction state, ported from _VaultCard. We render this over the
@@ -342,9 +358,21 @@ function KinkDetail({
     ? primaryPartnerResponse?.caption
       || (partnerRepliedInComments
         ? `${partnerName} replied in comments.`
-        : `${partnerPossessive} reaction will show here once she reacts.`)
+        : `Shared. If ${partnerName} reacts, you'll see it here. No reply needed.`)
     : (myReactionId ? active?.caption || optimisticOption?.label : null)
-      || "Choose how it lands. Your partner sees the label, not just the emoji.";
+      || "React if you like. No reply needed, and your partner sees the words, not just the emoji.";
+  const normTag = state.kink.e2eeLocked ? null : normTagFor(state.kink.text);
+  // A positive response from either side is the moment to plan it.
+  const positiveIds = new Set(["hell_yeah", "me_too", "tell_me_more", "curious"]);
+  const hasPositiveOverlap = mine
+    ? Boolean(primaryPartnerResponse && positiveIds.has(primaryPartnerResponse.id))
+    : Boolean(myReactionId && positiveIds.has(myReactionId));
+  const highRisk = isHighRisk(state.kink.text);
+  // The Kink's own words go to Sext through a one-shot handoff, never the URL
+  // (lib/chat-draft): a query string leaves the device on navigation.
+  const talkHref = CHAT_DRAFT_HANDOFF_HREF;
+  const stashTalkDraft = () => { stashChatDraft(`About "${state.kink.text.slice(0, 140)}": `); };
+  const askHref = `/ask?kink=${encodeURIComponent(state.kink.id)}`;
 
   useEffect(() => {
     // Reconcile: once the server-driven prop matches our optimistic value,
@@ -481,7 +509,7 @@ function KinkDetail({
     setEditError("");
     setBusyIdea("edit");
     try {
-      const backlog = await updateKinkText({ workspaceId: state.workspace.id, id: state.kink.id, text: clean });
+      const backlog = await updateKinkText({ workspaceId: state.workspace.id, id: state.kink.id, text: clean, intent: editIntent });
       setEditing(false);
       onBacklogChange(backlog);
     } catch {
@@ -542,8 +570,22 @@ function KinkDetail({
             spellCheck
             inputMode="text"
           />
+          <div className="kink-intent-row mt-3" role="radiogroup" aria-label="What this is">
+            {INTENT_OPTIONS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={editIntent === option}
+                className={`kink-intent-chip pressable ${editIntent === option ? "is-active" : ""}`}
+                onClick={() => setEditIntent((current) => (current === option ? "" : option))}
+              >
+                {INTENT_LABELS[option]}
+              </button>
+            ))}
+          </div>
           <div className="mt-3 flex gap-2">
-            <button type="button" className="btn-ghost flex-1" onClick={() => { setEditing(false); setEditText(state.kink.text); }} disabled={Boolean(busyIdea)}>
+            <button type="button" className="btn-ghost flex-1" onClick={() => { setEditing(false); setEditText(state.kink.text); setEditIntent(state.kink.intent || ""); }} disabled={Boolean(busyIdea)}>
               Cancel
             </button>
             <button type="submit" className="btn-primary flex-1" disabled={!editText.trim() || Boolean(busyIdea)}>
@@ -558,6 +600,22 @@ function KinkDetail({
         </form>
       ) : (
         <p className="kd-body-lead">{state.kink.text}</p>
+      )}
+
+      {(state.kink.intent || normTag) && !editing && (
+        <div className="kink-context-row">
+          {state.kink.intent && (
+            <span className={`kink-intent-pill is-${state.kink.intent}`} data-testid="kink-intent-pill">
+              {INTENT_LABELS[state.kink.intent]}
+            </span>
+          )}
+          {normTag && (
+            <>
+              <span className="kink-norm-tag" data-testid="kink-norm-tag">{normTag.label}</span>
+              <Link href={`/inspiration/why#${normTag.anchor}`} className="kink-norm-link">Why we say this</Link>
+            </>
+          )}
+        </div>
       )}
 
       <p className="eyebrow kd-eyebrow">How this lands</p>
@@ -584,13 +642,32 @@ function KinkDetail({
             ) : (
               <span className="kd-tray-empty is-waiting">
                 <span className="kd-waiting-dot" aria-hidden="true" />
-                <span>Waiting on {partnerName}</span>
+                <span>Shared with {partnerName}</span>
               </span>
             )}
           </div>
         ) : (
+          <>
+          <div className="kd-quick-row" role="group" aria-label="Quick replies">
+            {QUICK_REPLIES.map((reply) => {
+              const option = state.backlog.reactionCatalog.find((candidate) => candidate.id === reply.id) || reply.fallback;
+              return (
+                <button
+                  key={reply.id}
+                  type="button"
+                  className={`kd-quick pressable ${myReactionId === option.id ? "is-active" : ""}`}
+                  onClick={() => react(option)}
+                  aria-pressed={myReactionId === option.id}
+                  disabled={Boolean(savingReaction)}
+                >
+                  <span aria-hidden="true">{option.glyph}</span>
+                  {reply.text}
+                </button>
+              );
+            })}
+          </div>
           <div className="kd-tray" role="group" aria-label="React to this Kink">
-            {state.backlog.reactionCatalog.map((option) => (
+            {state.backlog.reactionCatalog.filter((option) => !QUICK_REPLY_IDS.has(option.id)).map((option) => (
               <button
                 key={option.id}
                 type="button"
@@ -604,6 +681,7 @@ function KinkDetail({
               </button>
             ))}
           </div>
+          </>
         )}
         {mine
           ? primaryPartnerResponse && <p className="kd-tray-label">{primaryPartnerResponse.label}</p>
@@ -616,6 +694,32 @@ function KinkDetail({
           </p>
         )}
       </div>
+
+      {hasPositiveOverlap && !state.kink.e2eeLocked && (
+        <section className="kd-next" aria-label="Make it happen">
+          {talkFirstOpen ? (
+            <div className="kd-talk-first" role="dialog" aria-modal="false" aria-labelledby="kd-talk-first-title">
+              <p id="kd-talk-first-title" className="kd-talk-first-title">Worth a talk first?</p>
+              <p className="kd-talk-first-body">
+                Other people and pain are the ones most worth talking through before they become a plan. Say what would make it hot, and where the lines are.
+              </p>
+              <div className="kd-next-actions">
+                <Link href={talkHref} onClick={stashTalkDraft} className="btn-primary kd-next-btn">Talk first</Link>
+                <Link href={askHref} className="btn-ghost kd-next-btn">Make it an Ask anyway</Link>
+              </div>
+            </div>
+          ) : (
+            <div className="kd-next-actions">
+              <Link href={talkHref} onClick={stashTalkDraft} className="btn-ghost kd-next-btn">Talk about it</Link>
+              {highRisk ? (
+                <button type="button" className="btn-ghost kd-next-btn" onClick={() => setTalkFirstOpen(true)}>Make it an Ask</button>
+              ) : (
+                <Link href={askHref} className="btn-ghost kd-next-btn">Make it an Ask</Link>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="kd-section">
         <p className="eyebrow">Comments · <em>{state.kink.comments.length}</em></p>
@@ -667,12 +771,6 @@ function KinkDetail({
 
     </div>
   );
-}
-
-function possessiveName(name: string) {
-  const trimmed = name.trim();
-  if (!trimmed) return "Your partner's";
-  return trimmed.endsWith("s") || trimmed.endsWith("S") ? `${trimmed}'` : `${trimmed}'s`;
 }
 
 function CommentBubble({
@@ -786,6 +884,7 @@ type KinkResponse = {
 
 function responseTrayClass(response: KinkResponse) {
   if (response.label === "Tell me more" || response.label === "Curious") return "is-curious";
+  if (response.label === "Saving this for later") return "is-later";
   if (response.label === "Hell yeah" || response.label === "Me too") return "is-hell-yeah";
   if (response.tone === "pause") return "is-later";
   if (response.tone === "no") return "is-pass";
@@ -861,6 +960,7 @@ function normalizeReactionLabel(value: string) {
     tell_me_more: "Tell me more",
     me_too: "Me too",
     give_me_a_minute: "Give me a minute",
+    save_for_later: "Saving this for later",
     not_for_me: "Not for me — thank you for telling me",
   };
   const aliases: Record<string, string> = {
@@ -880,6 +980,7 @@ function idForLabel(label: string) {
   if (label === "Tell me more") return "tell_me_more";
   if (label === "Me too") return "me_too";
   if (label === "Give me a minute") return "give_me_a_minute";
+  if (label === "Saving this for later") return "save_for_later";
   if (label === "Not for me — thank you for telling me") return "not_for_me";
   return "curious";
 }
@@ -889,6 +990,7 @@ function glyphForLabel(label: string) {
   if (label === "Tell me more") return "👀";
   if (label === "Me too") return "🤤";
   if (label === "Give me a minute") return "💭";
+  if (label === "Saving this for later") return "🔖";
   if (label === "Not for me — thank you for telling me") return "🌷";
   return "🤔";
 }
@@ -905,6 +1007,7 @@ function captionForLabel(label: string, name = "") {
   if (label === "Tell me more") return `${display} wants more detail.`;
   if (label === "Me too") return `${display} is into this too.`;
   if (label === "Give me a minute") return `${display} needs a minute.`;
+  if (label === "Saving this for later") return `${display} is saving this for later.`;
   if (label === "Not for me — thank you for telling me") return `${display} passed gently.`;
   return `${display} is curious.`;
 }

@@ -481,12 +481,17 @@ function draftProgress(answers: Record<string, unknown> | undefined, total: numb
 
 // The status line on a double-blind deck tile (Sex Quiz, Green Lights), in
 // words: whose turn it is, how far your own draft got, or that both are in.
+// "partner finished" only ever shows because finishing is what the reveal
+// waits on; it never says when they answered or how far they got.
 function deckStatus(
-  game: { status: "open" | "revealed"; mySubmitted: boolean; partnerSubmitted: boolean } | null,
+  game: { status: "open" | "revealed"; mySubmitted: boolean; partnerSubmitted: boolean; revealOpensAt?: string } | null,
   draft: DeckProgress,
   partnerName: string,
 ): { label: string; active: boolean; cta: string; rank: GameRank } {
-  if (game?.status === "revealed" || (game?.mySubmitted && game?.partnerSubmitted)) {
+  if (game?.status === "revealed") return { label: "Revealed", active: true, cta: "Open", rank: 1 };
+  if (game?.mySubmitted && game?.partnerSubmitted) {
+    // Both in, but a new round waits out the re-reveal cooldown.
+    if (game.revealOpensAt) return { label: `Both in · opens ${shortRevealTime(game.revealOpensAt)}`, active: true, cta: "Open", rank: 1 };
     return { label: "Ready to reveal", active: true, cta: "Open", rank: 1 };
   }
   if (game?.mySubmitted) return { label: `Waiting on ${partnerName}`, active: true, cta: "Open", rank: 1 };
@@ -523,8 +528,11 @@ function quizMeta(quiz: SexQuizResponse | null, partnerName: string) {
 function greenLightsMeta(gl: GreenLightsResponse | null, partnerName: string) {
   if (!gl || !gl.mySubmitted) return "Where you both stand";
   if (gl.status === "revealed") {
-    const { talk } = computeGreenLightsReveal(gl.myAnswers || {}, gl.partnerAnswers || {});
-    return `${talk.length} to talk through`;
+    // Agreements only. A count of differences would be a count of the
+    // partner's "no"s by another name.
+    const { greenLights, agreedLimits, sharedConcerns } = computeGreenLightsReveal(gl.myAnswers || {}, gl.partnerAnswers || {});
+    const aligned = greenLights.length + agreedLimits.length + sharedConcerns.length;
+    return `${aligned} on the same page`;
   }
   return `Opens when ${partnerName} finishes`;
 }

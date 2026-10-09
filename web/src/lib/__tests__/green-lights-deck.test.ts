@@ -7,6 +7,7 @@ import {
   RETIRED_GREEN_LIGHT_IDS,
   activeGreenLightAnswers,
   computeGreenLightsReveal,
+  actionableGreenLights,
   optionsForCard,
   unansweredGreenLightCards,
 } from "../green-lights-deck";
@@ -50,27 +51,23 @@ describe("green-lights-deck: reveal valence", () => {
     expect(reveal.agreedLimits).toEqual([]);
     expect(reveal.sharedConcerns).toEqual([]);
   });
-
-  it("still counts shared concerns as aligned in the sync score", () => {
-    const answers = { "pl-pressure": { value: "agree" } };
-    expect(computeGreenLightsReveal(answers, answers).syncScore).toBe(100);
-  });
 });
 
-describe("green-lights-deck: per-topic alignment", () => {
-  it("scores each topic you both answered, in deck order", () => {
-    const mine = { "am-happy": { value: "agree" }, "am-more": { value: "yes" }, "tk-laugh": { value: "agree" } };
-    const partner = { "am-happy": { value: "agree" }, "am-more": { value: "open" }, "tk-laugh": { value: "agree" } };
-    const { categories } = computeGreenLightsReveal(mine, partner);
-    expect(categories.map((c) => [c.category, c.aligned, c.total, c.score])).toEqual([
-      ["amount", 1, 2, 50],
-      ["talking", 1, 1, 100],
-    ]);
+describe("green-lights-deck: no scores", () => {
+  it("never computes a sync score or a per-topic tally", () => {
+    const answers = { "pl-pressure": { value: "agree" }, "am-happy": { value: "agree" } };
+    const reveal = computeGreenLightsReveal(answers, answers) as unknown as Record<string, unknown>;
+    expect("syncScore" in reveal).toBe(false);
+    expect("categories" in reveal).toBe(false);
   });
 
-  it("leaves cadence out of topic scores, like the overall score", () => {
-    const answers = { "am-ideal-freq": { value: "weekly" } };
-    expect(computeGreenLightsReveal(answers, answers).categories).toEqual([]);
+  it("offers only shared, non-heavy wants as something to try together", () => {
+    const want = GREEN_LIGHT_DECK.find((card) => card.scale === "want" && !card.heavy && card.category === "novelty")!;
+    const amount = GREEN_LIGHT_BY_ID["am-more"];
+    const top = (id: string) => optionsForCard(GREEN_LIGHT_BY_ID[id])[0].id;
+    const answers = { [want.id]: { value: top(want.id) }, [amount.id]: { value: top(amount.id) } };
+    const { greenLights } = computeGreenLightsReveal(answers, answers);
+    expect(actionableGreenLights(greenLights).map((item) => item.id)).toEqual([want.id]);
   });
 });
 

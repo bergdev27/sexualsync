@@ -94,6 +94,7 @@ const ALLOWED_TYPES = new Set([
   "request_on_deck",
   "request_planned",
   "request_unplanned",
+  "request_plans_changed",
   "request_archived",
   "request_revoked",
   "request_counter_accepted",

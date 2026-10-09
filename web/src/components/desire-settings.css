@@ -1,0 +1,51 @@
+/* "Your voice" settings: two small segmented controls. */
+.desire-settings-card {
+  display: grid;
+  gap: 18px;
+  padding: 16px;
+}
+
+.desire-seg-row {
+  display: grid;
+  gap: 4px;
+}
+
+.desire-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--cream-a04);
+  box-shadow: inset 0 0 0 1px var(--cream-a08);
+}
+
+.desire-seg-option {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  transition: background-color 160ms ease-out, color 160ms ease-out;
+}
+
+.desire-seg-option.is-active {
+  background: var(--accent-mist);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-fog);
+}
+
+.desire-seg-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.desire-settings-error {
+  margin: 0;
+  color: rgb(var(--no-rgb));
+  font-size: var(--fs-13);
+}

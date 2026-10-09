@@ -3,7 +3,9 @@
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import QuietHoursSetting from "@/components/QuietHoursSetting";
 import RoomEncryptionPanel from "@/components/RoomEncryptionPanel";
+import DesireVoiceSettings from "@/components/DesireVoiceSettings";
 import ScreenHeader from "@/components/ScreenHeader";
 import { ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
@@ -74,13 +76,13 @@ const PUSH_PREF_LABELS: { id: string; title: string; sub: string }[] = [
   { id: "chat-message", title: "Sext messages", sub: "When your partner sends you a sext." },
   { id: "request-reviewed", title: "Ask replies", sub: "When your partner answers or counters an Ask." },
   { id: "request-sent", title: "New Asks", sub: "When your partner sends something for review." },
-  { id: "request-reminder", title: "Ask reminders", sub: "Quiet nudges for something waiting." },
+  { id: "request-reminder", title: "Ask nudges", sub: "The one nudge your partner can send about an Ask." },
   { id: "kink-nudge", title: "Kink nudges", sub: "A batched reminder when several Kinks are waiting." },
   { id: "pile-started", title: "Pile starts", sub: "When your partner starts a Pile that needs you." },
   { id: "pile-reminder", title: "Pile reminders", sub: "Halfway, 1 hour, and 10 minutes before reveal." },
   { id: "blind-reveal", title: "Blind Reveal ready", sub: "When both answers are ready." },
   { id: "game-ready", title: "Quiz & Green Lights", sub: "When a reveal is ready, or it's your turn." },
-  { id: "mood-match", title: "You're both horny", sub: "When you've both said you're horny." },
+  { id: "mood-match", title: "Horny matches", sub: "When you've both said you're horny, or open to it." },
 ];
 
 // Notification presets. Each one is a complete map over every PUSH_PREF_LABELS
@@ -667,7 +669,11 @@ function SettingsSheet({
                   ))}
                 </div>
               )}
+              {ready && <QuietHoursSetting workspaceId={ready.workspace.id} />}
             </section>
+
+            {/* Per-person prompt ceiling + explicit voice (self-contained). */}
+            <DesireVoiceSettings />
 
             <section className="settings-section" aria-labelledby="settings-privacy">
               <h3 id="settings-privacy" className="eyebrow">Privacy</h3>

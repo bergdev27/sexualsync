@@ -13,6 +13,7 @@ import type {
   Filming,
   KinkComment,
   KinkIdea,
+  KinkIntent,
   KinkReaction,
   PileEncryptedLabel,
   PileResponse,
@@ -40,6 +41,7 @@ import {
   type RoomEncryptedBox,
 } from "./room-crypto";
 import {
+  redgifsIdFromUrl,
   redgifsShelfFromUrl,
   shelfContentLooksLikeUrl,
   shelfSourceForUrl,
@@ -98,6 +100,33 @@ interface EncryptedBoundaryPayload {
 interface EncryptedTextPayload {
   text: string;
   tags?: string[];
+  // Kinks only: the sharer's "fantasy / talk / try" label rides inside the box
+  // with the words, so the server never sees it in an encrypted room.
+  intent?: KinkIntent | "";
+}
+
+const KINK_INTENTS: ReadonlySet<string> = new Set(["fantasy", "talk", "try"]);
+const SHELF_MATCH_PURPOSE = "shelf:match";
+
+// The same thing saved twice should produce the same key, however it was
+// pasted: RedGifs by gif id, links without www / trailing slash, passages by
+// their collapsed lowercase text. Mirrors derivedMatchKey in
+// functions/api/shelf.js (which handles unencrypted rooms server-side).
+export function shelfMatchInput(content: string): string {
+  const raw = String(content || "").trim();
+  if (!raw) return "";
+  if (shelfContentLooksLikeUrl(raw)) {
+    const gifId = redgifsIdFromUrl(raw);
+    if (gifId) return `gif:redgifs:${gifId.toLowerCase()}`;
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.toLowerCase().replace(/^www\./, "");
+      return `url:${host}${url.pathname.replace(/\/+$/, "")}${url.search}`;
+    } catch {
+      return "";
+    }
+  }
+  return `text:${raw.replace(/\s+/g, " ").toLowerCase()}`;
 }
 
 interface EncryptedReactionNotePayload {
@@ -399,18 +428,21 @@ export async function prepareKinkTextPayload<T extends {
   workspaceId: string;
   text: string;
   tags?: string[];
+  intent?: KinkIntent | "";
 }>(payload: T): Promise<T & { encryptedText?: RoomEncryptedBox }> {
   if (!shouldEncrypt(payload.workspaceId)) return payload;
   requireUnlocked(payload.workspaceId);
   const encryptedText = await encryptRoomJson<EncryptedTextPayload>(
     payload.workspaceId,
     KINK_TEXT_PURPOSE,
-    { text: payload.text, tags: payload.tags },
+    { text: payload.text, tags: payload.tags, ...(payload.intent ? { intent: payload.intent } : {}) },
   );
   return {
     ...payload,
     text: ROOM_E2EE_PLACEHOLDER,
     ...(Object.prototype.hasOwnProperty.call(payload, "tags") ? { tags: [] } : {}),
+    // Never send the label in the clear beside the ciphertext.
+    ...(Object.prototype.hasOwnProperty.call(payload, "intent") ? { intent: "" } : {}),
     encryptedText,
   };
 }
@@ -491,7 +523,7 @@ export async function prepareShelfItemPayload<T extends {
   workspaceId: string;
   content: string;
   title?: string;
-}>(payload: T): Promise<T & { encryptedContent?: RoomEncryptedBox; encryptedTitle?: RoomEncryptedBox }> {
+}>(payload: T): Promise<T & { encryptedContent?: RoomEncryptedBox; encryptedTitle?: RoomEncryptedBox; matchKey?: string }> {
   if (!shouldEncrypt(payload.workspaceId)) return payload;
   requireUnlocked(payload.workspaceId);
   const encryptedContent = await encryptRoomJson<EncryptedShelfContentPayload>(
@@ -506,12 +538,20 @@ export async function prepareShelfItemPayload<T extends {
       { title: payload.title },
     )
     : undefined;
+  // A keyed blind index (room key + purpose) so two saves of the same thing
+  // can be recognized as a mutual find without the server seeing the link.
+  const matchInput = shelfMatchInput(payload.content);
+  let matchKey = "";
+  if (matchInput) {
+    try { matchKey = await createRoomBlindIndex(payload.workspaceId, SHELF_MATCH_PURPOSE, matchInput); } catch { matchKey = ""; }
+  }
   return {
     ...payload,
     content: ROOM_E2EE_PLACEHOLDER,
     title: encryptedTitle ? ROOM_E2EE_PLACEHOLDER : "",
     encryptedContent,
     ...(encryptedTitle ? { encryptedTitle } : {}),
+    ...(matchKey ? { matchKey } : {}),
   };
 }
 
@@ -728,6 +768,8 @@ async function decryptKinkIdea(idea: KinkIdea, workspaceId: string): Promise<Kin
     if (decrypted.ok && decrypted.value?.text) {
       next.text = decrypted.value.text;
       if (Array.isArray(decrypted.value.tags)) next.tags = decrypted.value.tags;
+      const intent = String(decrypted.value.intent || "");
+      if (KINK_INTENTS.has(intent)) next.intent = intent as KinkIntent;
     } else {
       locked = true;
     }

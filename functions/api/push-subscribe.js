@@ -3,7 +3,8 @@
 // DELETE /api/push-subscribe?endpoint=... — unsubscribe.
 //
 // Body shape on POST:
-//   { workspaceId, subscription: { endpoint, keys: { p256dh, auth } }, preferences }
+//   { workspaceId, subscription: { endpoint, keys: { p256dh, auth } }, preferences,
+//     quietHours?: { start: "22:00", end: "08:00", timeZone } }
 
 import { getAuthenticatedIdentity, jsonResponse, normalizeEmail } from "./_auth.js";
 import { platformStore, readList, WORKSPACES_KEY } from "./_workspaces.js";
@@ -55,7 +56,8 @@ export async function onRequest(context) {
     }
     const ws = await authorize(env, workspaceId, actorEmail);
     if (!ws) return jsonResponse(403, { error: "Not a member of that workspace" });
-    await addPushSubscription(env, workspaceId, actorEmail, subscription, preferences);
+    // quietHours: this device's private do-not-disturb window (see _push.js).
+    await addPushSubscription(env, workspaceId, actorEmail, subscription, preferences, payload?.quietHours);
     return jsonResponse(200, { ok: true });
   }
 

@@ -1,3 +1,4 @@
+import { isPassActivityAction, passActivityText } from "./pass-reassurance";
 import type { ActivityItem, ActivityResource } from "@/lib/types";
 
 export type ActivitySummary = Partial<Record<ActivityResource, number>>;
@@ -10,7 +11,8 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
     created: "Ask drafted.",
     sent: "New Ask landed.",
     reviewed: "Ask reviewed.",
-    passed: "Your Ask got a pass.",
+    said_yes: "Your Ask got a yes.",
+    passed: "Passed for now. No reason needed.",
     maybe: "Your Ask got a maybe.",
     counter_accepted: "Counter accepted.",
     revoked: "Ask taken back.",
@@ -20,7 +22,8 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
     completed: "Ask completed.",
     expire: "Ask expired.",
     planned: "Plan set.",
-    unplanned: "Plan cleared.",
+    unplanned: "Change of plans.",
+    withdrawn: "Change of plans.",
     updated: "Sexboard updated.",
   },
   "fantasy-backlog": {
@@ -34,6 +37,7 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
     added: "Shelf updated.",
     focused: "They came back for another taste.",
     reacted: "Shelf reaction landed.",
+    matched: "You both saved the same thing.",
     updated: "Shelf updated.",
     deleted: "Shelf item removed.",
   },
@@ -67,6 +71,8 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
   // signal with no copy, so it never toasts.
   mood: {
     match: "You're both horny.",
+    match_mixed: "You're both up for it.",
+    match_open: "You're both open to it.",
   },
 };
 
@@ -110,6 +116,21 @@ export const ACTIVITY_RESOURCE_TAB: Record<ActivityResource, string> = {
 export const MOOD_MATCH_HREF = "/sexboard?mood=match";
 export const MOOD_MATCH_COPY = "You're both horny";
 
+// Shared, actor-less wording per match kind (rows and toasts). Matches
+// functions/api/_activity.js; the Home card says it from your side instead.
+// Feed actions: "match" (both horny), "match_mixed", "match_open".
+const MOOD_MATCH_COPY_BY_KIND: Record<string, string> = {
+  horny: MOOD_MATCH_COPY,
+  mixed: "You're both up for it",
+  open: "You're both open to it",
+};
+
+/** Row/toast title for a mood match, from its kind or its feed action. */
+export function moodMatchCopy(kindOrAction: string | null | undefined): string {
+  const kind = String(kindOrAction || "").replace(/^match_?/, "") || "horny";
+  return MOOD_MATCH_COPY_BY_KIND[kind] || MOOD_MATCH_COPY;
+}
+
 export function isMoodActivity(item: Pick<ActivityItem, "resource"> | null | undefined) {
   return item?.resource === "mood";
 }
@@ -141,6 +162,7 @@ export function lastRequestEventAt(request: {
   completedAt?: string;
   passedAt?: string;
   archivedAt?: string;
+  withdrawnAt?: string;
 }): string {
   const times = [
     request.createdAt,
@@ -150,6 +172,7 @@ export function lastRequestEventAt(request: {
     request.completedAt,
     request.passedAt,
     request.archivedAt,
+    request.withdrawnAt,
   ]
     .map((value) => (value ? new Date(value).getTime() : 0))
     .filter((ms) => Number.isFinite(ms) && ms > 0);
@@ -239,9 +262,10 @@ export function publishActivitySummary(summary: ActivitySummary) {
 export function textForActivityEvent(resource = "", action = "", actorName = "") {
   // A pass or a maybe names who said it, like the activity feed row does.
   const first = String(actorName || "").trim().split(/\s+/)[0];
-  if (resource === "request-board" && first && (action === "passed" || action === "maybe")) {
-    return action === "passed" ? `${first} passed.` : `${first} said maybe.`;
-  }
+  if (resource === "request-board" && first && action === "maybe") return `${first} said maybe.`;
+  if (resource === "request-board" && first && action === "said_yes") return `${first} said yes.`;
+  // A pass always reads warm, with the reviewer's optional reassurance.
+  if (resource === "request-board" && isPassActivityAction(action)) return passActivityText(action, first);
   return ACTION_COPY[resource]?.[action] || "";
 }
 

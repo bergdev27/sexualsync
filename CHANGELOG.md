@@ -4,6 +4,66 @@ User-visible changes to Sexualsync. Self-hosters on Docker update with
 `docker compose pull && docker compose up -d`; from a source clone, `git pull`
 and a rebuild (see `docs/self-host/`).
 
+## 2.1.0
+
+Built from research on what raises desire in long-term couples and what
+quietly kills it. Short version: lower the stakes and lust follows.
+
+### Saying yes, no and maybe
+
+- **Pass warmly.** Pass is still one tap and never needs a reason. You can add
+  "Not tonight, I still want you", "Love that you asked", or a rain check
+  ("Ask me this weekend"). The person who asked never sees a cold "Passed".
+- **Rain checks** come back to the asker as a gentle "Try this again?" on Home
+  at the time you picked. It's their call; nothing re-sends on its own.
+- **No nagging.** No automatic reminders. One manual nudge per Ask, ever, and
+  never after a pass or a maybe. The same Acts rest for a week after a pass.
+  No "Seen" receipts.
+- **Quiet hours** for notifications on each device. Your partner can't tell.
+- **Change of plans.** Either of you can take back a yes or clear a plan with
+  no blame and no record of a cancel.
+- **Slow touch, no finish line** is a new built-in Act for a low-key way in.
+
+### Desire
+
+- **"I'm horny" has a second mode: "Open to being seduced."** For the many
+  people whose wanting shows up once things start. Horny + open is a match
+  too, and it reads right from each side.
+- **Plan it** says what the research says: planned sex is as good as the
+  spontaneous kind, and the waiting is half the fun. Send a teaser after you
+  plan.
+
+### Reveals and Health
+
+- **No scores.** The quiz "% in sync" and Green Lights tallies are gone. You
+  see what you both want, not how you rate as a couple.
+- **Every match can become an Ask** (or a plan) in one tap.
+- **"What lights them up"** shows what you both matched on that your partner
+  especially wants, as an offer, never a to-do list.
+- **Stronger double-blind.** Reveal rounds need real answers, can't be
+  re-run every few minutes, and never show a partner's misses, timestamps or
+  progress. Green Lights shows where you agree; differences open only if you
+  both choose to compare. The Pile needs two drops from each of you.
+- **Health** shows moments, favorites and firsts. Counts and the rhythm chart
+  are a private opt-in for each of you.
+
+### Saying it out loud
+
+- **Warm one-tap replies** on kinks and sexts ("Into it", "Tell me more",
+  "Saving this for later"). Nothing demands a reply.
+- **Label what you share:** just a fantasy, want to talk about it, or want to
+  try it. Riskier themes get a "talk first?" step before they become an Ask.
+- **How common is this?** Some fantasies carry a short, sourced note, with a
+  "Why we say this" page.
+- **Your voice** in Settings: how spicy prompts get and how filthy the app
+  talks to you. Each of you sets your own.
+- **Sext prompts** like "I want you because…" and "Tell me one thing you'd do
+  to me tonight."
+- **Words I like:** new Green Lights cards for the words you like being called
+  and using. Only the ones you both said yes to are revealed.
+- **The Shelf** leads with "Send to" and "Watch together". Private saves stay
+  private; if you both save the same thing, it shows as "You both saved this".
+
 ## 2.0.2
 
 ### Changed

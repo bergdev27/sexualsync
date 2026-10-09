@@ -2,7 +2,7 @@ import { getStore } from "./_kv.js";
 import {
   LEGACY_WORKSPACE_ID,
   getAuthenticatedIdentity,
-  jsonResponse,
+  jsonResponse as sendJson,
   normalizeEmail
 } from "./_auth.js";
 import {
@@ -75,6 +75,9 @@ const ALL_STATUSES = new Set(["draft", "pending", "sent", "maybe", "reviewed", "
 // Yes/Counter/Pass later ("Decide now"). It's the only non-pending/sent status
 // that can be replied to.
 const REPLYABLE_STATUSES = new Set(["pending", "sent", "maybe"]);
+// What the asker may set through the create/edit POST. Everything else is an
+// answer and has its own reviewer-side action.
+const REQUESTER_POST_STATUSES = new Set(["draft", "pending", "sent", "archived"]);
 
 const STATUS_TRANSITIONS = {
   draft: new Set(["sent", "archived"]),
@@ -230,6 +233,20 @@ function isApprovedForPlanning(request) {
   if (hasApprovedAct) return request.status === "reviewed" || request.status === "on_deck";
   return request.status === "on_deck" && cleanCategories(request.categories).length > 0;
 }
+
+// "Change of plans" is final for that yes (FRIES consent: a yes covers one Act
+// at one time, and taking it back must stick). `withdrawnAt` is today's stamp;
+// an archived Ask with `passedAt` and a Yes is the legacy stamp for the same
+// withdrawal. Neither partner can restore it: the way back is a fresh Ask, which
+// the other partner answers again.
+export function isWithdrawnRequest(request) {
+  if (!request) return false;
+  if (request.withdrawnAt) return true;
+  if (request.status !== "archived" || !request.passedAt) return false;
+  return cleanDecisions(request.decisions || []).some((item) => item.decision === "Yes");
+}
+
+export const WITHDRAWN_RESTORE_ERROR = "This one was set aside. Ask again instead.";
 
 function matchNarrationInputForRequest(request, options = {}) {
   const acts = approvedActLabelsForNarration(request, options);
@@ -392,15 +409,32 @@ const TIMING_EXPIRY_DAYS = {
   "Tomorrow": 2,
   "Next week": 7
 };
-const REQUEST_REMINDER_AFTER_MS = 4 * 60 * 60 * 1000;
-const REQUEST_REMINDER_REPEAT_MS = 24 * 60 * 60 * 1000;
-// Manual "Remind" button (requester nudges the reviewer on demand). Unlike the
-// automatic reminder it ignores the 4h post-send delay, but keeps a short
-// anti-spam floor so a tap can't fire a burst of pushes at the partner. Shares
-// `lastReminderAt` with the automatic path, so a manual nudge also resets the
-// 24h auto-repeat clock.
-const MANUAL_REMIND_COOLDOWN_MS = 60 * 60 * 1000;
-const MAX_REQUEST_REMINDERS_PER_GET = 3;
+// Anti-nagging (research rec #4: Rosen et al. 2024 on demand-withdraw; FTC
+// "nagging" dark pattern). There is NO automatic reminder: the reviewer is
+// notified once, when the Ask lands. The requester may send ONE manual nudge
+// per Ask, ever, only while it is still a first-answer Ask (never after a pass
+// or a maybe), and only once some time has passed since it was sent, so the
+// nudge can't stack on top of the "new Ask" notification.
+const REMIND_AVAILABLE_AFTER_MS = 4 * 60 * 60 * 1000;
+export const MAX_MANUAL_REMINDERS_PER_ASK = 1;
+const REMINDABLE_STATUSES = new Set(["pending", "sent"]);
+// Re-ask cooldown (rec #4): after a pass, the SAME Ask (same requester, same
+// partner, same set of Acts) can't be re-sent for a week, unless the reviewer
+// offered a rain check, which opens it up at the time they picked.
+export const REASK_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+// Reassuring pass notes (rec #2: Kim et al. 2020 and Dobson et al. 2025 found
+// reassuring, future-facing rejections keep the asker's interest and
+// satisfaction up). A fixed allowlist of ids, never free text, so a note carries
+// no user-written content and stays readable without Room Encryption, like the
+// plaintext decision words it sits beside.
+export const PASS_NOTE_IDS = new Set(["still_want", "love_asked", "this_weekend", "next_week"]);
+export const RAIN_CHECK_NOTE_IDS = new Set(["this_weekend", "next_week"]);
+const RAIN_CHECK_MAX_AHEAD_MS = 30 * 24 * 60 * 60 * 1000;
+// Used only when a client sends a rain-check note without a resolved local time.
+const RAIN_CHECK_FALLBACK_MS = {
+  this_weekend: 3 * 24 * 60 * 60 * 1000,
+  next_week: 7 * 24 * 60 * 60 * 1000
+};
 const UNANSWERED_REVIEW_GRACE_DAYS = 1;
 const UNANSWERED_TONIGHT_STALE_HOUR = 12;
 const UNANSWERED_EXPIRY_RESTORE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
@@ -437,6 +471,91 @@ function hasReviewerResponse(request) {
 function safeDateMsValue(value) {
   const ms = new Date(value || "").getTime();
   return Number.isFinite(ms) ? ms : 0;
+}
+
+// Order-independent key for "the same set of Acts" (re-ask cooldown).
+function actSetKey(categories) {
+  return [...new Set(cleanCategories(categories).map(compactMatchText).filter(Boolean))].sort().join("|");
+}
+
+// A reply that passed on every requested Act: no yes, no maybe, no counter.
+export function isPlainPassReply(request) {
+  if (!request) return false;
+  const decisions = cleanDecisions(request.decisions || []).filter((item) => item.decision);
+  if (!decisions.length) return false;
+  if (counterItemsForRequest(request).length) return false;
+  return decisions.every((item) => item.decision === "No");
+}
+
+function cleanRainCheckAt(value, nowMs) {
+  const iso = cleanPlannedFor(value);
+  if (!iso) return "";
+  const ms = Date.parse(iso);
+  if (ms <= nowMs || ms > nowMs + RAIN_CHECK_MAX_AHEAD_MS) return "";
+  return iso;
+}
+
+// The optional reassurance a reviewer attached to a pass. Only a plain pass can
+// carry one; anything else (a yes, a counter, a garbled id) yields no fields, so
+// a pass with no chip stays a plain pass and the asker sees the default warm copy.
+export function passReplyFields(payload, decisions, nowMs = Date.now()) {
+  const answered = cleanDecisions(decisions).filter((item) => item.decision);
+  const plainPass = answered.length > 0
+    && answered.every((item) => item.decision === "No" && !item.counter && !item.counterActId);
+  if (!plainPass) return {};
+  const passNote = cleanShortText(payload?.passNote, 32);
+  if (!PASS_NOTE_IDS.has(passNote)) return {};
+  const fields = { passNote };
+  if (RAIN_CHECK_NOTE_IDS.has(passNote)) {
+    fields.rainCheckAt = cleanRainCheckAt(payload?.rainCheckAt, nowMs)
+      || new Date(nowMs + RAIN_CHECK_FALLBACK_MS[passNote]).toISOString();
+  }
+  return fields;
+}
+
+// The room event for a plain pass. The note id rides in the action so the
+// activity row and toast can say the reassurance instead of a bare "passed".
+export function passActivityAction(passNote) {
+  return PASS_NOTE_IDS.has(passNote) ? `passed_${passNote}` : "passed";
+}
+
+// The room event for a reply that is not a full pass: a yes (with no counter
+// waiting) reads warmly as "Jordan said yes"; anything else (a counter, a mix)
+// stays the neutral "reviewed".
+export function reviewActivityAction(decisions) {
+  const answered = cleanDecisions(decisions).filter((item) => item.decision);
+  const hasCounter = answered.some((item) => item.decision === "Counter" || item.counter || item.counterActId);
+  return !hasCounter && answered.some((item) => item.decision === "Yes") ? "said_yes" : "reviewed";
+}
+
+// Re-ask cooldown: the latest plain pass of the same Acts between the same two
+// people that is still resting. Room-encrypted Asks are skipped (the server only
+// sees placeholders); the client applies the same rule after decrypting.
+export function reaskCooldownFor(requests, { requesterEmail, reviewerEmail, categories, workspaceIds }, nowMs = Date.now()) {
+  const key = actSetKey(categories);
+  if (!key) return null;
+  const ids = workspaceIdSet(workspaceIds);
+  let best = null;
+  for (const request of requests || []) {
+    if (!request || (ids.size && !ids.has(request.workspaceId))) continue;
+    if (hasRoomEncryptedPayload(request)) continue;
+    if (normalizeEmail(request.requesterEmail) !== normalizeEmail(requesterEmail)) continue;
+    if (normalizeEmail(request.reviewerEmail) !== normalizeEmail(reviewerEmail)) continue;
+    if (!["reviewed", "archived", "expired"].includes(request.status)) continue;
+    if (request.withdrawnAt || !isPlainPassReply(request)) continue;
+    if (actSetKey(request.categories) !== key) continue;
+    const passedMs = safeDateMsValue(request.reviewedAt);
+    if (!passedMs) continue;
+    let untilMs = passedMs + REASK_COOLDOWN_MS;
+    const rainMs = safeDateMsValue(request.rainCheckAt);
+    // A rain check is the reviewer's own time: the Ask opens up exactly then,
+    // the same instant the rain-check copy shows (it can sit a little past the
+    // week, e.g. "next week" at 10 am).
+    if (rainMs) untilMs = rainMs;
+    if (nowMs >= untilMs) continue;
+    if (!best || untilMs > best.untilMs) best = { untilMs, requestId: request.id };
+  }
+  return best ? { until: new Date(best.untilMs).toISOString(), requestId: best.requestId } : null;
 }
 
 function unansweredAnchorMs(request) {
@@ -546,7 +665,7 @@ function unansweredStaleAtForRequest(request) {
 }
 
 function isAutoExpired(request, nowIso = new Date().toISOString()) {
-  // Pending/sent Asks are still waiting on the reviewer; timing copy should not
+  // Pending/sent Asks have no first answer yet; timing copy should not
   // remove the request before they have a chance to answer.
   if (!["reviewed", "on_deck"].includes(request.status)) return false;
   const expiresAt = expirationFor(request);
@@ -893,6 +1012,15 @@ function migrate(request, legacyPeople = {}) {
     delete migrated.plannedByEmail;
     delete migrated.plannedByName;
   }
+  const passNote = cleanShortText(request.passNote, 32);
+  if (PASS_NOTE_IDS.has(passNote)) migrated.passNote = passNote;
+  else delete migrated.passNote;
+  const rainCheckAt = cleanPlannedFor(request.rainCheckAt);
+  if (rainCheckAt && RAIN_CHECK_NOTE_IDS.has(passNote)) migrated.rainCheckAt = rainCheckAt;
+  else {
+    delete migrated.rainCheckAt;
+    delete migrated.rainCheckDismissedAt;
+  }
   if (encryptedPayload) migrated.encryptedPayload = encryptedPayload;
   else delete migrated.encryptedPayload;
   if (encryptedReply) migrated.encryptedReply = encryptedReply;
@@ -902,6 +1030,38 @@ function migrate(request, legacyPeople = {}) {
 
 function sortByUpdated(items) {
   return [...items].sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+}
+
+// Per-viewer projection of an Ask row. Some fields are one partner's private
+// bookkeeping and never reach the other: the asker setting a rain check aside,
+// and the asker's own nudge counter. Everything else (including encrypted
+// boxes and placeholders) passes through untouched.
+const REQUESTER_ONLY_FIELDS = ["rainCheckDismissedAt", "lastReminderAt", "reminderCount"];
+// Who said "Change of plans" stays with the person who said it.
+const WITHDRAWER_ONLY_FIELDS = ["withdrawnByEmail", "withdrawnByName"];
+
+export function projectRequestForViewer(request, viewerEmail) {
+  if (!request || typeof request !== "object") return request;
+  const viewer = normalizeEmail(viewerEmail);
+  const hidden = [
+    ...(viewer && normalizeEmail(request.requesterEmail) === viewer ? [] : REQUESTER_ONLY_FIELDS),
+    ...(viewer && normalizeEmail(request.withdrawnByEmail) === viewer ? [] : WITHDRAWER_ONLY_FIELDS),
+  ].filter((field) => field in request);
+  if (!hidden.length) return request;
+  const projected = { ...request };
+  for (const field of hidden) delete projected[field];
+  return projected;
+}
+
+// Applies projectRequestForViewer to every Ask row a board-shaped body carries.
+export function projectBoardForViewer(body, viewerEmail) {
+  if (!body || typeof body !== "object") return body;
+  const out = { ...body };
+  if (out.request) out.request = projectRequestForViewer(out.request, viewerEmail);
+  for (const key of ["requests", "activeRequests", "history"]) {
+    if (Array.isArray(out[key])) out[key] = out[key].map((row) => projectRequestForViewer(row, viewerEmail));
+  }
+  return out;
 }
 
 function partitionForWorkspace(allRequests, workspaceIds) {
@@ -929,17 +1089,20 @@ function roomE2eeRequired(workspace) {
 }
 
 export async function readRequestBoardForWorkspace(env, workspaceId, options = {}) {
-  const { expireInMemory = true, workspaceIds = workspaceId } = options;
+  const { expireInMemory = true, workspaceIds = workspaceId, viewerEmail = "" } = options;
   const now = new Date().toISOString();
   const legacyPeople = options.legacyPeople || await legacyPeopleForEnv(env);
   const allRequests = (await readRequests(env, workspaceIds)).map((request) => migrate(request, legacyPeople)).map((request) => {
     if (!expireInMemory) return request;
     return timingWindowStatusForRead(request, now);
   });
-  return {
+  const board = {
     workspaceId,
     ...partitionForWorkspace(allRequests, workspaceIds)
   };
+  // Server-side readers (Health) pass no viewer and see full rows; anything
+  // that goes back to a client passes its viewer.
+  return viewerEmail ? projectBoardForViewer(board, viewerEmail) : board;
 }
 
 function buildReviewUrl(env, request, token) {
@@ -970,29 +1133,11 @@ function safeTimeMs(value) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function requestReminderAnchorMs(request) {
-  return safeTimeMs(request.sentAt || request.createdAt || request.updatedAt);
-}
-
-function shouldRemindRequest(request, nowMs, viewerEmail = "") {
-  if (!request || !["pending", "sent"].includes(request.status)) return false;
-  if (!request.workspaceId || !request.reviewerEmail || !request.requesterEmail) return false;
-  if (normalizeEmail(request.reviewerEmail) === normalizeEmail(request.requesterEmail)) return false;
-  if (viewerEmail && normalizeEmail(request.reviewerEmail) === normalizeEmail(viewerEmail)) return false;
-
-  const sentMs = requestReminderAnchorMs(request);
-  if (!sentMs || nowMs - sentMs < REQUEST_REMINDER_AFTER_MS) return false;
-
-  const lastReminderMs = safeTimeMs(request.lastReminderAt);
-  return !lastReminderMs || nowMs - lastReminderMs >= REQUEST_REMINDER_REPEAT_MS;
-}
-
-// Deliver one reminder for `current` to its reviewer: mint a fresh review token,
-// push to the requester's targeted partner (lock-screen-safe), and fall back to
-// email if the push isn't satisfied. Returns the new token + resolved delivery
-// channel; the caller persists lastReminderAt/reminderCount. Shared by the
-// automatic 4h/24h reminder loop and the manual "Remind" button so both behave
-// identically (same phrasing, same token, same email fallback).
+// Deliver the one manual nudge for `current` to its reviewer: mint a fresh
+// review token, push to the reviewer (lock-screen-safe), and fall back to email
+// if the push isn't satisfied (a recipient's quiet hours count as satisfied, so
+// they never turn into an email). Returns the new token + delivery channel; the
+// caller persists lastReminderAt/reminderCount.
 async function sendReviewReminderPush(context, workspace, current, requesterMember, reviewerMember) {
   const env = context.env;
   const token = await createReviewToken(env, {
@@ -1001,12 +1146,11 @@ async function sendReviewReminderPush(context, workspace, current, requesterMemb
     reviewerEmail: reviewerMember.email
   });
   const reviewUrl = buildReviewUrl(context.env, context.request, token.token);
-  // Reminder gets its own discreet phrasing so the urgency signal survives
-  // lock-screen genericization. No partner name, no content; just a soft
-  // "still waiting" tone.
+  // Same calm, generic phrasing as every other push: no urgency, no "still
+  // waiting", no partner name or content.
   const pushResults = await notifyWorkspaceEvent(context, workspace.id, normalizeEmail(requesterMember.email), {
     title: "Sexualsync",
-    body: "Something's still waiting in your room.",
+    body: "Something new in your room.",
     tag: "request-reminder",
     url: reviewUrl,
     actions: [{ action: "review", title: "Review", url: reviewUrl }],
@@ -1028,86 +1172,12 @@ async function sendReviewReminderPush(context, workspace, current, requesterMemb
   return { token, reminderDelivery };
 }
 
-async function processPendingRequestReminders(context, workspace, requestIds, viewerEmail) {
-  if (!requestIds.length) return;
-  const env = context.env;
-  const legacyPeople = await legacyPeopleForEnv(env);
-  const nowMs = Date.now();
-  const nowIso = new Date(nowMs).toISOString();
-  const allRequests = (await readRequests(env, workspace.id)).map((request) => migrate(request, legacyPeople));
-  const reminderUpdates = [];
-
-  for (const requestId of requestIds) {
-    const index = allRequests.findIndex((item) => item.id === requestId && item.workspaceId === workspace.id);
-    if (index === -1) continue;
-
-    const current = allRequests[index];
-    if (!shouldRemindRequest(current, nowMs, viewerEmail)) continue;
-    if (isAutoExpired(current, nowIso)) continue;
-    // Reminders target pending/sent Asks, which isAutoExpired never matches
-    // (it only fires for reviewed/on_deck) — the guard that actually applies
-    // here is staleness: don't nudge the reviewer about an Ask the very same
-    // board read is about to expire as unanswered.
-    if (isStaleUnansweredRequest(current, nowIso)) continue;
-
-    const reviewerMember = resolveMember(workspace, current.reviewerEmail);
-    const requesterMember = resolveMember(workspace, current.requesterEmail);
-    if (!reviewerMember?.email || reviewerMember.status !== "active") continue;
-    if (!requesterMember?.email || requesterMember.status !== "active") continue;
-
-    const { token, reminderDelivery } = await sendReviewReminderPush(context, workspace, current, requesterMember, reviewerMember);
-
-    const reminderCount = Number(current.reminderCount || 0) + 1;
-    reminderUpdates.push({
-      id: current.id,
-      patch: {
-        reviewTokenId: token.id,
-        reviewTokenExpiresAt: token.expiresAt,
-        lastReminderAt: nowIso,
-        reminderCount,
-        reminderDelivery
-      }
-    });
-
-    await appendAudit(env, workspace.id, {
-      type: "request_reminder_sent",
-      actorEmail: requesterMember.email,
-      actorName: requesterMember.displayName,
-      entityType: "request",
-      entityId: current.id,
-      metadata: {
-        delivery: reminderDelivery,
-        reminderCount
-      }
-    });
-  }
-
-  if (reminderUpdates.length) {
-    await writeRequestsAtomic(env, workspace.id, (fresh) => fresh.map((req) => {
-      const update = reminderUpdates.find((u) => u.id === req.id);
-      return update ? { ...req, ...update.patch } : req;
-    }), { legacyPeople });
-  }
-}
-
-function schedulePendingRequestReminders(context, access, allRequests, viewerEmail) {
-  const nowMs = Date.now();
-  const requestIds = allRequests
-    .filter((item) => item.workspaceId === access.workspace.id && shouldRemindRequest(item, nowMs, viewerEmail))
-    .sort((a, b) => requestReminderAnchorMs(a) - requestReminderAnchorMs(b))
-    .slice(0, MAX_REQUEST_REMINDERS_PER_GET)
-    .map((item) => item.id);
-  if (!requestIds.length) return;
-
-  const promise = processPendingRequestReminders(context, access.workspace, requestIds, viewerEmail).catch(() => {});
-  if (typeof context.waitUntil === "function") {
-    context.waitUntil(promise);
-  }
-}
-
 export async function onRequest(context) {
   const identity = await getAuthenticatedIdentity(context);
   if (!identity.ok) return identity.response;
+  // Every response from this handler goes back to `identity`, so every Ask row
+  // in it is projected for that viewer.
+  const jsonResponse = (status, body) => sendJson(status, projectBoardForViewer(body, identity.email));
 
   const env = context.env;
   const legacyPeople = await legacyPeopleForEnv(env);
@@ -1136,7 +1206,6 @@ export async function onRequest(context) {
     if (!access.ok) return access.response;
     const dataWorkspaceIds = access.dataWorkspaceIds;
     const allRequests = await loadAndExpireRequests(env, dataWorkspaceIds, legacyPeople);
-    schedulePendingRequestReminders(context, access, allRequests, identity.email);
     scheduleMissingMatchNarrationPrewarm(context, access.workspace.id, dataWorkspaceIds, allRequests);
     return jsonResponse(200, {
       workspaceId: access.workspace.id,
@@ -1214,15 +1283,15 @@ export async function onRequest(context) {
       });
     }
 
-    // Manual "Remind" — the waiting requester nudges the reviewer to come look
-    // at a pending Ask. Reuses the automatic reminder's delivery path (push →
-    // email fallback) but on demand, with a short anti-spam cooldown.
+    // Manual nudge: the requester can send ONE gentle nudge per Ask, ever,
+    // while it still has no first answer. Never after a pass, a counter or a
+    // maybe (a maybe is a real answer for now), and never right after sending.
     if (action === "remind") {
       if (normalizeEmail(existing.requesterEmail) !== normalizeEmail(actorEmail)) {
-        return jsonResponse(403, { error: "Only the person who sent this Ask can send a reminder." });
+        return jsonResponse(403, { error: "Only the person who sent this Ask can send a nudge." });
       }
-      if (!REPLYABLE_STATUSES.has(existing.status)) {
-        return jsonResponse(409, { error: "This Ask isn't waiting for a reply anymore." });
+      if (!REMINDABLE_STATUSES.has(existing.status)) {
+        return jsonResponse(409, { error: "This Ask already has an answer for now." });
       }
       const requesterMember = resolveMember(workspace, existing.requesterEmail);
       const reviewerMember = resolveMember(workspace, existing.reviewerEmail);
@@ -1244,10 +1313,18 @@ export async function onRequest(context) {
       await writeRequestsAtomic(env, existing.workspaceId, (fresh) => {
         const cur = fresh.find((item) => item.id === existing.id);
         if (!cur) { conflict = { status: 404, error: "This Ask is no longer available." }; return null; }
-        if (!REPLYABLE_STATUSES.has(cur.status)) { conflict = { status: 409, error: "This Ask isn't waiting for a reply anymore." }; return null; }
-        const lastMs = safeTimeMs(cur.lastReminderAt);
-        if (lastMs && nowMs - lastMs < MANUAL_REMIND_COOLDOWN_MS) {
-          conflict = { status: 429, error: "You just nudged them — give it a bit before the next reminder.", retryAfterMs: MANUAL_REMIND_COOLDOWN_MS - (nowMs - lastMs) };
+        if (!REMINDABLE_STATUSES.has(cur.status)) { conflict = { status: 409, error: "This Ask already has an answer for now." }; return null; }
+        if (cur.lastReminderAt || Number(cur.reminderCount || 0) >= MAX_MANUAL_REMINDERS_PER_ASK) {
+          conflict = { status: 409, error: "You've sent your one nudge for this Ask. The rest is up to them." };
+          return null;
+        }
+        const sentMs = safeTimeMs(cur.sentAt || cur.createdAt);
+        if (sentMs && nowMs - sentMs < REMIND_AVAILABLE_AFTER_MS) {
+          conflict = {
+            status: 409,
+            error: "They just got this one. If it's still open in a few hours, you can send one nudge.",
+            availableAt: new Date(sentMs + REMIND_AVAILABLE_AFTER_MS).toISOString()
+          };
           return null;
         }
         reminderCount = Number(cur.reminderCount || 0) + 1;
@@ -1256,7 +1333,7 @@ export async function onRequest(context) {
       }, { legacyPeople });
       if (conflict) {
         const body = { reminded: false, error: conflict.error };
-        if (conflict.retryAfterMs) body.retryAfterMs = conflict.retryAfterMs;
+        if (conflict.availableAt) body.availableAt = conflict.availableAt;
         return jsonResponse(conflict.status, body);
       }
       // We won the slot — now actually deliver (token + push, email fallback).
@@ -1308,6 +1385,7 @@ export async function onRequest(context) {
       if (roomE2eeRequired(workspace) && !encryptedReply) {
         return jsonResponse(400, { error: "Room Encryption requires encrypted replies." });
       }
+      const passFields = passReplyFields(payload, decisions, Date.parse(now));
       const replyPatch = {
         status: "reviewed",
         decisions,
@@ -1317,6 +1395,7 @@ export async function onRequest(context) {
         reviewedByEmail: actorEmail,
         reviewedByName: actorName,
         updatedAt: now,
+        ...passFields,
         ...(encryptedReply ? { encryptedReply } : {})
       };
       // Re-check the precondition against the FRESH row INSIDE the CAS transform
@@ -1381,13 +1460,14 @@ export async function onRequest(context) {
         entityId: existing.id,
         metadata: decisionCounts(decisions)
       });
-      // A reply that is a pass on every act says so in the activity feed
-      // ("Jordan passed") instead of a generic "Ask reviewed".
+      // A reply that is a pass on every act says so in the activity feed, in
+      // warm words ("Jordan passed for now"), carrying the reviewer's optional
+      // reassurance instead of a generic "Ask reviewed".
       const passedEverything = !hasYes && !hasCounter
         && decisions.every((item) => item.decision === "No");
       broadcastRoomEvent(context, workspace.id, {
         resource: "request-board",
-        action: passedEverything ? "passed" : "reviewed",
+        action: passedEverything ? passActivityAction(passFields.passNote) : reviewActivityAction(decisions),
         entityId: existing.id,
         actorEmail,
         actorName,
@@ -1716,9 +1796,90 @@ export async function onRequest(context) {
       });
     }
 
+    // "Change of plans" (FRIES consent, research rec #15: a yes is reversible
+    // and covers one Act at one time). Either partner can withdraw an Ask you
+    // both said yes to. It leaves the Sexboard for both of you, any plan is
+    // cleared, and it is stamped `withdrawnAt`, never `passedAt`: it is not a
+    // pass, not a cancellation, and Health never counts it as an approval.
+    // `pass` is the legacy name for the same action from older clients.
+    if (action === "withdraw" || action === "pass") {
+      if (!isRequestParticipant(existing, actorEmail)) {
+        return jsonResponse(403, { error: "Only this Ask's participants can change plans." });
+      }
+      const now = new Date().toISOString();
+      let updated = null;
+      let raceConflict = null;
+      const writtenRows = await writeRequestsAtomic(env, existing.workspaceId, (fresh) => {
+        const cur = fresh.find((item) => item.id === existing.id);
+        if (!cur) { raceConflict = { status: 404, error: "This Ask is no longer available." }; return null; }
+        if (!isApprovedForPlanning(cur)) {
+          raceConflict = { status: 409, error: "Only an Ask you both said yes to can change plans." };
+          return null;
+        }
+        const rest = { ...cur };
+        delete rest.plannedFor;
+        delete rest.plannedAt;
+        delete rest.plannedByEmail;
+        delete rest.plannedByName;
+        updated = {
+          ...rest,
+          status: "archived",
+          withdrawnAt: now,
+          withdrawnByEmail: actorEmail,
+          withdrawnByName: actorName,
+          updatedAt: now
+        };
+        return fresh.map((item) => item.id === cur.id ? updated : item);
+      }, { legacyPeople });
+      if (raceConflict) return jsonResponse(raceConflict.status, { error: raceConflict.error });
+      const next = recombineRequests(allRequests, existing.workspaceId, writtenRows);
+      await revokeRequestTokens(env, workspace.id, existing.id).catch(() => {});
+      await appendAudit(env, workspace.id, {
+        type: "request_plans_changed",
+        actorEmail,
+        actorName,
+        entityType: "request",
+        entityId: existing.id
+      });
+      // No actor, like a mood match: "Change of plans" reads the same for both
+      // of you, and never says which of you took the yes back.
+      broadcastRoomEvent(context, workspace.id, {
+        resource: "request-board",
+        action: "withdrawn",
+        entityId: existing.id,
+      });
+      return jsonResponse(200, {
+        request: updated,
+        workspaceId: workspace.id,
+        ...partitionForWorkspace(next, dataWorkspaceIds)
+      });
+    }
+
+    // The asker sets aside a rain-check suggestion ("Not now"). Only hides the
+    // suggestion on their own Home; nothing is broadcast and the partner sees
+    // no trace of it.
+    if (action === "dismiss_rain_check") {
+      if (normalizeEmail(existing.requesterEmail) !== normalizeEmail(actorEmail)) {
+        return jsonResponse(403, { error: "Only the person who asked can set this aside." });
+      }
+      const now = new Date().toISOString();
+      let updated = existing;
+      const writtenRows = await writeRequestsAtomic(env, existing.workspaceId, (fresh) => {
+        const cur = fresh.find((item) => item.id === existing.id);
+        if (!cur || !cur.rainCheckAt || cur.rainCheckDismissedAt) return null;
+        updated = { ...cur, rainCheckDismissedAt: now };
+        return fresh.map((item) => item.id === cur.id ? updated : item);
+      }, { legacyPeople });
+      const next = recombineRequests(allRequests, existing.workspaceId, writtenRows);
+      return jsonResponse(200, {
+        request: updated,
+        workspaceId: workspace.id,
+        ...partitionForWorkspace(next, dataWorkspaceIds)
+      });
+    }
+
     const targetStatusByAction = {
       archive: "archived",
-      pass: "archived",
       restore: "on_deck",
       on_deck: "on_deck",
       completed: "completed",
@@ -1728,6 +1889,9 @@ export async function onRequest(context) {
     if (!targetStatus) return jsonResponse(400, { error: "Unsupported request action" });
     if (!isRequestParticipant(existing, actorEmail)) {
       return jsonResponse(403, { error: "Only this Ask's participants can change its status." });
+    }
+    if (targetStatus === "on_deck" && isWithdrawnRequest(existing)) {
+      return jsonResponse(409, { error: WITHDRAWN_RESTORE_ERROR, withdrawn: true });
     }
     if (!canTransition(existing.status, targetStatus)) {
       return jsonResponse(400, {
@@ -1745,6 +1909,10 @@ export async function onRequest(context) {
         raceConflict = { status: 403, error: "Only this Ask's participants can change its status." };
         return null;
       }
+      if (targetStatus === "on_deck" && isWithdrawnRequest(cur)) {
+        raceConflict = { status: 409, error: WITHDRAWN_RESTORE_ERROR, withdrawn: true };
+        return null;
+      }
       if (!canTransition(cur.status, targetStatus)) {
         raceConflict = { status: 400, error: `Request cannot move from ${cur.status} to ${targetStatus}.` };
         return null;
@@ -1755,7 +1923,6 @@ export async function onRequest(context) {
         updatedAt: now,
         ...(targetStatus === "completed" ? { completedAt: now, completedByEmail: actorEmail, completedByName: actorName } : {}),
         ...(targetStatus === "archived" ? { archivedAt: now, archivedByEmail: actorEmail, archivedByName: actorName } : {}),
-        ...(action === "pass" ? { passedAt: now, passedByEmail: actorEmail, passedByName: actorName } : {}),
         // Manual expire stamps the same metadata every auto-expiry writes, so
         // history rows aren't missing expiredAt and the restore-grace math
         // doesn't have to fall back to updatedAt. Reason "manual" deliberately
@@ -1772,7 +1939,12 @@ export async function onRequest(context) {
       };
       return fresh.map((item) => item.id === cur.id ? updated : item);
     });
-    if (raceConflict) return jsonResponse(raceConflict.status, { error: raceConflict.error });
+    if (raceConflict) {
+      return jsonResponse(raceConflict.status, {
+        error: raceConflict.error,
+        ...(raceConflict.withdrawn ? { withdrawn: true } : {})
+      });
+    }
     const next = recombineRequests(allRequests, existing.workspaceId, writtenRows);
     if (targetStatus === "on_deck") prewarmRequestMatchNarration(context, workspace.id, updated);
 
@@ -1784,7 +1956,7 @@ export async function onRequest(context) {
         actorName,
         entityType: "request",
         entityId: existing.id,
-        metadata: action === "pass" ? { reason: "pass_after_agreement" } : {}
+        metadata: {}
       });
     } else if (targetStatus === "on_deck") {
       await appendAudit(env, workspace.id, {
@@ -1845,6 +2017,13 @@ export async function onRequest(context) {
     return jsonResponse(400, { error: "Reviewed or archived requests cannot be edited here." });
   }
 
+  // A maybe stays with the partner who said it until they decide (it never
+  // auto-converts and never triggers a reminder). The asker can't re-send or
+  // re-word it underneath them; taking it back (revoke) is still open.
+  if (existing && existing.status === "maybe") {
+    return jsonResponse(409, { error: "They said maybe. It's theirs to decide when they're ready." });
+  }
+
   const requesterMember = resolveMember(workspace, existing?.requesterEmail || identity.email);
   const reviewerEmail = existing?.reviewerEmail
     || payload.reviewerEmail
@@ -1870,15 +2049,22 @@ export async function onRequest(context) {
     return jsonResponse(403, { error: "Submit reviews through the private review link." });
   }
 
+  // This path is the ASKER's: create, save a draft, send it, or set it aside.
+  // Answering (maybe/yes/on deck/done/expired) belongs to the reply, maybe,
+  // accept_counter and status actions, so an asker can never stamp their own
+  // Ask as agreed.
+  if (!REQUESTER_POST_STATUSES.has(desiredStatus)) {
+    return jsonResponse(403, { error: "Only your partner can answer this Ask." });
+  }
+
   if (existing && !canTransition(previousStatus, desiredStatus)) {
     return jsonResponse(400, {
       error: `Request cannot move from ${previousStatus} to ${desiredStatus}.`
     });
   }
 
-  const decisions = cleanDecisions(payload.decisions).length
-    ? cleanDecisions(payload.decisions)
-    : existing?.decisions || [];
+  // Decisions are the reviewer's words; the asker's payload never sets them.
+  const decisions = existing?.decisions || [];
   const counters = decisions.filter((item) => item.counter || item.counterActId);
   const baseCategories = cleanCategories(payload.categories);
   const nextCategories = baseCategories.length ? baseCategories : (existing?.categories || []);
@@ -1887,6 +2073,35 @@ export async function onRequest(context) {
   const encryptedPayload = cleanRoomEncryptedBox(payload.encryptedPayload, 60000);
   if (roomE2eeRequired(workspace) && !encryptedPayload) {
     return jsonResponse(400, { error: "Room Encryption requires encrypted Asks." });
+  }
+
+  // Sending: a brand-new Ask, or a saved draft going out. Both get the same
+  // treatment (sentAt, pending, a review link and one notification).
+  const sendingNow = (!existing || existing.status === "draft")
+    && (desiredStatus === "sent" || desiredStatus === "pending");
+
+  // Re-ask cooldown: a calm 409 (not an error state in the client) when the
+  // same Acts were just passed on. It applies whenever an Ask becomes
+  // answerable with this set of Acts: a fresh send, a draft going out, or an
+  // open Ask re-worded to a different set. Plaintext only (the server sees
+  // placeholders for a Room-encrypted Ask; the client applies the same rule).
+  const rewordedOpenAsk = Boolean(existing)
+    && REPLYABLE_STATUSES.has(desiredStatus)
+    && actSetKey(existing.categories) !== actSetKey(nextCategories);
+  const plaintextAsk = !encryptedPayload && !hasRoomEncryptedPayload(existing || {});
+  if ((sendingNow || rewordedOpenAsk) && plaintextAsk) {
+    const cooldown = reaskCooldownFor(allRequests, {
+      requesterEmail: requesterMember.email,
+      reviewerEmail: reviewerMember.email,
+      categories: nextCategories,
+      workspaceIds: dataWorkspaceIds
+    });
+    if (cooldown) {
+      return jsonResponse(409, {
+        error: "This one's resting for a few days after a pass. Ask for something else, or bring it back later.",
+        cooldown
+      });
+    }
   }
 
   const serverHardNoConflicts = hardNoConflicts(await readBoundaries(env, dataWorkspaceIds), dataWorkspaceIds, {
@@ -1933,7 +2148,7 @@ export async function onRequest(context) {
   let emailResult = { skipped: true };
   let deliveryTask = null;
 
-  if (!existing && desiredStatus !== "draft" && desiredStatus !== "archived") {
+  if (sendingNow) {
     nextRequest.sentAt = now;
     nextRequest.status = "pending";
   }
@@ -1952,7 +2167,9 @@ export async function onRequest(context) {
   };
   let writtenRows = await writeRequestsAtomic(env, writeTargetWorkspaceId, upsert);
 
-  if (nextRequest.status === "pending") {
+  // Only an actual send mints a review link and notifies. Editing an Ask that's
+  // already out never re-notifies: that would be an uncapped nudge.
+  if (sendingNow) {
     const token = await createReviewToken(env, {
       workspaceId: workspace.id,
       requestId: nextRequest.id,
@@ -2069,7 +2286,7 @@ export async function onRequest(context) {
   if (deliveryTask) runAfterResponse(context, deliveryTask);
   broadcastRoomEvent(context, workspace.id, {
     resource: "request-board",
-    action: nextRequest.status === "pending" ? "sent" : (index === -1 ? "created" : "updated"),
+    action: sendingNow ? "sent" : (index === -1 ? "created" : "updated"),
     entityId: nextRequest.id,
     actorEmail,
     actorName,

@@ -1,0 +1,37 @@
+/* "Try this again?" rain-check suggestion on Home (Sexboard card). A quiet row
+   group: hairline-separated items, no nested card, no accent stripe. */
+
+.rain-check-item {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.rain-check-body {
+  margin: 0;
+  color: var(--cream);
+  font-size: var(--fs-15);
+  line-height: 1.45;
+}
+
+.rain-check-acts {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+}
+
+/* Two equal choices: the asker decides, so neither one shouts. */
+.rain-check-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.rain-check-cta,
+.rain-check-dismiss {
+  width: 100%;
+  min-height: 44px;
+  justify-content: center;
+}

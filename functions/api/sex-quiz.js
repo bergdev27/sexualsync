@@ -7,6 +7,12 @@
 // complementary give/receive pairs + curious-together). Each partner's curated
 // top picks are shared on reveal so they can surface on the Sexboard / Sext.
 //
+// No score. The reveal returns what you share, never a "% in sync" number and
+// never a count of where you differ: a visible benchmark turns desire into a
+// "should" (Loewenstein et al. 2015, instructed frequency lowered wanting;
+// Muise et al. 2016 on "doing it as much as we think we should"). Round rules
+// (minimum batch, frozen answers, re-reveal cooldown) live in _reveal_round.js.
+//
 // Shared product handler (Cloudflare + self-host): only Web-standard globals +
 // the storage seam (getStore / mutateKey). v1 is plaintext-at-rest (the store
 // envelope encrypts on disk) + double-blind at the app layer; Room-E2EE for the
@@ -24,6 +30,15 @@ import {
 import { appendAudit } from "./_audit.js";
 import { notifyWorkspaceEvent } from "./_notification_policy.js";
 import { broadcastRoomEvent } from "./_live_room.js";
+import {
+  MIN_ROUND_ANSWERS,
+  cleanRevealedSnapshot,
+  entrySubmittedInRound,
+  nextRoundFrom,
+  partnerChangeNotice,
+  recordRound,
+  resolveRoundReveal,
+} from "./_reveal_round.js";
 
 const STORE_NAME = "sexualsync-sex-quiz";
 function quizKey(workspaceId) { return `sexQuiz:${workspaceId}`; }
@@ -83,19 +98,17 @@ function cleanTopPicks(value, ratings) {
   return out;
 }
 
-function entrySubmitted(entry) {
-  return Boolean(entry?.submittedAt);
-}
-
 function emptyRecord(workspaceId, now) {
   return {
     workspaceId,
     status: "open",
+    round: 1,
     entries: {},
     fullReveal: {},
     createdAt: now,
     updatedAt: now,
     revealedAt: "",
+    lastRevealedAt: "",
   };
 }
 
@@ -113,6 +126,7 @@ function migrateRecord(raw, workspaceId, now) {
       ratings,
       topPicks: cleanTopPicks(entry.topPicks, ratings),
       submittedAt: entry.submittedAt || "",
+      round: Number.isInteger(entry.round) && entry.round > 0 ? entry.round : 1,
       updatedAt: entry.updatedAt || entry.submittedAt || raw.createdAt || now,
     };
   }
@@ -125,21 +139,32 @@ function migrateRecord(raw, workspaceId, now) {
   return {
     workspaceId,
     status: raw.status === "revealed" ? "revealed" : "open",
+    round: recordRound(raw),
     entries,
     fullReveal,
     createdAt: raw.createdAt || now,
     updatedAt: raw.updatedAt || raw.createdAt || now,
     revealedAt: raw.revealedAt || "",
+    lastRevealedAt: raw.lastRevealedAt || "",
+    revealedSnapshot: cleanRevealedSnapshot(raw.revealedSnapshot),
   };
 }
 
+// What a reveal compares: interest and role per card.
+function ratingSignatures(entry) {
+  const out = {};
+  for (const [cardId, rating] of Object.entries(entry?.ratings || {})) {
+    out[cardId] = `${rating?.interest || ""}:${rating?.role || ""}`;
+  }
+  return out;
+}
+
 function revealIfComplete(record, workspace, now) {
-  const required = activeMemberEmails(workspace);
-  if (required.length < 2) return record;
-  const submitted = required.filter((email) => entrySubmitted(record.entries?.[email]));
-  if (submitted.length < required.length) return record;
-  if (record.status === "revealed" && record.revealedAt) return record;
-  return { ...record, status: "revealed", revealedAt: record.revealedAt || now, updatedAt: now };
+  return resolveRoundReveal(record, activeMemberEmails(workspace), now);
+}
+
+function entrySubmitted(entry, record) {
+  return entrySubmittedInRound(entry, record);
 }
 
 // True when both partners want this card *and* their roles cover a giver and a
@@ -182,39 +207,14 @@ function computeOverlap(record, workspace, me) {
   return { matches, curiousTogether };
 }
 
-// A top-line "how in sync are we" number: across every card you BOTH rated, the
-// share where you pointed the same way — both leaning yes (into/curious, either
-// mix) or both passing. A pass-vs-want split is the only disagreement. Returns
-// 0-100, or null when you haven't both rated anything to compare.
-function computeSyncScore(record, workspace, me) {
-  const required = activeMemberEmails(workspace);
-  const partnerEmail = required.find((email) => email !== me) || "";
-  const mine = record.entries?.[me]?.ratings || {};
-  const partner = record.entries?.[partnerEmail]?.ratings || {};
-  let both = 0;
-  let agree = 0;
-  for (const [cardId, myRating] of Object.entries(mine)) {
-    const partnerRating = partner[cardId];
-    if (!partnerRating) continue;
-    both += 1;
-    const myYes = myRating.interest === "into" || myRating.interest === "curious";
-    const partnerYes = partnerRating.interest === "into" || partnerRating.interest === "curious";
-    if ((myYes && partnerYes) || (myRating.interest === "pass" && partnerRating.interest === "pass")) {
-      agree += 1;
-    }
-  }
-  if (both === 0) return null;
-  return Math.round((agree / both) * 100);
-}
-
 export function publicQuiz(record, workspace, actorEmail) {
   const me = normalizeEmail(actorEmail);
   const required = activeMemberEmails(workspace);
   const partnerEmail = required.find((email) => email !== me) || "";
   const mine = record.entries?.[me] || null;
   const partner = record.entries?.[partnerEmail] || null;
-  const mySubmitted = entrySubmitted(mine);
-  const partnerSubmitted = entrySubmitted(partner);
+  const mySubmitted = entrySubmitted(mine, record);
+  const partnerSubmitted = entrySubmitted(partner, record);
   // Only ever expose partner data in a genuine two-person revealed round. The
   // exposure target (the single `partnerEmail`) is ambiguous with 3+ active
   // members, so never reveal unless there's exactly one partner — defends the
@@ -227,30 +227,40 @@ export function publicQuiz(record, workspace, actorEmail) {
     requiredCount: Math.max(2, required.length),
     mySubmitted,
     partnerSubmitted,
-    updatedAt: record.updatedAt,
-    revealedAt: record.revealedAt,
+    round: recordRound(record),
+    // Only YOUR own timestamp. The record's updatedAt / revealedAt move when
+    // the partner submits, so exposing them would leak "partner answered at".
+    mySubmittedAt: mySubmitted ? mine?.submittedAt || "" : "",
+    // Set when both are in but the re-reveal cooldown is still running.
+    revealOpensAt: record.status === "revealed" ? "" : record.revealOpensAt || "",
+    minAnswers: MIN_ROUND_ANSWERS,
     // Your own answers are always yours to see.
     myRatings: mine?.ratings || {},
     myTopPicks: mine?.topPicks || [],
     // Reveal-gated: never expose the partner's picks/overlap until both finished.
     matches: [],
     curiousTogether: [],
-    syncScore: null,
     partnerTopPicks: [],
     partnerName: partner?.name || "",
+    // Your own opt-in is yours to see. The partner's only shows once it is
+    // mutual (the full deck is open), so an unanswered opt-in never reads as a
+    // visible "no", and opting in never tells them you're waiting on them.
+    // Mirrors Green Lights' compareMine / compareOpen.
     fullRevealMine: Boolean(record.fullReveal?.[me]),
-    fullRevealPartner: Boolean(record.fullReveal?.[partnerEmail]),
+    fullRevealOpen: revealed && Boolean(record.fullReveal?.[me]) && Boolean(record.fullReveal?.[partnerEmail]),
     partnerRatings: null,
+    // A new round waiting on you: how many of their answers changed since the
+    // last reveal, and whether a small change means looking over yours again.
+    ...partnerChangeNotice(record, me, partnerEmail, ratingSignatures),
   };
 
   if (revealed) {
     const overlap = computeOverlap(record, workspace, me);
     out.matches = overlap.matches;
     out.curiousTogether = overlap.curiousTogether;
-    out.syncScore = computeSyncScore(record, workspace, me);
     out.partnerTopPicks = partner?.topPicks || [];
     // Full deck only when BOTH partners opt in.
-    if (out.fullRevealMine && out.fullRevealPartner) {
+    if (out.fullRevealOpen) {
       out.partnerRatings = partner?.ratings || {};
     }
   }
@@ -274,8 +284,8 @@ export async function readSexQuizStatus(env, workspace, actorEmail, now = new Da
   const partnerEmail = required.find((email) => email !== me) || "";
   return {
     status: record.status,
-    mySubmitted: entrySubmitted(record.entries?.[me]),
-    partnerSubmitted: entrySubmitted(record.entries?.[partnerEmail]),
+    mySubmitted: entrySubmitted(record.entries?.[me], record),
+    partnerSubmitted: entrySubmitted(record.entries?.[partnerEmail], record),
     revealed: record.status === "revealed" && required.length === 2 && Boolean(partnerEmail),
   };
 }
@@ -317,28 +327,30 @@ export async function onRequest(context) {
       return jsonResponse(400, { error: "Too many cards." });
     }
     const ratings = cleanRatings(payload.ratings);
-    if (Object.keys(ratings).length === 0) {
-      return jsonResponse(400, { error: "Answer at least one card before submitting." });
+    // Minimum batch: a tiny round would turn the reveal into a per-card oracle.
+    if (Object.keys(ratings).length < MIN_ROUND_ANSWERS) {
+      return jsonResponse(400, { error: `Rate at least ${MIN_ROUND_ANSWERS} cards before you lock in.` });
     }
     const topPicks = cleanTopPicks(payload.topPicks, ratings);
     const result = await mutateKey(env, STORE_NAME, quizKey(workspace.id), (current) => {
-      const record = migrateRecord(current, workspace.id, now);
-      // Re-rating after a reveal reopens the round for this partner; the partner
-      // keeps their answers and the reveal re-completes when both are in again.
-      // Clear THIS actor's full-reveal opt-in: new answers need fresh consent
-      // before the partner can see the whole deck again (it would otherwise
-      // re-reveal the new ratings under the previous round's opt-in).
-      const fullReveal = { ...(record.fullReveal || {}) };
-      delete fullReveal[actorEmail];
-      const reopened = record.status === "revealed"
-        ? { ...record, status: "open", revealedAt: "", fullReveal }
-        : { ...record, fullReveal };
+      const record = revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now);
+      // Changing answers after a reveal starts a NEW round: both partners lock
+      // in again before anything reveals, and every full-deck opt-in resets.
+      // Before a reveal, only this actor's own opt-in resets (fresh answers
+      // need fresh consent).
+      let reopened = nextRoundFrom(record, ratingSignatures);
+      if (reopened === record) {
+        const fullReveal = { ...(record.fullReveal || {}) };
+        delete fullReveal[actorEmail];
+        reopened = { ...record, fullReveal };
+      }
       const nextEntry = {
         email: actorEmail,
         name: actorName,
         ratings,
         topPicks,
         submittedAt: now,
+        round: recordRound(reopened),
         updatedAt: now,
       };
       let next = {
@@ -381,7 +393,7 @@ export async function onRequest(context) {
 
   if (action === "retake") {
     const result = await mutateKey(env, STORE_NAME, quizKey(workspace.id), (current) => {
-      const record = migrateRecord(current, workspace.id, now);
+      const record = nextRoundFrom(revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now), ratingSignatures);
       const entries = { ...(record.entries || {}) };
       delete entries[actorEmail];
       const fullReveal = { ...(record.fullReveal || {}) };
@@ -398,12 +410,55 @@ export async function onRequest(context) {
   if (action === "full_reveal") {
     const on = payload.on !== false;
     const result = await mutateKey(env, STORE_NAME, quizKey(workspace.id), (current) => {
-      const record = migrateRecord(current, workspace.id, now);
+      const record = revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now);
       const fullReveal = { ...(record.fullReveal || {}) };
       if (on) fullReveal[actorEmail] = true; else delete fullReveal[actorEmail];
       const next = revealIfComplete({ ...record, fullReveal, updatedAt: now }, workspace, now);
       return { value: next, result: { next } };
     });
+    return jsonResponse(200, publicQuiz(result.next, workspace, actorEmail));
+  }
+
+  // Keep last round's answers and lock in to the new round without re-rating.
+  // Only the actor's own stored answers are re-confirmed; the reveal still
+  // waits for both partners plus the re-reveal cooldown.
+  if (action === "confirm") {
+    const result = await mutateKey(env, STORE_NAME, quizKey(workspace.id), (current) => {
+      const record = revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now);
+      const entry = record.entries?.[actorEmail];
+      if (!entry || Object.keys(entry.ratings || {}).length < MIN_ROUND_ANSWERS) {
+        return { write: false, result: { next: record, missing: true } };
+      }
+      if (entrySubmitted(entry, record)) return { write: false, result: { next: record } };
+      const partnerEmail = activeMemberEmails(workspace).find((email) => email !== actorEmail) || "";
+      const notice = partnerChangeNotice(record, actorEmail, partnerEmail, ratingSignatures);
+      if (notice.reanswerRequired) return { write: false, result: { next: record, reanswer: notice } };
+      const nextEntry = { ...entry, name: actorName || entry.name, submittedAt: now, round: recordRound(record), updatedAt: now };
+      const next = revealIfComplete({
+        ...record,
+        entries: { ...(record.entries || {}), [actorEmail]: nextEntry },
+        updatedAt: now,
+      }, workspace, now);
+      return { value: next, result: { next, changed: true } };
+    });
+    if (result.missing) return jsonResponse(400, { error: "There are no saved answers to keep. Take the quiz instead." });
+    if (result.reanswer) {
+      return jsonResponse(409, {
+        ...publicQuiz(result.next, workspace, actorEmail),
+        error: "A few of their answers changed. Look over yours before you lock in.",
+      });
+    }
+    if (result.changed) {
+      context.waitUntil?.(notifyWorkspaceEvent(context, workspace.id, actorEmail, {
+        title: "Sexualsync",
+        body: "Something new in your room.",
+        tag: "game-ready",
+        url: "/games/sex-quiz",
+      }));
+      broadcastRoomEvent(context, workspace.id, {
+        resource: "sex-quiz", action: "submitted", entityId: workspace.id, actorEmail, actorName, passive: true,
+      });
+    }
     return jsonResponse(200, publicQuiz(result.next, workspace, actorEmail));
   }
 
@@ -415,7 +470,7 @@ export async function onRequest(context) {
     const result = await mutateKey(env, STORE_NAME, quizKey(workspace.id), (current) => {
       const record = migrateRecord(current, workspace.id, now);
       const entry = record.entries?.[actorEmail];
-      if (!entry || !entrySubmitted(entry)) {
+      if (!entry || !entry.submittedAt) {
         return { value: record, result: { next: record, missing: true } };
       }
       const topPicks = cleanTopPicks(payload.topPicks, entry.ratings || {});

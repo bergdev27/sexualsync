@@ -1,0 +1,41 @@
+/* Quiet hours (Settings › Notifications). Sits under the presets as one card. */
+
+.quiet-hours {
+  margin-top: var(--space-3);
+}
+
+.quiet-hours-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: 4px 16px 14px;
+}
+
+.quiet-hours-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.quiet-hours-label {
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+}
+
+.quiet-hours-input {
+  min-height: 44px;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.quiet-hours-status {
+  margin: 0;
+  padding: 0 16px;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+}
+
+.quiet-hours-status:not(:empty) {
+  padding-bottom: 12px;
+}

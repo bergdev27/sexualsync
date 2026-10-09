@@ -5,6 +5,7 @@ import Link from "next/link";
 import AppShell, { useFocusedRun } from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { ErrorState, SkeletonList } from "@/components/States";
+import { SeedLink } from "@/components/MatchActions";
 import {
   ApiUnauthorizedError,
   archiveBlindReveal,
@@ -15,6 +16,7 @@ import {
   submitBlindReveal,
 } from "@/lib/api";
 import { getProfileCached } from "@/lib/profile-cache";
+import { vibrateIfActive } from "@/lib/haptics";
 import type {
   AuthInfo,
   BlindReveal,
@@ -545,9 +547,15 @@ function OpenedReveal({
   const isArchived = reveal.status === "archived";
   const myEmail = normalizeEmail(state.auth.email);
   const myEntry = reveal.entries.find((entry) => normalizeEmail(entry.email) === myEmail);
+  const theirEntry = reveal.entries.find((entry) => normalizeEmail(entry.email) !== myEmail && !entry.e2eeLocked);
+  // Turning their answer into an Ask: the prompt and their words ride along in
+  // the note, one-shot via sessionStorage, never in the URL.
+  const askNote = theirEntry?.text
+    ? `From our Blind Reveal (${reveal.prompt}): "${theirEntry.text.slice(0, 300)}"`
+    : "";
 
   useEffect(() => {
-    if (navigator.vibrate) navigator.vibrate([8, 24, 8]);
+    vibrateIfActive([8, 24, 8]);
   }, []);
 
   useEffect(() => {
@@ -636,6 +644,17 @@ function OpenedReveal({
 
       {!isArchived && (
         <div className="reveal-cta candle-cta">
+          {askNote && (
+            <SeedLink
+              source="blind-reveal"
+              acts={[]}
+              note={askNote}
+              className="btn-primary w-full mb-2 pressable"
+              testId="blind-reveal-make-it-an-ask"
+            >
+              Make it an Ask
+            </SeedLink>
+          )}
           {myEntry && (
             <button
               type="button"

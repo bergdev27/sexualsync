@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import AskReplyCard, { type ReplyDecisionPayload, type ReplyKind } from "@/components/AskReplyCard";
+import AskReplyCard, { type PassExtra, type ReplyDecisionPayload, type ReplyKind } from "@/components/AskReplyCard";
 import ScreenHeader from "@/components/ScreenHeader";
 import { ErrorState, SkeletonList } from "@/components/States";
 import { mutualAskHref } from "@/lib/activity";
@@ -181,7 +181,7 @@ function ReviewShell({
 
 const SUBMITTED_COPY: Record<ReplyKind, string> = {
   yes: "You said yes. It's on.",
-  pass: "You passed. No reason needed.",
+  pass: "You passed for now. No reason needed, and they hear it kindly.",
   maybe: "Saved as a maybe.",
   counter: "Your counter is with them now.",
 };
@@ -250,12 +250,14 @@ function ReviewForm({
 
   // Throws on failure so the card keeps the answer on screen with the error.
   // The private link is single-use: the server consumes it on success.
-  async function submit(decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) {
+  async function submit(decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind, extra?: PassExtra) {
     const result = await submitReviewToken({
       token,
       workspaceId: data.workspace.id,
       decisions,
       note,
+      ...(extra?.passNote ? { passNote: extra.passNote } : {}),
+      ...(extra?.rainCheckAt ? { rainCheckAt: extra.rainCheckAt } : {}),
     });
     if (navigator.vibrate) navigator.vibrate(8);
     onSubmitted(result.request, kind);

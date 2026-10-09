@@ -32,6 +32,7 @@ import { Body } from "./_sexboard-body";
 import type { LoadState } from "./_sexboard-types";
 import { useMarkActivityRead } from "@/lib/use-mark-activity-read";
 import type { RequestBoardResponse } from "@/lib/types";
+import { readVoice, voiced } from "@/lib/desire-voice";
 import "./sexboard.css";
 
 // Read-your-writes shim for Cloudflare KV's eventual consistency. mutateKey
@@ -308,8 +309,10 @@ export default function SexboardPage() {
   );
 }
 
+// Follows this person's own explicit-language setting (lib/desire-voice.ts).
 function greeting(state: LoadState) {
   if (state.kind !== "ready") return undefined;
+  const voice = readVoice(state.profile?.settings?.explicitVoice);
   const me = state.workspace.members.find((member) => normalizeEmail(member.email) === normalizeEmail(state.auth.email));
   const name = preferredGreetingName(
     state.profile?.displayName,
@@ -318,7 +321,11 @@ function greeting(state: LoadState) {
     state.auth.person,
     emailGreetingName(state.auth.email),
   );
-  return `Hi, ${name}`;
+  return voiced(voice, {
+    gentle: `Hi, ${name}`,
+    standard: `Hi, ${name}`,
+    filthy: `Hey, dirty ${name}`,
+  });
 }
 
 function subtitleFor(state: LoadState) {

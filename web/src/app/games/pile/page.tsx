@@ -8,7 +8,10 @@ import { radioGroupKeyDown, radioTabIndex } from "@/lib/radio-group";
 import ScreenHeader from "@/components/ScreenHeader";
 import WaitingForPartner from "@/components/WaitingForPartner";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
+import { vibrateIfActive } from "@/lib/haptics";
+import { pileMinNeeded } from "@/lib/pile-state";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
+import { SeedLink } from "@/components/MatchActions";
 import {
   ApiUnauthorizedError,
   declinePile,
@@ -420,7 +423,7 @@ function PileHistoryCard({
           {acts.length > 5 && <span className="chip">+{acts.length - 5}</span>}
         </div>
       ) : (
-        <p className="pile-history-empty">No overlap. {session.quietDropCount || "No"} quiet drops disappeared.</p>
+        <p className="pile-history-empty">No overlap this time. The misses disappeared.</p>
       )}
       {canRemove && (
         <button
@@ -456,6 +459,8 @@ function ActivePile({
   const [actsExpanded, setActsExpanded] = useState(false);
   const maxDropCount = pile.maxDropCount || pile.targetDropCount || 0;
   const usesDropLimit = maxDropCount > 0;
+  // Each side needs a couple of drops so a single miss stays ambiguous.
+  const minDrops = pile.minDropCount || Math.min(2, maxDropCount || 2);
   const myDropCount = pile.mine.length;
   const remainingDrops = usesDropLimit ? Math.max(0, maxDropCount - myDropCount) : 0;
   const isAtDropLimit = usesDropLimit && remainingDrops === 0;
@@ -463,7 +468,7 @@ function ActivePile({
   const availableActs = state.acts.filter((act) => !dropped.has(cleanKey(act.label)));
   const visibleActs = actsExpanded ? availableActs : availableActs.slice(0, COLLAPSED_PILE_ACT_COUNT);
   const hiddenActCount = Math.max(0, availableActs.length - visibleActs.length);
-  const waitingOnPartner = myDropCount > 0 && !pile.partnerHasDropped;
+  const waitingOnPartner = myDropCount >= minDrops && !pile.partnerHasDropped;
 
   useEffect(() => {
     const revealAt = new Date(pile.revealAt).getTime();
@@ -571,7 +576,7 @@ function ActivePile({
         </h2>
         <p className="pile-sub">
           {usesDropLimit
-            ? `Reveal opens when the timer is ready and both sides have at least one drop. Any overlap is the match; misses disappear.`
+            ? `Reveal opens when the timer is ready and you've each dropped at least ${minDrops}. Any overlap is the match; misses disappear.`
             : `${partner?.displayName || "Your partner"} can't see your side. You can't see theirs. Misses disappear at reveal.`}
         </p>
       </div>
@@ -664,7 +669,9 @@ function ActivePile({
           </ul>
         ) : (
           <div className="card p-4 text-sm leading-relaxed text-ink-2">
-            {usesDropLimit ? `Drop 1 to ${maxDropCount} Acts to get your side ready.` : "Drop one Act to get your side started."}
+            {usesDropLimit
+              ? (minDrops >= maxDropCount ? `Drop ${maxDropCount} Act${maxDropCount === 1 ? "" : "s"} to get your side ready.` : `Drop ${minDrops} to ${maxDropCount} Acts to get your side ready.`)
+              : `Drop at least ${minDrops} Acts to get your side started.`}
           </div>
         )}
         {isAtDropLimit && (
@@ -700,7 +707,7 @@ function ActivePile({
             disabled={!isRequester}
             className="input pile-time-input"
           />
-          <p className="pile-time-meta">{activePileTimeMeta(pile, partner?.displayName)}</p>
+          <p className="pile-time-meta">{activePileTimeMeta(pile)}</p>
         </div>
       </div>
 
@@ -760,8 +767,9 @@ function RevealedPile({
   const pile = state.pile!;
   const overlaps = pile.overlap || [];
   const mine = pile.mine || [];
+  // Only the partner drops that matched yours ever arrive; their misses stay
+  // private, and no count of misses is shown on either side.
   const theirs = Object.values(pile.partnerLabels || {})[0] || [];
-  const quietCount = (pile.onlyMine?.length || 0) + (pile.onlyTheirs?.length || 0);
   const isRequester = normalizeEmail(pile.startedByEmail) === normalizeEmail(state.auth.email);
   const [phase, setPhase] =
     useState<"intro" | "flip" | "match" | "drift" | "settle" | "final">("intro");
@@ -771,7 +779,7 @@ function RevealedPile({
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
-    if (navigator.vibrate) navigator.vibrate([8, 24, 8]);
+    vibrateIfActive([8, 24, 8]);
     // Slowed ~30% from the previous 400 / 1400 / 2400 / 3000 schedule.
     // New "drift" phase sits between match and settle and lets matched
     // cards visually pull together at the centerline before everything
@@ -894,13 +902,23 @@ function RevealedPile({
         )}
 
         <p className="pile-miss-line">
-          {quietCount || "No"} drop{quietCount === 1 ? "" : "s"} disappeared. No record kept.
+          Misses disappear. No record kept.
         </p>
 
         <div className="pile-final-actions">
           <button type="button" className="btn-primary w-full" onClick={lockItIn} disabled={busy}>
             {busy ? "Locking in" : "Lock it in"}
           </button>
+          {overlaps.length > 0 && (
+            <SeedLink
+              source="pile"
+              acts={overlaps}
+              className="btn-ghost w-full pressable"
+              testId="pile-make-it-an-ask"
+            >
+              Save it as an Ask for another night
+            </SeedLink>
+          )}
           {isRequester && (
             <button type="button" className="btn-ghost w-full" onClick={clearPile} disabled={busy}>
               Clear this pile
@@ -1038,6 +1056,7 @@ function timeUntil(value: string) {
   const ms = new Date(value).getTime() - Date.now();
   if (!Number.isFinite(ms)) return "Reveal time set";
   if (ms <= 0) return "Reveal is open";
+  if (ms < 60_000) return "Reveal in under a minute";
   const mins = Math.round(ms / 60000);
   if (mins < 60) return `Reveal in ${mins}m`;
   const hours = Math.floor(mins / 60);
@@ -1045,11 +1064,15 @@ function timeUntil(value: string) {
   return `Reveal in ${hours}h ${rest}m`;
 }
 
-function activePileTimeMeta(pile: PileView, partnerName?: string) {
+function activePileTimeMeta(pile: PileView) {
   const ms = new Date(pile.revealAt).getTime() - Date.now();
   if (Number.isFinite(ms) && ms <= 0 && !pile.isRevealed) {
-    if (!pile.mine.length) return "Reveal waits for your first drop";
-    if (!pile.partnerHasDropped) return `Reveal waits for ${partnerName?.split(" ")[0] || "your partner"}`;
+    // Under the minimum: the reveal waits on you, and says exactly how many.
+    const short = pileMinNeeded(pile) - pile.mine.length;
+    if (short > 0) return `Waiting on you: drop ${short} more`;
+    // Your side is in. The other side reads the same whether your partner
+    // dropped none or one (the server never says which).
+    if (!pile.partnerHasDropped) return "Waiting on more drops";
     return "Reveal is opening";
   }
   return timeUntil(pile.revealAt);

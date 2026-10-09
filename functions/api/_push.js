@@ -324,6 +324,70 @@ function cleanPushPreferences(value) {
   return prefs;
 }
 
+// Recipient-controlled quiet hours (research rec #4). A per-DEVICE window,
+// stored on that device's subscription, in which the server simply doesn't
+// deliver pushes to it. It is private to the person who set it: nothing about
+// it is ever returned to the partner, and a suppressed push reports as
+// "satisfied" so callers neither fall back to email nor surface a different
+// delivery result to the sender. The test push bypasses it so "Test" still works.
+const CLOCK_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function cleanClock(value) {
+  const match = CLOCK_RE.exec(String(value || "").trim());
+  return match ? `${match[1]}:${match[2]}` : "";
+}
+
+function cleanTimeZone(value) {
+  const zone = String(value || "").trim().slice(0, 64);
+  if (!zone) return "";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return "";
+  }
+}
+
+export function cleanQuietHours(value) {
+  if (!value || typeof value !== "object" || value.enabled === false) return null;
+  const start = cleanClock(value.start);
+  const end = cleanClock(value.end);
+  const timeZone = cleanTimeZone(value.timeZone);
+  if (!start || !end || start === end || !timeZone) return null;
+  return { start, end, timeZone };
+}
+
+function minutesOf(clock) {
+  const [hours, minutes] = clock.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+export function isWithinQuietHours(quietHours, nowMs = Date.now()) {
+  const window = cleanQuietHours(quietHours);
+  if (!window) return false;
+  let localMinutes;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: window.timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(new Date(nowMs));
+    const hour = Number(parts.find((part) => part.type === "hour")?.value);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
+    localMinutes = (hour % 24) * 60 + minute;
+  } catch {
+    return false;
+  }
+  const start = minutesOf(window.start);
+  const end = minutesOf(window.end);
+  // A window like 22:00-08:00 wraps past midnight.
+  return start < end
+    ? localMinutes >= start && localMinutes < end
+    : localMinutes >= start || localMinutes < end;
+}
+
 function allowsPayload(subscription, payload) {
   const tag = payload?.tag || "";
   if (!tag) return true;
@@ -336,7 +400,7 @@ function allowsPayload(subscription, payload) {
 // subscribe racing the dead-endpoint prune (or the partner subscribing at the
 // same moment) could silently drop a device — which then never gets pushes
 // again until it happens to re-subscribe.
-export async function addPushSubscription(env, workspaceId, email, subscription, preferences = {}) {
+export async function addPushSubscription(env, workspaceId, email, subscription, preferences = {}, quietHours = null) {
   const entry = {
     email,
     endpoint: subscription.endpoint,
@@ -344,6 +408,8 @@ export async function addPushSubscription(env, workspaceId, email, subscription,
     preferences: cleanPushPreferences(preferences),
     createdAt: new Date().toISOString()
   };
+  const quiet = cleanQuietHours(quietHours);
+  if (quiet) entry.quietHours = quiet;
   await mutateKey(env, "push", `subscriptions:${workspaceId}`, (current) => {
     const existing = Array.isArray(current) ? current : [];
     return { value: [...existing.filter((s) => s.endpoint !== entry.endpoint), entry] };
@@ -378,8 +444,14 @@ export async function pushToWorkspace(env, workspaceId, actorEmail, payload) {
     ? subs.filter((s) => String(s.email || "").trim().toLowerCase() === only)
     : subs.filter((s) => String(s.email || "").trim().toLowerCase() !== actor);
   if (onlyEmail && payload) delete payload.onlyEmail;
-  const filteredTargets = targets.filter((subscription) => allowsPayload(subscription, payload));
-  if (!filteredTargets.length) return [];
+  const allowedTargets = targets.filter((subscription) => allowsPayload(subscription, payload));
+  const nowMs = Date.now();
+  const quietTargets = payload?.tag === "push-test"
+    ? []
+    : allowedTargets.filter((subscription) => isWithinQuietHours(subscription.quietHours, nowMs));
+  const filteredTargets = allowedTargets.filter((subscription) => !quietTargets.includes(subscription));
+  const quietResults = quietTargets.map(() => ({ ok: false, suppressed: true, reason: "quiet-hours" }));
+  if (!filteredTargets.length) return quietResults;
   const results = await sendWebPushFanout(env, filteredTargets, payload);
   // Record last-delivered timestamp so the Settings panel can show a diagnostic.
   try {
@@ -400,5 +472,5 @@ export async function pushToWorkspace(env, workspaceId, actorEmail, payload) {
       return { value: fresh };
     }).catch(() => {});
   }
-  return results;
+  return [...results, ...quietResults];
 }

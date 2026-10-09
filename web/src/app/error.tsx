@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
-import "./error.css";
+// error.css loads from the root layout: imported here, Next preloads it on
+// every page and the browser warns that it went unused.
 
 /**
  * Last-resort boundary for a screen that throws while rendering. Without it

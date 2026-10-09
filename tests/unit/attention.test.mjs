@@ -106,11 +106,18 @@ test("attentionCountFor counts an active Pile when I haven't dropped my acts", a
   assert.equal(await attentionCountFor(env, WS, ME), 1, "an active Pile with no drops from me counts toward the badge");
 });
 
-test("attentionCountFor does not count a Pile I've already dropped into (pre-reveal)", async () => {
+test("attentionCountFor does not count a Pile I've dropped the minimum into (pre-reveal)", async () => {
   const env = await setup();
-  // Both dropped, reveal still ahead → it's waiting on my partner, not me.
-  await seedPile(env, { workspaceId: WS, revealAt: FUTURE, contributions: { [ME]: ["Slow undressing"], [PARTNER]: ["Shower together"] } });
-  assert.equal(await attentionCountFor(env, WS, ME), 0, "once I've dropped, the Pile waits on my partner");
+  // I'm at the minimum, reveal still ahead → it's waiting on my partner, not me.
+  await seedPile(env, { workspaceId: WS, revealAt: FUTURE, maxDropCount: 4, contributions: { [ME]: ["Slow undressing", "Kiss"], [PARTNER]: ["Shower together"] } });
+  assert.equal(await attentionCountFor(env, WS, ME), 0, "once I've dropped the minimum, the Pile waits on my partner");
+});
+
+test("attentionCountFor counts a Pile where I'm still under the minimum drops", async () => {
+  const env = await setup();
+  // One drop is not enough to open the reveal: "Add one more" still needs me.
+  await seedPile(env, { workspaceId: WS, revealAt: FUTURE, maxDropCount: 4, contributions: { [ME]: ["Slow undressing"], [PARTNER]: ["Shower together", "Kiss"] } });
+  assert.equal(await attentionCountFor(env, WS, ME), 1, "one drop under a two-drop minimum is needs-you");
 });
 
 test("attentionCountFor adds the Pile on top of asks + kinks", async () => {

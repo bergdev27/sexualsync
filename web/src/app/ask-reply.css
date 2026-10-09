@@ -288,12 +288,82 @@
   animation-fill-mode: forwards;
 }
 
-.reply-undo[data-kind="pass"] .reply-undo-fill { background: rgb(var(--no-rgb)); }
+/* A pass is neutral, never an alarm: no red drain bar. */
+.reply-undo[data-kind="pass"] .reply-undo-fill,
 .reply-undo[data-kind="maybe"] .reply-undo-fill { background: var(--cream-muted); }
 
 .reply-undo-actions {
   display: flex;
   gap: var(--space-2);
+}
+
+/* Optional reassurance chips inside a pass's undo window. One tap sends the
+   pass with those words; ignoring them sends a plain (still warm) pass. */
+.reply-pass-notes {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.reply-pass-notes-label {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+}
+
+.reply-pass-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.reply-pass-chip {
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--cream-a04);
+  box-shadow: var(--ring-hairline);
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-state, 240ms) var(--ease-settle, ease);
+}
+
+@media (hover: hover) {
+  .reply-pass-chip:hover { background: var(--accent-mist); }
+}
+
+.reply-pass-chip:active { background: var(--accent-mist); }
+
+.reply-pass-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The reassurance as the asker reads it, in the reviewer's voice. */
+.reply-pass-figure {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+}
+
+.reply-pass-quote {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  line-height: 1.3;
+}
+
+.reply-pass-rain {
+  margin: var(--space-2) 0 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.45;
 }
 
 .reply-error {

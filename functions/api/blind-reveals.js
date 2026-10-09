@@ -169,15 +169,20 @@ function revealIfComplete(reveal, workspace, now) {
   };
 }
 
-function publicEntry(entry) {
+// `own` = the viewer's entry. A partner's entry never carries its own
+// timestamps: "they answered at 11:42" is exactly the kind of signal the
+// double-blind exists to remove.
+function publicEntry(entry, own = false) {
   const out = {
     email: entry.email,
     name: entry.name,
     text: entry.text,
     promotedIdeaId: entry.promotedIdeaId || "",
-    createdAt: entry.createdAt,
-    updatedAt: entry.updatedAt,
   };
+  if (own) {
+    out.createdAt = entry.createdAt;
+    out.updatedAt = entry.updatedAt;
+  }
   const encryptedText = cleanRoomEncryptedBox(entry.encryptedText, 60000);
   if (encryptedText) out.encryptedText = encryptedText;
   return out;
@@ -192,6 +197,12 @@ export function publicReveal(reveal, workspace, actorEmail) {
   const myEntry = entries[me] || null;
   const partnerSubmitted = Object.entries(entries).some(([email, entry]) => normalizeEmail(email) !== me && entrySubmitted(entry));
   const shouldShowEntries = reveal.status === "revealed" || reveal.status === "archived";
+  // Before the reveal the record's updatedAt moves when the PARTNER submits, so
+  // only expose a time the viewer caused (creation or their own answer).
+  const openUpdatedAt = [reveal.createdAt, myEntry?.updatedAt]
+    .filter(Boolean)
+    .sort()
+    .pop() || reveal.createdAt;
 
   const out = {
     id: reveal.id,
@@ -199,7 +210,7 @@ export function publicReveal(reveal, workspace, actorEmail) {
     prompt: reveal.prompt,
     status: reveal.status,
     createdAt: reveal.createdAt,
-    updatedAt: reveal.updatedAt,
+    updatedAt: shouldShowEntries ? reveal.updatedAt : openUpdatedAt,
     revealedAt: reveal.revealedAt,
     archivedAt: reveal.archivedAt,
     requiredCount: Math.max(2, requiredEmails.length),
@@ -208,9 +219,9 @@ export function publicReveal(reveal, workspace, actorEmail) {
     partnerSubmitted,
     // Lets the UI offer "take back" only to the person who started it.
     startedByMe: normalizeEmail(reveal.createdByEmail) === me,
-    myEntry: myEntry ? publicEntry(myEntry) : null,
+    myEntry: myEntry ? publicEntry(myEntry, true) : null,
     entries: shouldShowEntries
-      ? Object.values(entries).map(publicEntry)
+      ? Object.values(entries).map((entry) => publicEntry(entry, normalizeEmail(entry.email) === me))
       : [],
   };
   const encryptedPrompt = cleanRoomEncryptedBox(reveal.encryptedPrompt, 12000);

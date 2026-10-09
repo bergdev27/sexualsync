@@ -10,8 +10,8 @@ import type { ActivityItem, ActivityResource, ActivityResponse } from "@/lib/typ
 import MoodRibbonMark from "@/components/MoodRibbonMark";
 import {
   ACTIVITY_RESOURCE_GLYPHS,
-  MOOD_MATCH_COPY,
   MOOD_MATCH_HREF,
+  moodMatchCopy,
   activityHref,
   isMoodActivity,
   compactActivityRows,
@@ -150,7 +150,7 @@ export default function LiveActivityToast() {
         const since = mood?.match?.since || "";
         if (!since || toastedMoodMatchesRef.current.has(since)) return;
         toastedMoodMatchesRef.current.add(since);
-        pushNotice(`${MOOD_MATCH_COPY}.`, 6000, MOOD_MATCH_HREF);
+        pushNotice(`${moodMatchCopy(mood.match?.kind)}.`, 6000, MOOD_MATCH_HREF);
       } catch {
         // No confirmation, no celebration; the Sexboard shows the truth.
       }
@@ -307,8 +307,9 @@ export function LiveActivitySection({
   }, [activity?.items, dismissedIds, myEmail]);
   const groupedItems = useMemo(() => groupActivityByDay(items), [items]);
   const unreadTotal = activity?.unreadTotal || 0;
-  // A mood match has no actor, so it says nothing about when the partner was last active.
-  const lastPartnerItem = items.find((item) => !isMoodActivity(item));
+  // A mood match or a change of plans has no actor, so it says nothing about
+  // when the partner was last active.
+  const lastPartnerItem = items.find((item) => !isMoodActivity(item) && Boolean(item.actorEmail));
   const lastActiveLine = activityStatusLine(lastPartnerItem?.at || "", partnerLastSeen || "", partnerFirstName);
 
   // "Mark read" empties the box: mark everything read AND clear every row (not
@@ -428,10 +429,14 @@ function ActivityRow({
   const [dragX, setDragX] = useState(0);
   const [swipeStarted, setSwipeStarted] = useState(false);
   const mood = isMoodActivity(item);
+  // A shared event with no actor (a change of plans) names nobody: it reads the
+  // same on both phones.
+  const actorless = !mood && !item.actorEmail;
   const actor = mood
     ? "Both of you"
+    : actorless ? ""
     : sameEmail(item.actorEmail, myEmail) ? "You" : (firstName(item.actorName) || fallbackActorName || "Partner");
-  const title = mood ? MOOD_MATCH_COPY : item.label;
+  const title = mood ? moodMatchCopy(item.action) : item.label;
   const meta = mood ? "Horny"
     : item.groupedCount && item.groupedCount > 1
     ? `${item.groupedCount} updates - ${item.resourceLabel}`
@@ -525,7 +530,7 @@ function ActivityRow({
         )}
         <span className="live-activity-main">
           <span className="live-activity-title">{title}</span>
-          <span className="live-activity-meta">{actor} - {meta}</span>
+          <span className="live-activity-meta">{actor ? `${actor} - ${meta}` : meta}</span>
         </span>
         <span className="live-activity-time">{timeLabel(item.at)}</span>
       </Link>

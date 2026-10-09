@@ -7,6 +7,7 @@
  */
 
 import { getConfig, savePushSubscription } from "@/lib/api";
+import { quietHoursSignature } from "@/lib/quiet-hours";
 
 export const PUSH_PREFS_KEY = "sexualsync-push-preferences";
 
@@ -22,7 +23,8 @@ const PUSH_LAST_SAVE_KEY = "sexualsync-push-last-save";
 const PUSH_RESAVE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 function pushPrefsSignature(prefs: Record<string, boolean>): string {
-  return Object.keys(prefs).sort().map((k) => `${k}:${prefs[k] ? 1 : 0}`).join(",");
+  // Quiet hours ride along with every save, so a change to them is a change too.
+  return `${Object.keys(prefs).sort().map((k) => `${k}:${prefs[k] ? 1 : 0}`).join(",")};quiet:${quietHoursSignature()}`;
 }
 
 /** Remember a successful save so background re-ensures can skip a redundant POST. */

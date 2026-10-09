@@ -21,9 +21,12 @@ import StickyAction from "@/components/StickyAction";
 import { announce } from "@/lib/announce";
 import { radioGroupKeyDown, radioTabIndex } from "@/lib/radio-group";
 import WaitingForPartner from "@/components/WaitingForPartner";
-import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
+import { SLOW_TOUCH_ACT_HINT, SLOW_TOUCH_ACT_LABEL, combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
+import { reaskCooldown } from "@/lib/pass-reassurance";
+import { planLabel } from "@/lib/plan-time";
 import { ErrorState, SkeletonList } from "@/components/States";
 import {
+  ApiFailureError,
   ApiOfflineQueuedError,
   ApiUnauthorizedError,
   createAct,
@@ -31,6 +34,7 @@ import {
   getActs,
   getBoundaries,
   getFantasyBacklog,
+  getRequestBoard,
 } from "@/lib/api";
 import { getProfileCached } from "@/lib/profile-cache";
 import type {
@@ -42,11 +46,13 @@ import type {
   Workspace,
   AuthInfo,
   KinkIdea,
+  RequestRecord,
 } from "@/lib/types";
 import { splitActLabel } from "@/lib/act-label";
 import { partnerOf } from "@/lib/workspace";
 import { getCachedResource, invalidateResource, setCachedResource, useColdStart } from "@/lib/resource-cache";
 import { fireSendPulse } from "@/lib/send-pulse";
+import { askSeedSourceLabel, consumeAskSeed, matchSeedActs, seededActsFor, seededNote as seedNoteFor, type AskSeed } from "@/lib/ask-seed";
 import {
   hasUnlockedRoomE2eeKey,
   restoreRoomE2eeSession,
@@ -76,13 +82,21 @@ type LoadState =
       boundaries: Boundary[];
       seededKink: KinkIdea | null;
       seededNote: string;
+      // The board, for the re-ask cooldown (it has to be checked after
+      // decrypting, so the client applies it too) and "Ask again" prefill.
+      requests?: RequestRecord[];
+      againActIds?: string[];
+      againTiming?: Timing;
+      // A one-shot handoff from a reveal ("Make it an Ask").
+      seed?: AskSeed | null;
     };
 
 export default function AskPage() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>(() => getCachedResource<LoadState>("ask") ?? { kind: "loading" });
   useColdStart("ask", setState);
-  useEffect(() => { if (state.kind === "ready") setCachedResource("ask", state); }, [state]);
+  // A reveal handoff is one-shot: never cache it into the next visit.
+  useEffect(() => { if (state.kind === "ready") setCachedResource("ask", { ...state, seed: null }); }, [state]);
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => {
     setState({ kind: "loading" });
@@ -103,13 +117,24 @@ export default function AskPage() {
           setState({ kind: "no-workspace" });
           return;
         }
-        const [actsRes, boundariesRes] = await Promise.all([
+        const [actsRes, boundariesRes, boardRes] = await Promise.all([
           getActs(profile.activeWorkspace.id),
           getBoundaries(profile.activeWorkspace.id),
+          // Best effort: without the board the server still applies the
+          // cooldown to plaintext Asks.
+          getRequestBoard(profile.activeWorkspace.id).catch(() => null),
         ]);
         const query = new URLSearchParams(window.location.search);
+        const combinedActs = combineBuiltInAndSavedActs(actsRes.acts, profile.activeWorkspace.id);
+        const requests = boardRes?.requests || [];
+        // "Ask again" from a rain check: preselect the same Acts.
+        const againId = query.get("again") || "";
+        const againRequest = againId ? requests.find((item) => item.id === againId) : undefined;
+        const againLabels = new Set((againRequest?.categories || []).map((label) => label.toLowerCase()));
+        const againActIds = combinedActs.filter((act) => againLabels.has(act.label.toLowerCase())).map((act) => act.id);
         const kinkId = query.get("kink") || "";
         const seededNote = (query.get("note") || "").trim().slice(0, 1800);
+        const seed = query.get("seed") === "1" ? consumeAskSeed() : null;
         const seededKink = kinkId
           ? (await getFantasyBacklog(profile.activeWorkspace.id)).ideas.find((kink) => kink.id === kinkId) || null
           : null;
@@ -118,10 +143,14 @@ export default function AskPage() {
           kind: "ready",
           auth: profile.auth,
           workspace: profile.activeWorkspace,
-          acts: combineBuiltInAndSavedActs(actsRes.acts, profile.activeWorkspace.id),
+          acts: combinedActs,
           boundaries: boundariesRes.boundaries,
           seededKink,
           seededNote,
+          requests,
+          againActIds,
+          againTiming: againRequest?.timing,
+          seed,
         });
       } catch (error) {
         if (cancelled) return;
@@ -213,7 +242,7 @@ export default function AskPage() {
       </AppShell>
     );
   }
-  return <AskForm state={state} router={router} />;
+  return <AskForm key={state.seed ? "seeded" : "plain"} state={state} router={router} />;
 }
 
 function hasJoinedPartner(workspace: Workspace, myEmail: string): boolean {
@@ -235,20 +264,34 @@ function AskForm({
   const partner = partnerOf(state.workspace, state.auth.email);
   const partnerFirst = partner?.displayName?.split(" ")[0] || "your partner";
 
-  const [acts, setActs] = useState<Act[]>(state.acts);
-  const [selectedActIds, setSelectedActIds] = useState<string[]>([]);
+  // A reveal handoff preselects the matched Acts; names with no matching Act
+  // (a quiz card, a "lights them up" line) join the grid as Acts for this Ask,
+  // picked, so it can be sent straight away. "Ask again" from a rain check
+  // preselects the same Acts as before.
+  const seedMatch = useMemo(
+    () => (state.seed ? matchSeedActs(state.seed.acts, state.acts) : { ids: [] as string[], unmatched: [] as string[] }),
+    [state.seed, state.acts],
+  );
+  const [seededActs] = useState<Act[]>(() => seededActsFor(seedMatch.unmatched, state.workspace.id));
+  const [acts, setActs] = useState<Act[]>(() => [...state.acts, ...seededActs]);
+  const [selectedActIds, setSelectedActIds] = useState<string[]>(
+    () => Array.from(new Set([...(state.againActIds || []), ...seedMatch.ids, ...seededActs.map((act) => act.id)])),
+  );
   const [actsExpanded, setActsExpanded] = useState(false);
   // Acts picked from the expanded list that sit outside the starter set. They
   // join the collapsed grid (at the end) only when the list collapses, and
   // stay put even if un-picked, so nothing moves under the finger.
-  const [keptActIds, setKeptActIds] = useState<string[]>([]);
+  const [keptActIds, setKeptActIds] = useState<string[]>(() => [...(state.againActIds || []), ...seededActs.map((act) => act.id)]);
   const sendReasonRef = useRef<HTMLParagraphElement | null>(null);
   const [actSearch, setActSearch] = useState("");
   const [actComposerOpen, setActComposerOpen] = useState(false);
-  const [timing, setTiming] = useState<Timing>("Tonight");
+  // "Ask again" keeps the original timing; a fresh Ask starts on Tonight.
+  const [timing, setTiming] = useState<Timing>(() => state.againTiming || "Tonight");
   const [filming, setFilming] = useState<Filming>("No");
   const [note, setNote] = useState<string>(
-    state.seededNote || (state.seededKink ? `Inspired by: ${state.seededKink.text}` : ""),
+    state.seededNote
+      || (state.seed ? seedNoteFor(state.seed, []) : "")
+      || (state.seededKink ? `Inspired by: ${state.seededKink.text}` : ""),
   );
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -259,9 +302,10 @@ function AskForm({
   // an effect) avoids a second render with stale acts.
   const [syncedActs, setSyncedActs] = useState(state.acts);
   if (syncedActs !== state.acts) {
-    const availableIds = new Set(state.acts.map((act) => act.id));
+    const nextActs = [...state.acts, ...seededActs];
+    const availableIds = new Set(nextActs.map((act) => act.id));
     setSyncedActs(state.acts);
-    setActs(state.acts);
+    setActs(nextActs);
     setSelectedActIds((prev) => prev.filter((id) => availableIds.has(id)));
   }
 
@@ -309,7 +353,18 @@ function AskForm({
     return { hard, warn };
   }, [acts, selectedActIds, state.boundaries]);
 
-  const canSubmit = selectedActIds.length > 0 && conflicts.hard.length === 0 && !!partner && !submitting;
+  // Re-ask cooldown (research rec #4, anti-nagging): the same Acts rest for a
+  // week after a pass, or until the rain check the partner offered. Said
+  // calmly, as timing, never as an error.
+  const cooldown = useMemo(() => {
+    if (!partner || !selectedActIds.length) return null;
+    const categories = acts.filter((act) => selectedActIds.includes(act.id)).map((act) => act.label);
+    return reaskCooldown(state.requests || [], { myEmail: state.auth.email, partnerEmail: partner.email, categories });
+  }, [acts, partner, selectedActIds, state.auth.email, state.requests]);
+  const slowTouchAct = acts.find((act) => act.label === SLOW_TOUCH_ACT_LABEL) || null;
+  const slowTouchPicked = Boolean(slowTouchAct && selectedActIds.includes(slowTouchAct.id));
+
+  const canSubmit = selectedActIds.length > 0 && conflicts.hard.length === 0 && !!partner && !submitting && !cooldown;
   // Why Send is unavailable, in words — shown in the sticky bar and linked to
   // the button with aria-describedby.
   const sendBlockedReason = !partner
@@ -318,6 +373,8 @@ function AskForm({
     ? "Choose at least one Act"
     : conflicts.hard.length > 0
     ? "Remove the Act that hits a hard limit"
+    : cooldown
+    ? `This one rests until ${planLabel(cooldown.until)}`
     : "";
   const selectionSummary = selectedActIds.length
     ? `${selectedActIds.length} Act${selectedActIds.length === 1 ? "" : "s"} selected · ${timing}`
@@ -353,6 +410,13 @@ function AskForm({
     );
   }
 
+  // The no-goal touch Act, offered as a low-stakes way in.
+  function pickSlowTouch() {
+    if (!slowTouchAct) return;
+    setSelectedActIds((prev) => (prev.includes(slowTouchAct.id) ? prev : [...prev, slowTouchAct.id]));
+    setKeptActIds((prev) => (prev.includes(slowTouchAct.id) ? prev : [...prev, slowTouchAct.id]));
+  }
+
   function surpriseMe() {
     const myEmail = state.auth.email.toLowerCase();
     const safe = acts
@@ -377,7 +441,7 @@ function AskForm({
       label,
       myComfort: "curious",
     });
-    setActs(combineBuiltInAndSavedActs(result.acts, state.workspace.id));
+    setActs([...combineBuiltInAndSavedActs(result.acts, state.workspace.id), ...seededActs]);
     setSelectedActIds((prev) => (
       prev.includes(result.act.id) ? prev : [...prev, result.act.id]
     ));
@@ -478,6 +542,15 @@ function AskForm({
         router.push("/sexboard");
         return;
       }
+      // The server's re-ask cooldown (plaintext Asks): calm timing, not an error.
+      const restingUntil = error instanceof ApiFailureError && error.status === 409
+        ? String((error.data as { cooldown?: { until?: string } } | null)?.cooldown?.until || "")
+        : "";
+      if (restingUntil && Number.isFinite(Date.parse(restingUntil))) {
+        setSubmitNotice(`${partnerName} passed on this one recently, so it rests until ${planLabel(new Date(restingUntil))}. Something else in the meantime?`);
+        setSubmitting(false);
+        return;
+      }
       const message = error instanceof Error ? error.message : "";
       // Backstop: our local E2EE state read "off" or "unlocked" (e.g. a stale
       // profile), but the server — the authoritative shared setting — still
@@ -513,6 +586,11 @@ function AskForm({
           }
         }}
       >
+        {state.seed && (
+          <p className="ask-seed" data-testid="ask-seed-from-reveal">
+            From <em>{askSeedSourceLabel(state.seed.source)}</em>, something you both want. Change anything, pick a time, send it when it feels right.
+          </p>
+        )}
         {state.seededKink && (
           <p className="ask-seed">
             Inspired by <em>{state.seededKink.text}</em>. Pick the exact Acts before sending.
@@ -588,7 +666,27 @@ function AskForm({
                 Open to anything? Surprise me
               </button>
             )}
+            {slowTouchAct && !slowTouchPicked && (
+              <button
+                type="button"
+                onClick={pickSlowTouch}
+                className="btn-ghost ask-act-action ask-slow-touch-action"
+                data-testid="ask-slow-touch"
+              >
+                Low-key? Slow touch, no finish line
+              </button>
+            )}
           </div>
+
+          {slowTouchPicked && (
+            <p className="ask-slow-touch-hint" data-testid="ask-slow-touch-hint">{SLOW_TOUCH_ACT_HINT}</p>
+          )}
+
+          {cooldown && (
+            <p className="ask-rest-note" role="status" data-testid="ask-rest-note">
+              {partner?.displayName?.split(" ")[0] || "Your partner"} passed on this one recently, so it rests until {planLabel(cooldown.until)}. Something else in the meantime?
+            </p>
+          )}
 
           {!actsExpanded && hiddenActCount > 0 && (
             <p className="mt-2 text-xs text-ink-3">

@@ -40,8 +40,19 @@
   font-weight: 600;
 }
 
-.ask-surprise-action {
+.ask-surprise-action,
+.ask-slow-touch-action {
   grid-column: 1 / -1;
+}
+
+/* The no-goal touch Act's one-line explanation, and the calm re-ask cooldown
+   note. Both are plain body text, not alerts. */
+.ask-slow-touch-hint,
+.ask-rest-note {
+  margin: 10px 0 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.45;
 }
 
 .ask-film-button {

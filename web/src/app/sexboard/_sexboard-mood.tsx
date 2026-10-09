@@ -3,14 +3,19 @@
 /**
  * Mood light: the double-blind "I'm in the mood" switch at the top of Home.
  *
- * Each partner switches their own light on until a time. The server only ever
- * returns MY state plus a `match` when both lights are on, so nothing here can
- * say anything about the partner unless the match exists. States:
+ * Each partner switches their own light on until a time, as "horny" or as
+ * "open" (not there yet, but open to being seduced). The server only ever
+ * returns MY state plus a `match` when both lights are on (any mix of the two
+ * states), so nothing here can say anything about the partner unless the
+ * match exists. Phases:
  *
- *  - off:      one quiet row; tapping it opens an inline chooser (no modal).
- *  - on:       "You're horny until …" and Turn off. Nothing about the partner.
+ *  - off:      one quiet row; tapping it opens an inline chooser (no modal):
+ *              horny or open, then how long.
+ *  - on:       "You're horny / open to it until …", Turn off, and a switch
+ *              between the two states. Nothing about the partner.
  *  - cooldown: switched off a few minutes ago; says when it can go back on.
- *  - match:    "You're both horny." with a bloom and quick actions.
+ *  - match:    said from my side ("You're both horny.", "Jordan's horny for
+ *              you.", …) with a bloom and quick actions.
  *
  * Times come from the server clock (serverNow skew), expiry is timed out here
  * because the server sends no event when a window simply ends, and mood
@@ -22,10 +27,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import MoodRibbonMark from "@/components/MoodRibbonMark";
 import { announce } from "@/lib/announce";
-import { MoodCooldownError, clearMood, getMood, setMood } from "@/lib/api";
+import { ApiFailureError, MoodCooldownError, clearMood, getMood, setMood, setMoodState } from "@/lib/api";
 import { useOnlineStatus, useRecoverOnReconnect } from "@/lib/network-status";
 import { useMoodRoomEvents } from "@/lib/use-live-room";
-import type { MoodResponse } from "@/lib/types";
+import type { MoodMatch, MoodResponse, MoodState } from "@/lib/types";
 
 type Phase = "loading" | "off" | "cooldown" | "on" | "match";
 type ChoiceId = "hour" | "tonight" | "open";
@@ -36,7 +41,33 @@ const DAY_MS = 24 * HOUR_MS;
 const TONIGHT_END_HOUR = 4;
 // Bloom runs once per match; keep the attribute a little past the animation.
 const BLOOM_MS = 1400;
-const MATCH_ANNOUNCEMENT = "You're both horny.";
+
+/** Older servers send no state: that was always "horny". */
+function stateOf(value: MoodState | null | undefined): MoodState {
+  return value === "open" ? "open" : "horny";
+}
+
+/**
+ * The match, said from my side. Both horny and both open read the same for
+ * both of you; a mixed match names what the partner said, because that is the
+ * news for each side (and the match is exactly when both of you may know).
+ */
+export function moodMatchLines(mine: MoodState, match: Pick<MoodMatch, "partnerState">, partner: string): { title: string; nudge: string } {
+  const theirs = stateOf(match.partnerState);
+  if (mine === "horny" && theirs === "horny") return { title: "You’re both horny.", nudge: "" };
+  if (mine === "horny") return { title: `${partner}’s open to being seduced.`, nudge: "Your move." };
+  if (theirs === "horny") return { title: `${partner}’s horny for you.`, nudge: "Let yourself be seduced." };
+  return { title: "You’re both open to it.", nudge: "Start slow and see where it goes." };
+}
+
+/** Announcements use plain apostrophes, like the rest of the app's announcer. */
+function spoken(text: string): string {
+  return text.replace(/’/g, "'");
+}
+
+function onTitle(state: MoodState): string {
+  return state === "open" ? "You’re open to it" : "You’re horny";
+}
 
 // In-process only (never persisted): a revisit paints the last known state
 // while the GET revalidates. A full reload or sign-out starts clean.
@@ -126,8 +157,11 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
   const [loadFailed, setLoadFailed] = useState(false);
   const [retryAtMs, setRetryAtMs] = useState(0);
   const [chooserOpen, setChooserOpen] = useState(false);
-  const [busy, setBusy] = useState<"" | ChoiceId | "off">("");
-  const [writeFailed, setWriteFailed] = useState(false);
+  // Which "on" the chooser switches into. Horny is the default; open is one
+  // tap away and never framed as the lesser option.
+  const [chosenState, setChosenState] = useState<MoodState>("horny");
+  const [busy, setBusy] = useState<"" | ChoiceId | "off" | "state">("");
+  const [writeFailed, setWriteFailed] = useState<"" | "on" | "off" | "state">("");
   const [blooming, setBlooming] = useState(false);
   const [deepLinkPending, setDeepLinkPending] = useState(false);
   // Render-time clock: refreshed when data lands, a window edge passes, or
@@ -136,7 +170,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
 
   const rootRef = useRef<HTMLElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const firstOptionRef = useRef<HTMLButtonElement | null>(null);
+  const firstOptionRef = useRef<HTMLInputElement | null>(null);
   const phaseRef = useRef<Phase>("loading");
   const loadSeq = useRef(0);
   const bloomTimer = useRef<number | undefined>(undefined);
@@ -145,17 +179,21 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
   const titleId = `${ids}-title`;
   const hintId = `${ids}-hint`;
   const chooserId = `${ids}-chooser`;
+  const stateNoteId = `${ids}-state-note`;
 
   const skewMs = snapshot?.skewMs ?? 0;
   const nowMs = clockMs + skewMs;
   const phase: Phase = loaded || snapshot ? phaseFor(snapshot, nowMs, retryAtMs) : "loading";
   const partner = partnerName || "your partner";
+  // What the match copy last said, so a horny <-> open switch while matched
+  // is spoken once without replaying the bloom.
+  const matchLineRef = useRef("");
 
-  const celebrate = useCallback(() => {
+  const celebrate = useCallback((line: string) => {
     window.clearTimeout(bloomTimer.current);
     setBlooming(true);
     bloomTimer.current = window.setTimeout(() => setBlooming(false), BLOOM_MS);
-    announce(MATCH_ANNOUNCEMENT);
+    announce(spoken(line));
     buzz();
   }, []);
 
@@ -171,8 +209,13 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
     setSnapshot(next);
     setLoaded(true);
     setLoadFailed(false);
-    if (after === "match" && before !== "match" && before !== "loading") celebrate();
-  }, [celebrate, workspaceId]);
+    const line = after === "match" && next.mood.match
+      ? moodMatchLines(stateOf(next.mood.mine.state), next.mood.match, partner).title
+      : "";
+    if (after === "match" && before !== "match" && before !== "loading") celebrate(line);
+    else if (after === "match" && before === "match" && matchLineRef.current && line !== matchLineRef.current) announce(spoken(line));
+    matchLineRef.current = line;
+  }, [celebrate, partner, workspaceId]);
 
   const refresh = useCallback(async () => {
     if (!workspaceId) return;
@@ -245,15 +288,15 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
   async function switchOn(choice: ChoiceId) {
     if (busy || !online) return;
     setBusy(choice);
-    setWriteFailed(false);
+    setWriteFailed("");
     const until = new Date(untilFor(choice, deviceNow() + skewMs));
     try {
-      const mood = await setMood(workspaceId, until);
+      const mood = await setMood(workspaceId, until, chosenState);
       setChooserOpen(false);
       setRetryAtMs(0);
       apply(mood);
       if (!mood.match) {
-        announce(`You're horny until ${moodClock(parseTime(mood.mine.until), deviceNow() + (snapshotFrom(mood)?.skewMs ?? 0))}.`);
+        announce(`${spoken(onTitle(stateOf(mood.mine.state)))} until ${moodClock(parseTime(mood.mine.until), deviceNow() + (snapshotFrom(mood)?.skewMs ?? 0))}.`);
       }
       // The chooser closed under focus; keep it on the control.
       window.requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>("[data-mood-focus]")?.focus());
@@ -266,8 +309,35 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
         announce(`You can switch it back on at ${moodClock(parseTime(error.retryAt), deviceNow() + offset)}.`);
         window.requestAnimationFrame(() => rootRef.current?.focus({ preventScroll: true }));
       } else {
-        setWriteFailed(true);
+        setWriteFailed("on");
         announce("Couldn't switch it on. Try again.");
+      }
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // Horny <-> open while on: same window, never a new switch-on.
+  async function switchState(next: MoodState) {
+    if (busy || !online) return;
+    setBusy("state");
+    setWriteFailed("");
+    try {
+      const mood = await setMoodState(workspaceId, next);
+      apply(mood);
+      if (!mood.match) {
+        announce(`${spoken(onTitle(stateOf(mood.mine.state)))} until ${moodClock(parseTime(mood.mine.until), deviceNow() + (snapshotFrom(mood)?.skewMs ?? 0))}.`);
+      }
+      window.requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>("[data-mood-focus]")?.focus());
+    } catch (error) {
+      // 409: the window lapsed under us. The body is my own (blind) state.
+      if (error instanceof ApiFailureError && error.status === 409) {
+        const body = error.data as MoodResponse | undefined;
+        if (body?.mine) apply(body);
+        else void refresh();
+      } else {
+        setWriteFailed("state");
+        announce("Couldn't switch it. Try again.");
       }
     } finally {
       setBusy("");
@@ -277,7 +347,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
   async function switchOff() {
     if (busy || !online) return;
     setBusy("off");
-    setWriteFailed(false);
+    setWriteFailed("");
     try {
       const mood = await clearMood(workspaceId);
       apply(mood);
@@ -290,7 +360,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
         else rootRef.current?.focus({ preventScroll: true });
       });
     } catch {
-      setWriteFailed(true);
+      setWriteFailed("off");
       announce("Couldn't switch it off. Try again.");
     } finally {
       setBusy("");
@@ -299,16 +369,26 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
 
   const mine = snapshot?.mood.mine;
   const match = snapshot?.mood.match;
+  const mineState = stateOf(mine?.state);
   const mineUntil = moodClock(parseTime(mine?.until), nowMs);
   const matchUntil = moodClock(parseTime(match?.until), nowMs);
   const cooldownAt = moodClock(Math.max(parseTime(mine?.cooldownUntil), retryAtMs), nowMs);
   const offlineHint = "You're offline. This needs a connection.";
+  const matchLines = match ? moodMatchLines(mineState, match, partner) : null;
+  const otherState: MoodState = mineState === "open" ? "horny" : "open";
+  // Labels for switching while on. Escalating is the natural direction, so
+  // open -> horny reads as news; horny -> open is just a softer setting.
+  const switchLabel = mineState === "open" ? "I’m horny now" : "Just open to it";
 
-  let hint = `Only shows if ${partner}'s horny too.`;
+  let hint = `Only shows if ${partner}'s up for it too.`;
   if (phase === "cooldown") hint = `You can switch it back on at ${cooldownAt}.`;
   else if (loadFailed && !snapshot) hint = "Couldn't check it just now. It'll catch up when you're back.";
   if (!online && phase !== "match") hint = offlineHint;
-  if (writeFailed && online) hint = phase === "on" || phase === "match" ? "Couldn't switch it off. Try again." : "Couldn't switch it on. Try again.";
+  if (writeFailed && online) {
+    hint = writeFailed === "state"
+      ? "Couldn't switch it. Try again."
+      : writeFailed === "off" ? "Couldn't switch it off. Try again." : "Couldn't switch it on. Try again.";
+  }
 
   const nowForChoices = nowMs;
   // Labels are fixed; the detail shows the real end time for this moment.
@@ -317,12 +397,29 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
     { id: "tonight", label: "Tonight", detail: `until ${moodClock(untilFor("tonight", nowForChoices), nowForChoices)}` },
     { id: "open", label: "Until I turn it off", detail: "24 hours at most" },
   ];
+  const stateChoices: Array<{ id: MoodState; label: string }> = [
+    { id: "horny", label: "Horny" },
+    { id: "open", label: "Open to being seduced" },
+  ];
+
+  const switchButton = (
+    <button
+      type="button"
+      className="mood-light-switch pressable"
+      onClick={() => void switchState(otherState)}
+      disabled={!online || Boolean(busy)}
+      aria-busy={busy === "state" || undefined}
+    >
+      {busy === "state" ? "Switching…" : switchLabel}
+    </button>
+  );
 
   return (
     <section
       ref={rootRef}
       className="mood-light"
       data-phase={phase}
+      data-mood-state={phase === "on" || phase === "match" ? mineState : undefined}
       data-blooming={blooming ? "true" : undefined}
       aria-labelledby={titleId}
       aria-busy={phase === "loading" || Boolean(busy) || undefined}
@@ -333,18 +430,20 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
         <MoodDeepLink onMatchLink={onMatchLink} />
       </Suspense>
 
-      {phase === "match" ? (
+      {phase === "match" && matchLines ? (
         <>
           <span className="mood-light-bloom" aria-hidden="true" />
           <div className="mood-light-match">
             <MoodRibbonMark state="both" className="mood-light-mark" size={38} />
             <h2 id={titleId} className="mood-light-match-title" data-mood-focus tabIndex={-1}>
-              You&rsquo;re both horny.
+              {matchLines.title}
             </h2>
+            {matchLines.nudge ? <p className="mood-light-match-nudge">{matchLines.nudge}</p> : null}
             <div className="mood-light-meta">
               <p id={hintId} className="mood-light-hint">
                 {writeFailed && online ? hint : `Until ${matchUntil}`}
               </p>
+              {switchButton}
               <button
                 type="button"
                 className="mood-light-off mood-light-off--quiet pressable"
@@ -362,24 +461,27 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
           </div>
         </>
       ) : phase === "on" ? (
-        <div className="mood-light-row">
-          <MoodRibbonMark state="mine" className="mood-light-mark" />
-          <span className="mood-light-copy">
-            <span id={titleId} className="mood-light-title" data-mood-focus tabIndex={-1}>
-              You&rsquo;re horny <span className="mood-light-nowrap">until {mineUntil}</span>
+        <>
+          <div className="mood-light-row">
+            <MoodRibbonMark state={mineState === "open" ? "open" : "mine"} className="mood-light-mark" />
+            <span className="mood-light-copy">
+              <span id={titleId} className="mood-light-title" data-mood-focus tabIndex={-1}>
+                {onTitle(mineState)} <span className="mood-light-nowrap">until {mineUntil}</span>
+              </span>
+              <span id={hintId} className="mood-light-hint">{hint}</span>
             </span>
-            <span id={hintId} className="mood-light-hint">{hint}</span>
-          </span>
-          <button
-            type="button"
-            className="mood-light-off pressable"
-            onClick={() => void switchOff()}
-            disabled={!online || Boolean(busy)}
-            aria-describedby={titleId}
-          >
-            {busy === "off" ? "Turning off…" : "Turn off"}
-          </button>
-        </div>
+            <button
+              type="button"
+              className="mood-light-off pressable"
+              onClick={() => void switchOff()}
+              disabled={!online || Boolean(busy)}
+              aria-describedby={titleId}
+            >
+              {busy === "off" ? "Turning off…" : "Turn off"}
+            </button>
+          </div>
+          <div className="mood-light-foot">{switchButton}</div>
+        </>
       ) : (
         <>
           <button
@@ -393,7 +495,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
             disabled={phase === "loading" || phase === "cooldown" || !online || Boolean(busy)}
             data-mood-focus
             onClick={() => {
-              setWriteFailed(false);
+              setWriteFailed("");
               setClockMs(deviceNow());
               setChooserOpen((open) => !open);
             }}
@@ -411,8 +513,6 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
           <div
             id={chooserId}
             className="mood-light-chooser"
-            role="group"
-            aria-label="Horny for"
             hidden={!chooserOpen || phase !== "off"}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
@@ -421,20 +521,46 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
               }
             }}
           >
-            {choices.map((choice, index) => (
-              <button
-                key={choice.id}
-                ref={index === 0 ? firstOptionRef : undefined}
-                type="button"
-                className="mood-light-option pressable"
-                onClick={() => void switchOn(choice.id)}
-                disabled={!online || Boolean(busy)}
-                aria-busy={busy === choice.id || undefined}
-              >
-                <span className="mood-light-option-label">{choice.label}</span>
-                <span className="mood-light-option-detail">{busy === choice.id ? "Switching on…" : choice.detail}</span>
-              </button>
-            ))}
+            <fieldset className="mood-light-states" aria-describedby={chosenState === "open" ? stateNoteId : undefined}>
+              <legend className="sr-only">How you feel</legend>
+              {stateChoices.map((choice) => (
+                <label key={choice.id} className="mood-light-state pressable" data-checked={chosenState === choice.id ? "1" : undefined}>
+                  <input
+                    ref={chosenState === choice.id ? firstOptionRef : undefined}
+                    type="radio"
+                    name={`${ids}-state`}
+                    value={choice.id}
+                    checked={chosenState === choice.id}
+                    onChange={() => setChosenState(choice.id)}
+                    disabled={!online || Boolean(busy)}
+                  />
+                  <span>{choice.label}</span>
+                </label>
+              ))}
+            </fieldset>
+            {/* Responsive desire, said plainly: wanting that shows up once
+                things start is common, not second best (see functions/api/mood.js
+                for the sources). */}
+            {chosenState === "open" ? (
+              <p id={stateNoteId} className="mood-light-state-note">
+                Not there yet, but happy to be talked into it. For lots of people, wanting shows up once things start.
+              </p>
+            ) : null}
+            <div className="mood-light-options" role="group" aria-label={chosenState === "open" ? "Open for" : "Horny for"}>
+              {choices.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className="mood-light-option pressable"
+                  onClick={() => void switchOn(choice.id)}
+                  disabled={!online || Boolean(busy)}
+                  aria-busy={busy === choice.id || undefined}
+                >
+                  <span className="mood-light-option-label">{choice.label}</span>
+                  <span className="mood-light-option-detail">{busy === choice.id ? "Switching on…" : choice.detail}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </>
       )}

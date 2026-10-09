@@ -19,12 +19,14 @@ import { ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import WaitingForPartner from "@/components/WaitingForPartner";
 import PartnerTurnOns from "@/components/PartnerTurnOns";
 import SharedDesires from "@/components/SharedDesires";
+import RainCheckSuggestions from "@/components/RainCheckSuggestions";
+import { dueRainChecks, passOutcomeLine } from "@/lib/pass-reassurance";
 import { acceptInvite, declineInvite } from "@/lib/api";
 import type { QueuedWritePreview } from "@/lib/offline-queue";
 import { ROOM_E2EE_PLACEHOLDER } from "@/lib/room-crypto";
 import { mutualAskHref } from "@/lib/activity";
 import { navigateWithMatchMorph } from "@/lib/match-transition";
-import { planPhrase } from "@/lib/plan-time";
+import { planCountdown, planPhrase } from "@/lib/plan-time";
 import { useDayRollover } from "@/lib/use-day-rollover";
 import type {
   AuthInfo,
@@ -56,6 +58,7 @@ import {
   sharedKinksHref,
   unansweredKinksFor,
 } from "./_sexboard-helpers";
+import { pileMinNeeded, pileNeedsMe } from "@/lib/pile-state";
 import { activePlanDate, askStatusLabel, isAwaitingFirstReply, requestedActDecisions } from "@/lib/request-state";
 import { PresenceBand, PulseWaves } from "./_sexboard-presence";
 import { MoodLight } from "./_sexboard-mood";
@@ -292,6 +295,14 @@ function TonightBoard({
   } = summary;
   const dashboardState = sexboardDashboardState(ranked, state.auth, Boolean(activeGamesCount), kinksNeedingMe.length, latestPile, latestBlindReveal);
   const pulseState = pulseStateFor(dashboardState);
+  // A due rain check shows right under the headline, so "caught up" would
+  // contradict it. (The suggestion itself is the asker's call, never needs-you.)
+  const rainChecksDue = useMemo(
+    () => dueRainChecks(state.board.requests, state.auth.email).length > 0,
+    // dayTick re-evaluates as rain checks come due.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.board.requests, state.auth.email, dayTick],
+  );
   // { pre, accent, post } so the key phrase renders in the editorial <em>
   // (italic, accent-colored). The reassembled text is identical to before.
   const headline = useMemo<{ pre: string; accent: string; post: string }>(() => (
@@ -303,6 +314,8 @@ function TonightBoard({
           ? { pre: "Something's ", accent: "planned.", post: "" }
           : handoffs.locked.length
           ? { pre: "Tonight is ", accent: "locked in.", post: "" }
+          : rainChecksDue
+          ? { pre: "Something to ", accent: "try again.", post: "" }
           : { pre: "You're ", accent: "caught up.", post: "" }
         : waitingCount === 1
           ? { pre: "Waiting on ", accent: `${partnerName}.`, post: "" }
@@ -310,7 +323,7 @@ function TonightBoard({
       : needsCount === 1
       ? { pre: "", accent: "1 thing", post: " needs a response." }
       : { pre: "", accent: `${needsCount} things`, post: " need a response." }
-  ), [kinksNeedingMe.length, needsCount, waitingCount, handoffs.locked.length, handoffs.planned.length, partnerName]);
+  ), [kinksNeedingMe.length, needsCount, waitingCount, handoffs.locked.length, handoffs.planned.length, partnerName, rainChecksDue]);
   // Stabilize the parent's remove handler so the Locked-in section's React.memo
   // only re-renders when its own items / removing flag actually change.
   const handleRemoveLockedPile = useCallback(
@@ -357,6 +370,13 @@ function TonightBoard({
         </section>
 
         <QueuedAskSection items={queuedAsks} workspaceId={state.workspace.id} partnerName={partnerName} />
+
+        <RainCheckSuggestions
+          requests={state.board.requests}
+          myEmail={state.auth.email}
+          partnerName={partnerName}
+          workspaceId={state.workspace.id}
+        />
 
         {!handoffs.needsYou.length ? lockedSection : null}
 
@@ -724,7 +744,11 @@ function buildHandoffs({
     const mineCount = pile.mine?.length || 0;
     const maxDropCount = pile.maxDropCount || pile.targetDropCount || 0;
     const usesDropLimit = maxDropCount > 0;
-    const mineReady = mineCount > 0;
+    // The Pile needs you until you've dropped the minimum it needs to open.
+    // Mirrors attentionCountFor in functions/api/_attention.js (badge parity).
+    const minNeeded = pileMinNeeded(pile);
+    const mineReady = mineCount >= minNeeded;
+    const shortBy = mineCount > 0 && !mineReady ? minNeeded - mineCount : 0;
     const revealLabel = compactScheduledLabel(scheduledLabel(pile.revealAt));
     const revealDue = safeDateMs(pile.revealAt) <= Date.now();
     const pileItem: HandoffItem = pile.isRevealed
@@ -746,21 +770,25 @@ function buildHandoffs({
             : pile.partnerHasDropped
             ? `${partnerName} added acts`
             : "The Pile is live",
-          title: mineCount
+          title: shortBy
+            ? (shortBy === 1 ? "Add one more" : `Add ${shortBy} more`)
+            : mineCount
             ? "Edit your acts"
             : "Add your acts",
-          body: mineCount
+          body: shortBy
+            ? (shortBy === 1 ? "Add one more to the Pile so it can open." : `Add ${shortBy} more to the Pile so it can open.`)
+            : mineCount
             ? revealDue && !pile.partnerHasDropped
-              ? `Waiting for ${partnerName} to add at least one Act.`
+              ? `Waiting for ${partnerName} to add their Acts.`
               : `Your list is saved. You can update it before reveal in ${revealLabel}.`
             : usesDropLimit
             ? revealDue
-              ? `Drop 1 to ${maxDropCount} Acts to open the reveal.`
-              : `Drop 1 to ${maxDropCount} Acts before reveal in ${revealLabel}.`
+              ? `Drop ${Math.min(pile.minDropCount || 2, maxDropCount)} to ${maxDropCount} Acts to open the reveal.`
+              : `Drop ${Math.min(pile.minDropCount || 2, maxDropCount)} to ${maxDropCount} Acts before reveal in ${revealLabel}.`
             : `Matches reveal in ${revealLabel} if you both picked the same acts.`,
           action: "Open Pile",
         };
-    if (pile.isRevealed || !mineReady) needsYou.push(pileItem);
+    if (pileNeedsMe(pile)) needsYou.push(pileItem);
     else waiting.push({
       ...pileItem,
       eyebrow: usesDropLimit ? `Up to ${maxDropCount} each` : pile.partnerHasDropped ? "Both added acts" : "You added acts",
@@ -770,7 +798,7 @@ function buildHandoffs({
       body: pile.partnerHasDropped
         ? `Reveal in ${revealLabel}. You can still edit before it opens.`
         : revealDue
-        ? `Waiting for ${partnerName} to add at least one Act.`
+        ? `Waiting for ${partnerName} to add their Acts.`
         : `Waiting for ${partnerName} and reveal in ${revealLabel}.`,
       action: "Edit",
     });
@@ -878,8 +906,10 @@ function buildHandoffs({
     const action = approvedSexAct ? "It's on!" : pendingCounter && !fromPartner ? "Review" : "Open";
     const planDate = approvedSexAct ? activePlanDate(request) : null;
     if (planDate) {
-      const plannedByMe = String(request.plannedByEmail || "").toLowerCase() === String(me.email || "").toLowerCase();
-      const plannerName = String(request.plannedByName || "").trim().split(/\s+/)[0] || partnerName;
+      // A warm countdown, not a to-do: who planned it doesn't matter here,
+      // and nothing nags as the time gets close (no reminders for plans).
+      const countdown = planCountdown(planDate);
+      const ahead = planDate.getTime() - Date.now() > 5 * 60_000;
       planned.push({
         at: planDate.getTime(),
         item: {
@@ -887,7 +917,7 @@ function buildHandoffs({
           href,
           eyebrow: `Planned for ${planPhrase(planDate)}`,
           title,
-          body: plannedByMe ? "You put it on the calendar." : `${plannerName} put it on the calendar.`,
+          body: ahead ? `${countdown}. The waiting’s part of it.` : `${countdown}.`,
           action,
           actionGlow: true,
           morph: true,
@@ -1009,11 +1039,12 @@ function buildHandoffs({
   };
 }
 
-// "Jordan passed." / "You said maybe for now." for a final answer with no yes.
+// "Jordan passed for now. No reason needed." / "You said maybe for now." for a
+// final answer with no yes. A pass always reads warm (lib/pass-reassurance).
 function replyOutcomeBody(request: RequestRecord, who: string): string {
   const you = who === "You";
   const answers = requestedActDecisions(request).map((item) => item.decision);
-  if (answers.length && answers.every((answer) => answer === "No")) return `${who} passed.`;
+  if (answers.length && answers.every((answer) => answer === "No")) return passOutcomeLine(request, { mine: !you, partnerName: who });
   if (answers.includes("Maybe")) return `${who} said maybe for now.`;
   if (answers.includes("Let's chat")) return you ? "You want to talk about it first." : `${who} wants to talk about it first.`;
   return `${who} replied.`;

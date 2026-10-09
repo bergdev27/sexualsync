@@ -23,6 +23,7 @@ import { boundariesKey } from "../boundaries.js";
 import { actsKey } from "../approved-acts.js";
 import { ideasKey, graveyardKey } from "../fantasy-backlog.js";
 import { revealsKey } from "../blind-reveals.js";
+import { cleanShelfMatchKey, visibleShelfItems } from "../shelf.js";
 
 const REQUEST_STORE = "sexualsync-request-board";
 // Legacy global keys are now read-only seeds for the per-workspace keys above.
@@ -127,7 +128,7 @@ async function mutateWorkspaceList(env, storeName, keyFn, legacyKey, workspaceId
     const { next, changed } = transform(current);
     return { value: next, write: changed > 0, result: { changed } };
   });
-  return out.result?.changed || 0;
+  return Number(out?.changed) || 0;
 }
 
 // Apply a per-workspace list mutation across every workspace in the data-access
@@ -150,7 +151,7 @@ async function mutateList(env, storeName, key, transform) {
     const { next, changed } = transform(current);
     return { value: changed ? next : current, result: { changed } };
   });
-  return out.result?.changed ? 1 : 0;
+  return Number(out?.changed) || 0;
 }
 
 async function patchRequests(env, patches, ids) {
@@ -319,16 +320,27 @@ function patchBlindReveal(row, patch) {
   return item;
 }
 
-async function patchShelf(env, workspaceId, patches) {
+// Each partner migrates only what they can see: a partner's unmatched private
+// save is never patched by the other's client (it's migrated by its saver's own
+// run, which the per-viewer migration status counts). The client sends the
+// item's blind-index matchKey with the encrypted content, so a migrated private
+// save can still become a mutual find.
+async function patchShelf(env, workspaceId, patches, actorEmail) {
   const byId = patchById(patches);
   if (!byId.size) return 0;
   return mutateList(env, SHELF_STORE, shelfKey(workspaceId), (current) => {
     let changed = 0;
+    const visibleIds = new Set(visibleShelfItems(current, actorEmail).map((row) => String(row.id || "")));
     const next = current.map((row) => {
       const patch = byId.get(String(row.id || ""));
-      if (!patch) return row;
+      if (!patch || !visibleIds.has(String(row.id || ""))) return row;
       let item = row;
       const encryptedContent = box(patch.encryptedContent);
+      const matchKey = cleanShelfMatchKey(patch.matchKey);
+      if (matchKey && (encryptedContent || item.type === "encrypted") && item.matchKey !== matchKey) {
+        item = { ...item, matchKey };
+        if (!encryptedContent) changed += 1;
+      }
       if (encryptedContent) {
         item = {
           ...item,
@@ -394,7 +406,7 @@ async function patchPileActive(env, workspaceId, patches) {
       result: { changed: true }
     };
   });
-  return out.result?.changed ? 1 : 0;
+  return out?.changed ? 1 : 0;
 }
 
 async function patchPileSessions(env, workspaceId, patches) {
@@ -444,7 +456,7 @@ async function applySurface(context, surface, patches, access) {
     case "blind-reveals":
       return patchSimpleList(context.env, FANTASY_STORE, revealsKey, BLIND_REVEALS_LEGACY_KEY, patches, ids, patchBlindReveal);
     case "shelf":
-      return patchShelf(context.env, access.workspace.id, patches);
+      return patchShelf(context.env, access.workspace.id, patches, access.actorEmail);
     case "pile-active":
       return patchPileActive(context.env, access.workspace.id, patches);
     case "pile-sessions":

@@ -100,6 +100,22 @@ function applyProfileUpdates(profile, payload, now) {
     settings.shareAttentionSignals = payload.shareAttentionSignals;
   }
 
+  // Per-person, private: whether Health shows this person counts and rhythm.
+  // Off unless they turn it on; it lives on their own profile, never the room.
+  if (typeof payload.healthShowCounts === "boolean") {
+    settings.healthShowCounts = payload.healthShowCounts;
+  }
+
+  // Per-person, never shown to the partner: how far the prompts this person
+  // sees go, and how explicit the app talks to them.
+  if (typeof payload.promptSpice === "string" && ["mild", "spicy", "filthy"].includes(payload.promptSpice)) {
+    settings.promptSpice = payload.promptSpice;
+  }
+
+  if (typeof payload.explicitVoice === "string" && ["gentle", "standard", "filthy"].includes(payload.explicitVoice)) {
+    settings.explicitVoice = payload.explicitVoice;
+  }
+
   next.settings = settings;
   return next;
 }

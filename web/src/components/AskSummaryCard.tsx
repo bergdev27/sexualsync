@@ -3,7 +3,11 @@
 import { useEffect, useId, useRef } from "react";
 import { AskHero } from "@/components/AskReplyCard";
 import { splitActLabel } from "@/lib/act-label";
+import { passOutcomeLine, passReassuranceFor, rainCheckWhen } from "@/lib/pass-reassurance";
+import { planLabel } from "@/lib/plan-time";
+import { useNow } from "@/lib/use-now";
 import {
+  activePlanDate,
   askStatusLabel,
   currentTimingLabel,
   replyDecisionLabel,
@@ -34,6 +38,10 @@ export default function AskSummaryCard({
 }) {
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const now = useNow(60 * 1000);
+  // A plan set on the match moment is the real time; the Ask's original
+  // timing ("Tomorrow") only describes it until then.
+  const planDate = activePlanDate(request, new Date(now));
   const mine = viewer === "requester";
   const status = askStatusLabel(request, { mine, partnerName });
   const actDecisions = requestedActDecisions(request);
@@ -52,11 +60,17 @@ export default function AskSummaryCard({
     && actDecisions.every((item) => item.decision === firstDecision)
     && (firstDecision === "Yes" || firstDecision === "No");
   const many = actDecisions.length > 1;
+  // A pass never reads as a bare "Passed." (research rec #2): it is for now,
+  // owes no reason, and carries the reviewer's optional reassurance.
+  const plainPass = uniform && firstDecision === "No" && counters.length === 0;
   const uniformVerdict = !uniform
     ? ""
     : firstDecision === "Yes"
       ? (many ? "Yes to all of it." : "Yes.")
-      : (many ? "Passed on all of it." : "Passed.");
+      : passOutcomeLine(request, { mine, partnerName });
+  const reassurance = plainPass ? passReassuranceFor(request.passNote) : null;
+  const rainCheckDate = reassurance?.rainCheck && request.rainCheckAt ? new Date(request.rainCheckAt) : null;
+  const withdrawn = Boolean(request.withdrawnAt) || (request.status === "archived" && Boolean(request.passedAt) && !plainPass);
   // Once a counter is accepted the Ask's own Acts/timing already reflect it.
   const originalTiming = request.counterAcceptedAt ? "" : currentTimingLabel(request).toLowerCase();
 
@@ -77,7 +91,7 @@ export default function AskSummaryCard({
         chips={(
           <>
             <span className={chipClass} data-testid="ask-status">{status.label}</span>
-            <span className="chip">{currentTimingLabel(request)}</span>
+            <span className="chip" data-testid="ask-timing-chip">{planDate ? planLabel(planDate, new Date(now)) : currentTimingLabel(request)}</span>
             <span className="chip">{request.filming === "Yes" ? "Filming ok" : "No filming"}</span>
           </>
         )}
@@ -98,6 +112,31 @@ export default function AskSummaryCard({
 
           {uniformVerdict && (
             <p className="reply-summary-verdict" data-testid="ask-reply-verdict">{uniformVerdict}</p>
+          )}
+
+          {reassurance && (!mine || reassurance.id === "love_asked") && (
+            <figure className="reply-pass-figure" data-testid="ask-pass-quote">
+              <blockquote className="reply-pass-quote">&ldquo;{reassurance.quote}&rdquo;</blockquote>
+              <figcaption className="reply-note-label">{mine ? partnerName : "You added"}</figcaption>
+            </figure>
+          )}
+
+          {rainCheckDate && !Number.isNaN(rainCheckDate.getTime()) && (
+            <p className="reply-pass-rain" data-testid="ask-rain-check">
+              {rainCheckDate.getTime() <= now
+                ? (mine
+                  ? `Rain check for ${rainCheckWhen(request)}. It's on Home now, and you decide.`
+                  : `${partnerName} can bring it back now if they want to. Nothing is sent for you.`)
+                : (mine
+                  ? `Rain check for ${rainCheckWhen(request)}. It comes back to you on Home (${planLabel(rainCheckDate, new Date(now))}), and you decide.`
+                  : `It comes back to ${partnerName} as a suggestion (${planLabel(rainCheckDate, new Date(now))}). Nothing is sent for you.`)}
+            </p>
+          )}
+
+          {withdrawn && (
+            <p className="reply-summary-line" data-testid="ask-withdrawn">
+              Change of plans. It came off the Sexboard for both of you, and nothing is counted.
+            </p>
           )}
 
           {actDecisions.length > 0 && !uniformVerdict && (

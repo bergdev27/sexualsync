@@ -124,9 +124,15 @@ async function main() {
     headers: { origin: base, cookie, ...(init.body ? { "content-type": "application/json" } : {}), ...(init.headers || {}) }
   });
   const sexboard = async (cookie) => (await api(cookie, "/api/sexboard")).json();
-  const submitQuiz = (cookie, ratings) => api(cookie, "/api/sex-quiz", { method: "POST", body: JSON.stringify({ workspaceId: WS, action: "submit", ratings }) });
+  // Rounds need a minimum batch of answers; pad with neutral filler cards.
+  const pad = (map, filler) => {
+    const out = { ...map };
+    for (let i = 0; Object.keys(out).length < 12; i += 1) out[`filler${i}`] = filler;
+    return out;
+  };
+  const submitQuiz = (cookie, ratings) => api(cookie, "/api/sex-quiz", { method: "POST", body: JSON.stringify({ workspaceId: WS, action: "submit", ratings: pad(ratings, { interest: "pass" }) }) });
   const quizView = async (cookie) => (await api(cookie, `/api/sex-quiz?workspaceId=${encodeURIComponent(WS)}`)).json();
-  const submitGL = (cookie, answers) => api(cookie, "/api/green-lights", { method: "POST", body: JSON.stringify({ workspaceId: WS, action: "submit", answers }) });
+  const submitGL = (cookie, answers) => api(cookie, "/api/green-lights", { method: "POST", body: JSON.stringify({ workspaceId: WS, action: "submit", answers: pad(answers, { value: "filler" }) }) });
   const glView = async (cookie) => (await api(cookie, `/api/green-lights?workspaceId=${encodeURIComponent(WS)}`)).json();
 
   await check("two distinct users authenticate via minted sessions and resolve the same room", async () => {
@@ -233,25 +239,46 @@ async function main() {
       await sockA.waitFor((m) => m.type === "room.hello");
       await sockB.waitFor((m) => m.type === "room.hello");
 
+      // A is "open to being seduced", B is horny: a mixed match.
       const bBefore = await moodView(cookieB);
-      const aOn = await setMood(cookieA, { action: "on", until });
-      assert.equal(aOn.status, 200, "A switches on");
-      assert.equal((await aOn.json()).match, null, "A alone: no match");
+      const aOn = await setMood(cookieA, { action: "on", until, state: "open" });
+      assert.equal(aOn.status, 200, "A switches on (open)");
+      const aOnBody = await aOn.json();
+      assert.equal(aOnBody.match, null, "A alone: no match");
+      assert.equal(aOnBody.mine.state, "open", "A sees their own state");
       const bAfter = await moodView(cookieB);
-      assert.equal(strip(bAfter), strip(bBefore), "B's view is identical whether A is on or off (double-blind)");
+      assert.equal(strip(bAfter), strip(bBefore), "B's view is identical whether A is open or off (double-blind)");
+      const aHorny = await setMood(cookieA, { action: "state", state: "horny" });
+      assert.equal(aHorny.status, 200, "A switches state while on alone");
+      assert.equal(strip(await moodView(cookieB)), strip(bBefore), "B's view is identical whether A is horny, open or off");
+      await setMood(cookieA, { action: "state", state: "open" });
 
-      const bOn = await setMood(cookieB, { action: "on", until });
-      assert.equal(bOn.status, 200, "B switches on");
+      const bOn = await setMood(cookieB, { action: "on", until, state: "horny" });
+      assert.equal(bOn.status, 200, "B switches on (horny)");
       const bOnBody = await bOn.json();
       assert.ok(bOnBody.match, "B sees the match immediately");
+      assert.equal(bOnBody.match.kind, "mixed");
+      assert.equal(bOnBody.match.partnerState, "open", "B learns A is open only inside the match");
       const aView = await moodView(cookieA);
-      assert.deepEqual(aView.match, bOnBody.match, "A sees the same match");
+      assert.equal(aView.match.since, bOnBody.match.since, "A sees the same match");
+      assert.equal(aView.match.kind, "mixed");
+      assert.equal(aView.match.partnerState, "horny", "A sees B is horny for them");
 
       const isMatch = (m) => m.type === "room.event" && m.event?.resource === "mood" && m.event?.action === "match";
       const evtA = await sockA.waitFor(isMatch);
       const evtB = await sockB.waitFor(isMatch);
       assert.equal(evtA.event.actorEmail, "", "match event names no actor");
       assert.equal(evtB.event.entityId, bOnBody.match.since, "event carries the formation time");
+
+      // A escalates open -> horny while matched: same match, new kind, one
+      // refetch hint with the same shape and formation time.
+      const isRestated = (m) => isMatch(m) && m.event?.id !== evtB.event.id;
+      const escalate = await setMood(cookieA, { action: "state", state: "horny" });
+      assert.equal(escalate.status, 200, "A switches to horny while matched");
+      const restated = await sockB.waitFor(isRestated);
+      assert.equal(restated.event.entityId, bOnBody.match.since, "restated match keeps its formation time");
+      assert.equal(restated.event.actorEmail, "", "restated match names no actor");
+      assert.equal((await moodView(cookieB)).match.kind, "horny", "B now sees both horny");
 
       const aOff = await setMood(cookieA, { action: "off" });
       assert.equal(aOff.status, 200, "A switches off");

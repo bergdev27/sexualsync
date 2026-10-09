@@ -10,6 +10,9 @@ import RouteAnnouncer from "@/components/RouteAnnouncer";
 import "./globals.css";
 import "./polish-shared.css";
 import "./pwa-access.css";
+// The route error boundary's styles (tiny). Loaded here so the boundary's own
+// chunk isn't preloaded-but-unused on every page.
+import "./error.css";
 
 // The brand webfonts are committed under ./fonts (latin subset, OFL licences
 // alongside) and loaded with next/font/local, so neither the build nor the

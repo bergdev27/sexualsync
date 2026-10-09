@@ -4,14 +4,17 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import AskReplyCard, { type ReplyDecisionPayload, type ReplyKind } from "@/components/AskReplyCard";
+import AskReplyCard, { type PassExtra, type ReplyDecisionPayload, type ReplyKind } from "@/components/AskReplyCard";
 import AskSummaryCard from "@/components/AskSummaryCard";
 import ScreenHeader from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
 import { mutualAskHref } from "@/lib/activity";
 import { announce } from "@/lib/announce";
-import { currentTimingLabel, isApprovedSexActRequest, requestCounterItems, timingCopyForRequest } from "@/lib/request-state";
+import { confirmAction } from "@/lib/confirm-dialog";
+import { passReassuranceFor } from "@/lib/pass-reassurance";
+import { planLabel, planPhrase } from "@/lib/plan-time";
+import { activePlanDate, currentTimingLabel, isApprovedSexActRequest, isWithdrawnRequest, requestCounterItems, timingCopyForRequest } from "@/lib/request-state";
 import {
   ApiOfflineQueuedError,
   ApiUnauthorizedError,
@@ -38,9 +41,13 @@ import type {
   Workspace,
 } from "@/lib/types";
 
-type RequestAction = "revoke" | "accept_counter" | "archive" | "pass" | "restore";
+type RequestAction = "revoke" | "accept_counter" | "archive" | "withdraw" | "restore";
 type BusyAction = RequestAction | "remind";
-type ReplyResultState = { kind: ReplyKind; queued: boolean };
+type ReplyResultState = { kind: ReplyKind; queued: boolean; extra?: PassExtra };
+
+// Mirrors the server's one-nudge rule (functions/api/request-board.js
+// REMIND_AVAILABLE_AFTER_MS): the nudge opens a few hours after sending.
+const REMIND_AVAILABLE_AFTER_MS = 4 * 60 * 60 * 1000;
 
 type LoadState =
   | { kind: "loading" }
@@ -183,6 +190,17 @@ function AskDetail() {
 
   async function runAction(action: RequestAction) {
     if (state.kind !== "ready" || !requestId) return;
+    // Same confirm as the match moment: taking back a yes is free, but never
+    // a stray tap.
+    if (action === "withdraw") {
+      const confirmed = await confirmAction({
+        title: "Change of plans?",
+        body: "It comes off the Sexboard for both of you. No reason needed, and nothing is counted.",
+        confirmLabel: "Change plans",
+        cancelLabel: "Keep it",
+      });
+      if (!confirmed) return;
+    }
     setBusyAction(action);
     setActionError(null);
     try {
@@ -203,7 +221,8 @@ function AskDetail() {
         ));
         return;
       }
-      if (action === "pass") {
+      if (action === "withdraw") {
+        announce("Change of plans. It's off the Sexboard for both of you.");
         router.push("/sexboard");
         return;
       }
@@ -277,7 +296,7 @@ function AskDetail() {
     }
   }
 
-  async function runReply(decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) {
+  async function runReply(decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind, extra?: PassExtra) {
     if (state.kind !== "ready" || !requestId) return;
     const current = state;
     // Room Encryption: a reply in an E2EE room must be encrypted client-side,
@@ -300,6 +319,8 @@ function AskDetail() {
         id: requestId,
         decisions,
         note,
+        ...(extra?.passNote ? { passNote: extra.passNote } : {}),
+        ...(extra?.rainCheckAt ? { rainCheckAt: extra.rainCheckAt } : {}),
       });
       if (navigator.vibrate) navigator.vibrate(8);
       const answered = result.request || result.requests.find((item) => item.id === requestId);
@@ -318,7 +339,7 @@ function AskDetail() {
           history: result.history,
         },
       });
-      setReplyResult({ kind, queued: false });
+      setReplyResult({ kind, queued: false, extra });
     } catch (error) {
       if (error instanceof ApiOfflineQueuedError) {
         const now = new Date().toISOString();
@@ -337,8 +358,10 @@ function AskDetail() {
           feedback: note,
           reviewedAt: now,
           updatedAt: now,
+          ...(extra?.passNote ? { passNote: extra.passNote } : {}),
+          ...(extra?.rainCheckAt ? { rainCheckAt: extra.rainCheckAt } : {}),
         }));
-        setReplyResult({ kind, queued: true });
+        setReplyResult({ kind, queued: true, extra });
         return;
       }
       const message = error instanceof Error ? error.message : "";
@@ -472,9 +495,22 @@ function DetailShell({
   );
 }
 
-const RESULT_COPY: Record<ReplyKind, { title: string; body: (partner: string, timing: string) => string }> = {
+const RESULT_COPY: Record<ReplyKind, { title: string; body: (partner: string, timing: string, extra?: PassExtra) => string }> = {
   yes: { title: "Yes sent.", body: (partner) => `${partner} will see it next time they look.` },
-  pass: { title: "Passed.", body: (partner) => `${partner} gets a quiet heads-up. No reason needed.` },
+  // A pass is free (research rec #2): no reason owed, and the asker hears it
+  // warmly, with the words you picked if you picked any.
+  pass: {
+    title: "Passed for now.",
+    body: (partner, _timing, extra) => {
+      const reassurance = passReassuranceFor(extra?.passNote);
+      if (!reassurance) return `${partner} sees a kind pass. No reason needed.`;
+      const rainAt = extra?.rainCheckAt ? new Date(extra.rainCheckAt) : null;
+      if (reassurance.rainCheck && rainAt && !Number.isNaN(rainAt.getTime())) {
+        return `${partner} sees “${reassurance.quote}” It comes back to them as a suggestion ${planLabel(rainAt)}.`;
+      }
+      return `${partner} sees “${reassurance.quote}”`;
+    },
+  },
   maybe: { title: "Saved as a maybe.", body: (_partner, timing) => `It stays open, and comes back to you closer to ${timing}.` },
   counter: { title: "Counter sent.", body: (partner) => `${partner} can take it or ask again.` },
 };
@@ -494,7 +530,7 @@ function ReplyResult({
   const copy = RESULT_COPY[result.kind];
   const body = result.queued
     ? "Your answer sends as soon as you're back online."
-    : copy.body(partnerName, timingCopy);
+    : copy.body(partnerName, timingCopy, result.extra);
   // Focus lands on the result title (so it is read), and the explanation goes
   // through the app's one polite announcer rather than a second live region.
   useEffect(() => {
@@ -543,7 +579,7 @@ function RequestDetail({
   onClearResult: () => void;
   onAction: (action: RequestAction) => Promise<void>;
   onRemind: () => Promise<void>;
-  onReply: (decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) => Promise<void>;
+  onReply: (decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind, extra?: PassExtra) => Promise<void>;
   onMaybe: () => Promise<void>;
   onCreateCounterAct: (label: string) => Promise<Act>;
   highlightedFromActivity?: boolean;
@@ -558,7 +594,9 @@ function RequestDetail({
   const partnerName = mine ? reviewerName : requesterName;
   const counters = requestCounterItems(request);
   const hasCounter = counters.length > 0;
-  const timingCopy = timingCopyForRequest(request);
+  // A plan set on the match moment is the real time ("tomorrow, 9 pm").
+  const planDate = activePlanDate(request, new Date(now));
+  const timingCopy = planDate ? planPhrase(planDate, new Date(now)) : timingCopyForRequest(request);
   // The reply card shows for a first answer (pending/sent) AND to convert an
   // existing maybe ("Decide now"). Deferring itself is only offered on a first
   // answer — you can't re-defer a maybe.
@@ -571,15 +609,22 @@ function RequestDetail({
     && !request.counterAcceptedAt;
   const canPassAgreed = !awaitingMyReply && isApprovedSexActRequest(request);
   const canArchive = !awaitingMyReply && !canPassAgreed && !["completed", "archived", "expired"].includes(request.status);
-  const canRestore = request.status === "archived";
-  // Manual "Remind": only the requester, only while the Ask is still waiting.
-  // Mirror the server's 1h anti-spam cooldown so the button reflects it locally.
-  // Includes `maybe`: the requester can nudge a deferred Ask ("she said maybe")
-  // to prompt a decision, same anti-spam cooldown as a pending nudge.
-  const canRemind = mine && ["pending", "sent", "maybe"].includes(request.status);
+  // A change of plans is final for that yes: no Restore, only a fresh Ask
+  // (which the re-ask rules and the other partner's own answer still govern).
+  const withdrawn = isWithdrawnRequest(request);
+  const canRestore = request.status === "archived" && !withdrawn;
+  const canAskAgain = withdrawn && (request.categories || []).length > 0;
+  // One manual nudge per Ask, ever (research rec #4, anti-nagging): only the
+  // requester, only before a first answer (never after a maybe), and only a
+  // few hours after sending. Mirrors the server rule.
+  const openForNudge = mine && ["pending", "sent"].includes(request.status);
   const lastReminderMs = request.lastReminderAt ? Date.parse(request.lastReminderAt) : 0;
-  const reminderCooldownActive = lastReminderMs > 0 && now - lastReminderMs < 60 * 60 * 1000;
-  const remindedAgo = lastReminderMs > 0 ? relativeAgo(lastReminderMs) : "";
+  const nudgeUsed = lastReminderMs > 0;
+  const sentMs = Date.parse(request.sentAt || request.createdAt || "") || 0;
+  const nudgeOpensAt = sentMs ? sentMs + REMIND_AVAILABLE_AFTER_MS : 0;
+  const nudgeTooSoon = nudgeOpensAt > now;
+  const remindedAgo = nudgeUsed ? relativeAgo(lastReminderMs) : "";
+  const showMaybeNote = mine && request.status === "maybe";
   const askedWhen = formatWhen(request.sentAt || request.createdAt || "");
   const stageClass = `activity-detail-stage ${highlightedFromActivity ? "is-activity-highlight" : ""}`;
 
@@ -640,7 +685,7 @@ function RequestDetail({
         <section className="card p-5" style={{ borderColor: "rgb(var(--accent-rgb) / 0.45)" }}>
           <p className="kicker" style={{ color: "var(--accent)" }}>It&rsquo;s on</p>
           <h2 className="mt-2 font-display text-display-md italic leading-tight text-ink">Both of you said yes.</h2>
-          <p className="mt-2 text-sm leading-relaxed text-ink-2">This Ask is agreed. Pass on it below if {timingCopy} changes.</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-2">This yes is for this Ask, {timingCopy}. If plans change for either of you, that&rsquo;s fine. No reason needed.</p>
           <Link
             href={mutualAskHref(request.id, request.categories || [], request.matchNarration || "")}
             className="btn-primary w-full mt-4"
@@ -650,32 +695,40 @@ function RequestDetail({
         </section>
       )}
 
-      {canRemind && (
+      {showMaybeNote && (
         <section className="reply-remind">
-          <p className="reply-remind-copy">
-            {reminderCooldownActive
-              ? `Reminded ${remindedAgo}. They'll get nudged again automatically if it keeps waiting.`
-              : request.status === "maybe"
-                ? `${partnerName} said maybe and is deciding closer to ${timingCopy}. A nudge sends a quiet notification.`
-                : `Waiting on ${partnerName}. A nudge sends a quiet notification.`}
+          <p className="reply-remind-copy" data-testid="ask-maybe-note">
+            {partnerName} said maybe and will decide closer to {timingCopy}. It stays open, and there&rsquo;s nothing you need to do.
           </p>
-          <button
-            type="button"
-            className="btn-primary w-full"
-            disabled={!!busyAction || reminderCooldownActive}
-            onClick={onRemind}
-            data-testid="ask-action-remind"
-          >
-            {busyAction === "remind"
-              ? "Sending reminder…"
-              : reminderCooldownActive
-                ? `Reminded ${remindedAgo}`
-                : `Remind ${partnerName}`}
-          </button>
         </section>
       )}
 
-      {(canRevoke || canAcceptCounter || canPassAgreed || canArchive || canRestore) && (
+      {openForNudge && (
+        <section className="reply-remind">
+          <p className="reply-remind-copy" data-testid="ask-nudge-copy">
+            {nudgeUsed
+              ? `You sent your one nudge ${remindedAgo}. The rest is up to ${partnerName}.`
+              : nudgeTooSoon
+                ? `It’s with ${partnerName}. If it’s still open later, you can send one gentle nudge.`
+                : `It’s with ${partnerName}. You can send one gentle nudge: a quiet notification, and only one per Ask.`}
+          </p>
+          {/* No disabled countdown button: waiting to nudge shouldn't feel like
+              a timer. The button only appears once the nudge is available. */}
+          {!nudgeUsed && !nudgeTooSoon && (
+            <button
+              type="button"
+              className="btn-ghost w-full"
+              disabled={!!busyAction}
+              onClick={onRemind}
+              data-testid="ask-action-remind"
+            >
+              {busyAction === "remind" ? "Sending your nudge…" : `Nudge ${partnerName}`}
+            </button>
+          )}
+        </section>
+      )}
+
+      {(canRevoke || canAcceptCounter || canPassAgreed || canArchive || canRestore || canAskAgain) && (
         <section className="reply-actions">
           {canAcceptCounter && (
             <button
@@ -693,10 +746,10 @@ function RequestDetail({
               type="button"
               className="btn-ghost w-full"
               disabled={!!busyAction}
-              onClick={() => onAction("pass")}
-              data-testid="ask-action-pass"
+              onClick={() => onAction("withdraw")}
+              data-testid="ask-action-withdraw"
             >
-              {busyAction === "pass" ? "Passing…" : `Pass ${timingCopy}`}
+              {busyAction === "withdraw" ? "Changing plans…" : "Change of plans"}
             </button>
           )}
           {canRevoke && (
@@ -731,6 +784,15 @@ function RequestDetail({
             >
               {busyAction === "restore" ? "Restoring…" : "Restore to Sexboard"}
             </button>
+          )}
+          {canAskAgain && (
+            <Link
+              href={`/ask?again=${encodeURIComponent(request.id)}`}
+              className="btn-ghost w-full"
+              data-testid="ask-action-ask-again"
+            >
+              Ask again
+            </Link>
           )}
         </section>
       )}

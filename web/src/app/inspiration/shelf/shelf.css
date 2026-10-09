@@ -172,3 +172,54 @@
   font-family: var(--body);
   font-size: var(--fs-12);
 }
+
+/* Share first: Send / Watch together lead, "Save for me" sits quietly last. */
+.shelf-mode-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.shelf-mode-actions .shelf-save-btn {
+  grid-column: 1 / -1;
+}
+
+.shelf-mode-btn {
+  min-height: 44px;
+}
+
+.shelf-mode-quiet {
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.shelf-mode-quiet:disabled,
+.shelf-mode-btn:disabled {
+  opacity: 0.55;
+}
+
+.shelf-mode-notice {
+  margin: 8px 0 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}
+
+.shelf-share-note {
+  margin: 6px 0 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+}
+
+.shelf-share-note.is-mutual,
+.shelf-share-note.is-together {
+  color: var(--accent);
+}
+

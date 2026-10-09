@@ -108,6 +108,8 @@ const nextPreviewFiles = [
   path.join("inspiration", "shelf.rsc"),
   path.join("inspiration", "kink.html"),
   path.join("inspiration", "kink.rsc"),
+  path.join("inspiration", "why.html"),
+  path.join("inspiration", "why.rsc"),
   path.join("space", "acts.html"),
   path.join("space", "acts.rsc"),
   path.join("space", "health.html"),

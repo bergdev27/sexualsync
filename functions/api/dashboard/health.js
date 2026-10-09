@@ -1,3 +1,18 @@
+// Health — what you've enjoyed together, not how much.
+//
+// By default this reports moments and overlaps: recent approved Asks and Pile
+// overlaps, the acts that keep showing up, and firsts. It never reports "days
+// since", streaks, targets, comparisons, or who asked more. Volume (totals,
+// per-day rhythm, per-act counts) is OPT-IN PER PERSON via the viewer's own
+// profile setting `healthShowCounts` (off by default, never shown to the
+// partner). Instructed frequency lowered wanting and enjoyment in the one RCT
+// on it (Loewenstein et al. 2015), and a visible benchmark creates a "should"
+// (Muise, Schimmack & Impett 2016), so counts are something a person chooses.
+//
+// Only consented, approved acts count. Withdrawn or cleared Asks never count,
+// and a plan is not a moment: an Ask still waiting on its planned time is
+// left out until that time has passed.
+
 import {
   getAuthenticatedIdentity,
   jsonResponse,
@@ -8,7 +23,7 @@ import {
   workspaceIdFromRequest,
   workspaceIdsForDataAccess
 } from "../_workspaces.js";
-import { computeOverlapLabels, readPile, readPileSessions } from "../pile.js";
+import { computeOverlapLabels, pileIsRevealed, readPile, readPileSessions } from "../pile.js";
 import { readRequestBoardForWorkspace } from "../request-board.js";
 import { readActsForWorkspace } from "../approved-acts.js";
 
@@ -56,7 +71,9 @@ const BUILT_IN_ACT_EMOJIS = new Map([
   ["cuddling", "🤗"],
   ["mutual masturbation", "✋"],
   ["face sitting", "🪑"],
-  ["roleplay", "🎭"]
+  ["roleplay", "🎭"],
+  ["slow touch, no finish line", "🪶"],
+  ["slow touch", "🪶"]
 ]);
 const KEYWORD_ACT_EMOJIS = [
   { terms: ["kiss", "make out", "makeout"], emoji: "💋" },
@@ -172,15 +189,42 @@ function withinRange(event, range) {
   return time >= parseTime(range.from) && time <= parseTime(range.to);
 }
 
+// Any marker that the Ask was taken back. Withdrawing is free and leaves no
+// record of a "cancel", so a withdrawn Ask must simply never count.
+// `withdrawnAt` is what "Change of plans" stamps today; `passedAt` on an
+// archived Ask is the legacy stamp for the same withdrawal.
+function requestWithdrawn(request) {
+  const status = String(request?.status || "").toLowerCase();
+  return Boolean(
+    request?.withdrawnAt
+    || (request?.passedAt && status === "archived")
+    || request?.withdrawn === true
+    || request?.clearedAt
+    || request?.cleared === true
+    || status === "withdrawn"
+    || status === "cleared"
+  );
+}
+
+// A planned Ask is a plan, not a moment, until its time has passed.
+function requestStillPlanned(request, nowMs = Date.now()) {
+  const planned = parseTime(request?.plannedFor);
+  return planned > nowMs;
+}
+
 function approvedActLabelsForRequest(request) {
   if (!APPROVED_REQUEST_STATUSES.has(String(request?.status || "").toLowerCase())) return [];
+  // A yes that either partner later withdrew ("Change of plans") is not an
+  // approval and is never counted (FRIES consent, research rec #15), and a
+  // planned Ask is not a moment until its time has passed.
+  if (requestWithdrawn(request) || requestStillPlanned(request)) return [];
   return uniqueLabels((Array.isArray(request?.decisions) ? request.decisions : [])
     .filter((item) => /^yes$/i.test(String(item?.decision || "")))
     .filter((item) => !item?.targetType || item.targetType === "act")
     .map((item) => item.label));
 }
 
-function sourceEventsFromRequests(board) {
+export function sourceEventsFromRequests(board) {
   return (board.requests || []).flatMap((request) => {
     const acts = approvedActLabelsForRequest(request);
     if (!acts.length) return [];
@@ -232,7 +276,7 @@ function sourceEventsFromPileSessions(sessions) {
 
 function sourceEventsFromActivePiles(piles) {
   return (piles || []).flatMap(({ workspaceId, pile }) => {
-    if (!pile?.revealAt || parseTime(pile.revealAt) > Date.now()) return [];
+    if (!pile?.revealAt || !pileIsRevealed(pile)) return [];
     const overlap = computeOverlapLabels(pile);
     const acts = pile.roomE2ee
       ? overlap.map(() => "Encrypted Pile match")
@@ -315,18 +359,6 @@ function buildTopActs(events, allEvents, range) {
     .slice(0, 12);
 }
 
-function buildRequesterSplit(events) {
-  const split = {};
-  for (const event of events) {
-    if (event.type !== "ask") continue;
-    const label = cleanLabel(event.actorName) || "Requester";
-    split[label] = (split[label] || 0) + 1;
-  }
-  return Object.entries(split)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([name, count]) => ({ name, count }));
-}
-
 function decorateEventActs(event, actEmojiMap) {
   return {
     ...event,
@@ -337,20 +369,46 @@ function decorateEventActs(event, actEmojiMap) {
   };
 }
 
-function buildResponse(workspaceId, range, allEvents, actEmojiMap = new Map()) {
+// A moment as the default view shows it: what and when, no per-person
+// attribution and no tally.
+function momentFromEvent(event, actEmojiMap) {
+  const decorated = decorateEventActs(event, actEmojiMap);
+  return {
+    id: decorated.id,
+    type: decorated.type,
+    title: decorated.title,
+    at: decorated.at,
+    acts: decorated.acts,
+    actSummaries: decorated.actSummaries,
+    sourceId: decorated.sourceId,
+    sourceHref: decorated.sourceHref
+  };
+}
+
+export function buildResponse(workspaceId, range, allEvents, actEmojiMap = new Map(), options = {}) {
+  const showCounts = options.showCounts === true;
   const events = allEvents
     .filter((event) => withinRange(event, range))
     .sort((a, b) => parseTime(b.at) - parseTime(a.at));
-  const uniqueActs = new Set(events.flatMap((event) => event.acts.map((label) => label.toLowerCase())));
   const topActs = buildTopActs(events, allEvents, range);
-  const lastEventAt = events[0]?.at || "";
-  const daysSinceLast = lastEventAt
-    ? Math.max(0, Math.floor((Date.now() - parseTime(lastEventAt)) / (24 * 60 * 60 * 1000)))
-    : null;
+  const withEmoji = (label) => ({ label, emoji: emojiForLabel(label, actEmojiMap) });
 
-  return {
+  const base = {
     workspaceId,
     range,
+    showCounts,
+    // Recent moments, newest first.
+    events: events.slice(0, 50).map((event) => momentFromEvent(event, actEmojiMap)),
+    // Acts that came back more than once, by label only (no tally).
+    keepsShowingUp: topActs.filter((act) => act.count >= 2).slice(0, 6).map((act) => withEmoji(act.label)),
+    // Acts that happened for the first time in this range.
+    firsts: topActs.filter((act) => act.newInRange).slice(0, 5).map((act) => withEmoji(act.label))
+  };
+  if (!showCounts) return base;
+
+  const uniqueActs = new Set(events.flatMap((event) => event.acts.map((label) => label.toLowerCase())));
+  return {
+    ...base,
     totals: {
       sexEvents: events.length,
       sexActs: events.reduce((count, event) => count + event.acts.length, 0),
@@ -359,18 +417,7 @@ function buildResponse(workspaceId, range, allEvents, actEmojiMap = new Map()) {
       pileEvents: events.filter((event) => event.type === "pile").length
     },
     rhythm: buildRhythm(events),
-    topActs,
-    events: events.slice(0, 50).map((event) => decorateEventActs(event, actEmojiMap)),
-    insights: {
-      lastEventAt,
-      daysSinceLast,
-      newActs: topActs.filter((act) => act.newInRange).slice(0, 5),
-      requesterSplit: buildRequesterSplit(events),
-      sourceSplit: {
-        ask: events.filter((event) => event.type === "ask").length,
-        pile: events.filter((event) => event.type === "pile").length
-      }
-    }
+    topActs
   };
 }
 
@@ -411,5 +458,13 @@ export async function onRequest(context) {
     ...sourceEventsFromActivePiles(activePiles)
   ];
 
-  return jsonResponse(200, buildResponse(access.workspace.id, range, allEvents, buildActEmojiMap(actsResponse.acts)));
+  // The viewer's own, private choice. The partner's setting is never read here.
+  const showCounts = access.profile?.settings?.healthShowCounts === true;
+  return jsonResponse(200, buildResponse(
+    access.workspace.id,
+    range,
+    allEvents,
+    buildActEmojiMap(actsResponse.acts),
+    { showCounts }
+  ));
 }

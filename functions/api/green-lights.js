@@ -3,10 +3,15 @@
 // Sibling to the Sex Quiz, different axis: each partner privately answers a deck
 // of statements on per-question answer scales (comfort / agree / want / matters
 // / prefer / cadence — see green-lights-deck.ts). Nothing is revealed until BOTH
-// submit; then the API hands back the partner's full answer set and the CLIENT
-// derives every bucket (green lights, agreed limits, talk-about-these, cadence
-// gaps, sync %) from the deck. The server is intentionally scale-agnostic: it
-// stores opaque value ids + notes and only gates the double-blind reveal.
+// submit. Then the API hands back ONLY the partner answers that equal yours
+// (the agreements), and the CLIENT derives the buckets (green lights, agreed
+// limits, shared concerns, same cadence) from the deck. Where you differ stays
+// private unless BOTH partners opt in to compare ("compare"), which then opens
+// the partner's full answer set for the talk-about-these list. The server is
+// scale-agnostic: it stores opaque value ids + notes, compares them only for
+// equality, and gates the double-blind reveal. No score and no count of
+// differences ever leaves the server. Round rules (minimum batch, frozen
+// answers, re-reveal cooldown) live in _reveal_round.js.
 //
 // Shared product handler (Cloudflare + self-host): only Web-standard globals +
 // the storage seam (getStore / mutateKey). v1 is plaintext-at-rest (the store
@@ -24,6 +29,15 @@ import {
 import { appendAudit } from "./_audit.js";
 import { notifyWorkspaceEvent } from "./_notification_policy.js";
 import { broadcastRoomEvent } from "./_live_room.js";
+import {
+  MIN_ROUND_ANSWERS,
+  cleanRevealedSnapshot,
+  entrySubmittedInRound,
+  nextRoundFrom,
+  partnerChangeNotice,
+  recordRound,
+  resolveRoundReveal,
+} from "./_reveal_round.js";
 
 const STORE_NAME = "sexualsync-green-lights";
 function greenLightsKey(workspaceId) { return `greenLights:${workspaceId}`; }
@@ -70,18 +84,17 @@ function cleanAnswers(value) {
   return out;
 }
 
-function entrySubmitted(entry) {
-  return Boolean(entry?.submittedAt);
-}
-
 function emptyRecord(workspaceId, now) {
   return {
     workspaceId,
     status: "open",
+    round: 1,
     entries: {},
+    fullReveal: {},
     createdAt: now,
     updatedAt: now,
     revealedAt: "",
+    lastRevealedAt: "",
   };
 }
 
@@ -97,26 +110,56 @@ function migrateRecord(raw, workspaceId, now) {
       name: cleanText(entry.name, 80),
       answers: cleanAnswers(entry.answers),
       submittedAt: entry.submittedAt || "",
+      round: Number.isInteger(entry.round) && entry.round > 0 ? entry.round : 1,
       updatedAt: entry.updatedAt || entry.submittedAt || raw.createdAt || now,
     };
+  }
+  // Mutual opt-in to compare the answers where you differ (per round).
+  const fullReveal = {};
+  const rawFull = raw.fullReveal && typeof raw.fullReveal === "object" ? raw.fullReveal : {};
+  for (const [email, on] of Object.entries(rawFull)) {
+    const normalized = normalizeEmail(email);
+    if (normalized && on) fullReveal[normalized] = true;
   }
   return {
     workspaceId,
     status: raw.status === "revealed" ? "revealed" : "open",
+    round: recordRound(raw),
     entries,
+    fullReveal,
     createdAt: raw.createdAt || now,
     updatedAt: raw.updatedAt || raw.createdAt || now,
     revealedAt: raw.revealedAt || "",
+    lastRevealedAt: raw.lastRevealedAt || "",
+    revealedSnapshot: cleanRevealedSnapshot(raw.revealedSnapshot),
   };
 }
 
+// What a reveal compares: the answer value per card (notes never count).
+function answerSignatures(entry) {
+  const out = {};
+  for (const [cardId, answer] of Object.entries(entry?.answers || {})) out[cardId] = String(answer?.value || "");
+  return out;
+}
+
 function revealIfComplete(record, workspace, now) {
-  const required = activeMemberEmails(workspace);
-  if (required.length < 2) return record;
-  const submitted = required.filter((email) => entrySubmitted(record.entries?.[email]));
-  if (submitted.length < required.length) return record;
-  if (record.status === "revealed" && record.revealedAt) return record;
-  return { ...record, status: "revealed", revealedAt: record.revealedAt || now, updatedAt: now };
+  return resolveRoundReveal(record, activeMemberEmails(workspace), now);
+}
+
+function entrySubmitted(entry, record) {
+  return entrySubmittedInRound(entry, record);
+}
+
+// The partner's answers you're allowed to see: only the cards where they gave
+// the SAME value as you (agreements), unless you both opted in to compare.
+// Equality is the only comparison the server makes, so it stays scale-agnostic.
+function sharedAnswers(mine, partner) {
+  const out = {};
+  for (const [cardId, answer] of Object.entries(partner || {})) {
+    const own = mine?.[cardId];
+    if (own && own.value === answer.value) out[cardId] = answer;
+  }
+  return out;
 }
 
 export function publicGreenLights(record, workspace, actorEmail) {
@@ -125,10 +168,12 @@ export function publicGreenLights(record, workspace, actorEmail) {
   const partnerEmail = required.find((email) => email !== me) || "";
   const mine = record.entries?.[me] || null;
   const partner = record.entries?.[partnerEmail] || null;
-  const mySubmitted = entrySubmitted(mine);
-  const partnerSubmitted = entrySubmitted(partner);
+  const mySubmitted = entrySubmitted(mine, record);
+  const partnerSubmitted = entrySubmitted(partner, record);
   // Never expose partner data unless it's a genuine two-person revealed round.
   const revealed = record.status === "revealed" && required.length === 2 && Boolean(partnerEmail);
+  const compareMine = Boolean(record.fullReveal?.[me]);
+  const comparePartner = Boolean(record.fullReveal?.[partnerEmail]);
 
   const out = {
     workspaceId: record.workspaceId,
@@ -136,19 +181,57 @@ export function publicGreenLights(record, workspace, actorEmail) {
     requiredCount: Math.max(2, required.length),
     mySubmitted,
     partnerSubmitted,
-    updatedAt: record.updatedAt,
-    revealedAt: record.revealedAt,
+    round: recordRound(record),
+    // Only YOUR own timestamp: record-level times move when the partner submits.
+    mySubmittedAt: mySubmitted ? mine?.submittedAt || "" : "",
+    revealOpensAt: record.status === "revealed" ? "" : record.revealOpensAt || "",
+    minAnswers: MIN_ROUND_ANSWERS,
     // Your own answers are always yours to see.
     myAnswers: mine?.answers || {},
     partnerName: partner?.name || "",
-    // Reveal-gated: the partner's full answer set. The client derives every
-    // bucket (green lights / agreed limits / talk / cadence gap / sync %) from
-    // myAnswers + partnerAnswers using the deck — the server stays scale-agnostic.
+    // Your own opt-in is yours to see. The partner's opt-in only shows once it
+    // is mutual (the comparison is open), so an unanswered opt-in never reads
+    // as a visible "no".
+    compareMine,
+    compareOpen: revealed && compareMine && comparePartner,
+    // A new round waiting on you: how many of their answers changed since the
+    // last reveal, and whether a small change means looking over yours again.
+    ...partnerChangeNotice(record, me, partnerEmail, answerSignatures),
+    // Reveal-gated. Agreements only, unless the comparison is open.
     partnerAnswers: {},
   };
 
   if (revealed) {
-    out.partnerAnswers = partner?.answers || {};
+    const myAnswers = mine?.answers || {};
+    const partnerAll = partner?.answers || {};
+    // Agreements only, unless both opted in to compare. Either way the
+    // "Words I like" cards then go through the overlap-only filter: a word is
+    // a yes or a pass, and a pass must never leak, compare or not (two equal
+    // passes are an "agreement" sharedAnswers would otherwise hand over).
+    const visible = out.compareOpen ? partnerAll : sharedAnswers(myAnswers, partnerAll);
+    out.partnerAnswers = overlapOnlyPartnerAnswers(myAnswers, visible);
+  }
+  return out;
+}
+
+// "Words I like" cards (ids prefixed wd-) reveal only overlaps: the partner's
+// answer is handed over only when both said yes. A pass, a mismatch, or an
+// unanswered card is dropped server-side, so the client can never learn the
+// partner's word preferences beyond the words you share.
+export const OVERLAP_ONLY_PREFIX = "wd-";
+const OVERLAP_YES = "yes";
+
+export function overlapOnlyPartnerAnswers(myAnswers, partnerAnswers) {
+  const out = {};
+  for (const [cardId, answer] of Object.entries(partnerAnswers || {})) {
+    if (!cardId.startsWith(OVERLAP_ONLY_PREFIX)) {
+      out[cardId] = answer;
+      continue;
+    }
+    if (answer?.value === OVERLAP_YES && myAnswers?.[cardId]?.value === OVERLAP_YES) {
+      // Notes stay private on these: only the shared word is revealed.
+      out[cardId] = { value: OVERLAP_YES };
+    }
   }
   return out;
 }
@@ -170,8 +253,8 @@ export async function readGreenLightsStatus(env, workspace, actorEmail, now = ne
   const partnerEmail = required.find((email) => email !== me) || "";
   return {
     status: record.status,
-    mySubmitted: entrySubmitted(record.entries?.[me]),
-    partnerSubmitted: entrySubmitted(record.entries?.[partnerEmail]),
+    mySubmitted: entrySubmitted(record.entries?.[me], record),
+    partnerSubmitted: entrySubmitted(record.entries?.[partnerEmail], record),
     revealed: record.status === "revealed" && required.length === 2 && Boolean(partnerEmail),
   };
 }
@@ -213,21 +296,26 @@ export async function onRequest(context) {
       return jsonResponse(400, { error: "Too many answers." });
     }
     const answers = cleanAnswers(payload.answers);
-    if (Object.keys(answers).length === 0) {
-      return jsonResponse(400, { error: "Answer at least one before submitting." });
+    // Minimum batch: a tiny round would turn the reveal into a per-card oracle.
+    if (Object.keys(answers).length < MIN_ROUND_ANSWERS) {
+      return jsonResponse(400, { error: `Answer at least ${MIN_ROUND_ANSWERS} before you lock in.` });
     }
     const result = await mutateKey(env, STORE_NAME, greenLightsKey(workspace.id), (current) => {
-      const record = migrateRecord(current, workspace.id, now);
-      // Re-answering after a reveal reopens the round for this partner; the
-      // partner keeps their answers and the reveal re-completes when both are in.
-      const reopened = record.status === "revealed"
-        ? { ...record, status: "open", revealedAt: "" }
-        : record;
+      const record = revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now);
+      // Re-answering after a reveal starts a NEW round: both lock in again and
+      // the compare opt-ins reset. Before a reveal only this actor's resets.
+      let reopened = nextRoundFrom(record, answerSignatures);
+      if (reopened === record) {
+        const fullReveal = { ...(record.fullReveal || {}) };
+        delete fullReveal[actorEmail];
+        reopened = { ...record, fullReveal };
+      }
       const nextEntry = {
         email: actorEmail,
         name: actorName,
         answers,
         submittedAt: now,
+        round: recordRound(reopened),
         updatedAt: now,
       };
       let next = {
@@ -270,15 +358,71 @@ export async function onRequest(context) {
 
   if (action === "retake") {
     const result = await mutateKey(env, STORE_NAME, greenLightsKey(workspace.id), (current) => {
-      const record = migrateRecord(current, workspace.id, now);
+      const record = nextRoundFrom(revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now), answerSignatures);
       const entries = { ...(record.entries || {}) };
       delete entries[actorEmail];
-      const next = { ...record, entries, status: "open", revealedAt: "", updatedAt: now };
+      const fullReveal = { ...(record.fullReveal || {}) };
+      delete fullReveal[actorEmail];
+      const next = { ...record, entries, fullReveal, status: "open", revealedAt: "", updatedAt: now };
       return { value: next, result: { next } };
     });
     broadcastRoomEvent(context, workspace.id, {
       resource: "green-lights", action: "retake", entityId: workspace.id, actorEmail, actorName, passive: true,
     });
+    return jsonResponse(200, publicGreenLights(result.next, workspace, actorEmail));
+  }
+
+  // Opt in (or out) of comparing where you differ. Opens only when both are in.
+  if (action === "compare") {
+    const on = payload.on !== false;
+    const result = await mutateKey(env, STORE_NAME, greenLightsKey(workspace.id), (current) => {
+      const record = revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now);
+      const fullReveal = { ...(record.fullReveal || {}) };
+      if (on) fullReveal[actorEmail] = true; else delete fullReveal[actorEmail];
+      const next = { ...record, fullReveal, updatedAt: now };
+      return { value: next, result: { next } };
+    });
+    return jsonResponse(200, publicGreenLights(result.next, workspace, actorEmail));
+  }
+
+  // Keep last round's answers and lock in to the new round without re-answering.
+  if (action === "confirm") {
+    const result = await mutateKey(env, STORE_NAME, greenLightsKey(workspace.id), (current) => {
+      const record = revealIfComplete(migrateRecord(current, workspace.id, now), workspace, now);
+      const entry = record.entries?.[actorEmail];
+      if (!entry || Object.keys(entry.answers || {}).length < MIN_ROUND_ANSWERS) {
+        return { write: false, result: { next: record, missing: true } };
+      }
+      if (entrySubmitted(entry, record)) return { write: false, result: { next: record } };
+      const partnerEmail = activeMemberEmails(workspace).find((email) => email !== actorEmail) || "";
+      const notice = partnerChangeNotice(record, actorEmail, partnerEmail, answerSignatures);
+      if (notice.reanswerRequired) return { write: false, result: { next: record, reanswer: notice } };
+      const nextEntry = { ...entry, name: actorName || entry.name, submittedAt: now, round: recordRound(record), updatedAt: now };
+      const next = revealIfComplete({
+        ...record,
+        entries: { ...(record.entries || {}), [actorEmail]: nextEntry },
+        updatedAt: now,
+      }, workspace, now);
+      return { value: next, result: { next, changed: true } };
+    });
+    if (result.missing) return jsonResponse(400, { error: "There are no saved answers to keep. Answer the deck instead." });
+    if (result.reanswer) {
+      return jsonResponse(409, {
+        ...publicGreenLights(result.next, workspace, actorEmail),
+        error: "A few of their answers changed. Look over yours before you lock in.",
+      });
+    }
+    if (result.changed) {
+      context.waitUntil?.(notifyWorkspaceEvent(context, workspace.id, actorEmail, {
+        title: "Sexualsync",
+        body: "Something new in your room.",
+        tag: "game-ready",
+        url: "/games/green-lights",
+      }));
+      broadcastRoomEvent(context, workspace.id, {
+        resource: "green-lights", action: "submitted", entityId: workspace.id, actorEmail, actorName, passive: true,
+      });
+    }
     return jsonResponse(200, publicGreenLights(result.next, workspace, actorEmail));
   }
 

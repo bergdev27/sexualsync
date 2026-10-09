@@ -95,7 +95,7 @@ export async function onRequest(context) {
   const stampPresence = new URL(request.url).searchParams.get("bg") !== "1";
 
   const [board, pile, blindReveal, fantasy, presence, activity, sexQuiz, greenLights] = await Promise.all([
-    readRequestBoardForWorkspace(env, workspaceId, { expireInMemory: true, workspaceIds: dataWorkspaceIds, legacyPeople }),
+    readRequestBoardForWorkspace(env, workspaceId, { expireInMemory: true, workspaceIds: dataWorkspaceIds, legacyPeople, viewerEmail: auth.email }),
     readPileResponse(env, workspace, actorEmail, actorName, { workspaceIds: dataWorkspaceIds, context }),
     readBlindRevealResponse(env, workspace, actorEmail, now),
     readFantasyBacklogForWorkspace(env, workspaceId, actorEmail, { workspaceIds: dataWorkspaceIds, legacyPeople }),

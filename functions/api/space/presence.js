@@ -1,4 +1,8 @@
-// v2 · Sprint C · Presence — partner-last-seen + days-in-sync streak.
+// v2 · Sprint C · Presence — partner-last-seen.
+// No streak: a "days in a row" count turns showing up into a quota, and a
+// broken streak reads as a failure (Loewenstein et al. 2015 on instructed
+// frequency; see dashboard/health.js). Per-day opens are still recorded for
+// last-seen resolution but never summed into a score.
 // Called on every dashboard open; records caller's last-seen as a side-effect.
 
 import { getStore, storageKeyCandidates } from "../_kv.js";
@@ -111,26 +115,11 @@ function trimHistory(opens) {
   });
 }
 
-function computeStreak(opens, emails) {
-  // Days where every email in `emails` has an "open" entry, counted back from today.
-  let streak = 0;
-  const today = new Date();
-  for (let i = 0; i < HISTORY_DAYS; i++) {
-    const d = new Date(today);
-    d.setUTCDate(today.getUTCDate() - i);
-    const dk = dayKey(d.toISOString());
-    const allActive = emails.every((e) => opens[e] && opens[e][dk]);
-    if (allActive) streak++;
-    else break;
-  }
-  return streak;
-}
-
 export async function readPresenceResponse(env, ws, actorEmail, { stamp = true } = {}) {
   const now = new Date().toISOString();
   // Stamp this caller as seen via an atomic read-modify-write. Two concurrent
   // opens (even from different isolates) compose instead of clobbering, so no
-  // last-seen / open-day stamp is lost — the "days in sync" streak and the
+  // last-seen / open-day stamp is lost — last-seen resolution and the
   // active-recipient push suppression in _notification_policy.js both read this
   // record and depend on every open being recorded. The transform is synchronous
   // and idempotent (it may run more than once on a CAS retry). `result` is the
@@ -139,7 +128,7 @@ export async function readPresenceResponse(env, ws, actorEmail, { stamp = true }
   // Freshness short-circuit: this runs on every dashboard/sexboard GET, so an
   // unconditional write would hammer KV. When the caller's last-seen is already
   // <60s old AND today's open is already recorded, the write is a no-op for the
-  // semantics we keep (last-seen resolution + per-day open for the streak), so
+  // semantics we keep (last-seen resolution + the per-day open record), so
   // we skip it (write:false). We still return an explicit merged `result` so the
   // response is consistent on both mutateKey paths (the CAS path returns the
   // fresh-read value, not our computed `next`, when no `result` is given).
@@ -150,7 +139,7 @@ export async function readPresenceResponse(env, ws, actorEmail, { stamp = true }
     next.byEmail = next.byEmail || {};
     next.opens   = next.opens   || {};
     // Read-only callers (a backgrounded/realtime-driven sexboard refetch) still
-    // get the merged view for partner-last-seen + streak, but must NOT stamp the
+    // get the merged view for partner-last-seen, but must NOT stamp the
     // caller as active — that false "active" is what suppresses their real pushes.
     if (!stamp) return { value: next, result: next, write: false };
     const prevSeen = next.byEmail[actorEmail];
@@ -172,14 +161,9 @@ export async function readPresenceResponse(env, ws, actorEmail, { stamp = true }
   const partnerLastSeen = partnerEmail ? (data.byEmail[partnerEmail] || null) : null;
   const myLastSeen = data.byEmail[actorEmail] || now;
 
-  const emailsForStreak = [actorEmail];
-  if (partnerEmail) emailsForStreak.push(partnerEmail);
-  const daysInSync = partnerEmail ? computeStreak(data.opens, emailsForStreak) : 0;
-
   return {
     me:       { email: actorEmail, lastSeen: myLastSeen, displayName: me?.displayName || "" },
     partner:  partner ? { email: partnerEmail, lastSeen: partnerLastSeen, displayName: partner.displayName || "" } : null,
-    daysInSync,
   };
 }
 

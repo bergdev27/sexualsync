@@ -7,7 +7,7 @@
 //   - Asks awaiting your reply (you're the reviewer, still pending/sent)
 //   - Counters awaiting your call (you sent the Ask, your partner countered)
 //   - Kinks needing your response (authored by your partner, no reply from you)
-//   - Pile needing you (revealed, or you haven't dropped your acts yet)
+//   - Pile needing you (revealed, or you are under its minimum drops)
 //   - Blind Reveal needing you (open, and you haven't answered yet)
 // Unread chat is the only needsYou contributor intentionally NOT counted here
 // yet — it converges on the next open. The Pile / Blind Reveal conditions
@@ -86,13 +86,15 @@ export async function attentionCountFor(env, workspaceId, recipientEmail) {
     const { workspaces } = await ensurePlatformIdentity(env, me, { ensureLegacy: true });
     const workspace = findWorkspace(workspaces, workspaceId);
     if (workspace) {
-      // Pile: needs you if revealed, or you haven't dropped any acts yet.
+      // Pile: needs you if revealed, or you're still under the minimum drops
+      // it needs to open. Mirrors pileNeedsMe in web/src/lib/pile-state.ts.
       try {
-        const { readPileResponse } = await import("./pile.js");
+        const { readPileResponse, PILE_MIN_DROPS } = await import("./pile.js");
         const { sexboardVisiblePile } = await import("./sexboard.js");
         const pileResponse = await readPileResponse(env, workspace, me);
         const pile = sexboardVisiblePile(pileResponse?.pile);
-        if (pile && (pile.isRevealed || (pile.mine?.length || 0) === 0)) count += 1;
+        const minNeeded = pile?.minDropCount || PILE_MIN_DROPS;
+        if (pile && (pile.isRevealed || (pile.mine?.length || 0) < minNeeded)) count += 1;
       } catch {
         // Best-effort.
       }

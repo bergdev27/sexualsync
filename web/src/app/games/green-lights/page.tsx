@@ -5,8 +5,8 @@
  * the Sex Quiz). Each partner privately answers "I'm good / Depends / No" (with
  * an optional note) to a deck of agreement statements; nothing reveals until both
  * finish. Then it opens what you're on the same page about (green lights + agreed
- * limits) and — the point — the opposites: where you differ or it's conditional,
- * as a "talk about these" list.
+ * limits). Where you differ stays private unless you BOTH choose to compare;
+ * then it opens as a "talk about these" list. No score, no count of differences.
  *
  * Route + API are /games/green-lights and /api/green-lights. v1 stores answers
  * plaintext-at-rest (encrypted by the store envelope) + double-blind at the app
@@ -19,12 +19,13 @@ import AppShell, { useFocusedRun } from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import DesireStyles from "@/components/DesireStyles";
 import LibidoNote from "@/components/LibidoNote";
-import SyncScoreReveal from "@/components/SyncScoreReveal";
+import { SeedLink } from "@/components/MatchActions";
 import { ErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
+  confirmGreenLights,
   getGreenLights,
-  retakeGreenLights,
+  setGreenLightsCompare,
   submitGreenLights,
 } from "@/lib/api";
 import { getProfileCached } from "@/lib/profile-cache";
@@ -34,6 +35,7 @@ import {
   GREEN_LIGHT_DECK,
   GREEN_LIGHT_BY_ID,
   activeGreenLightAnswers,
+  actionableGreenLights,
   unansweredGreenLightCards,
   computeGreenLightsReveal,
   greenLightCategoryTitle,
@@ -125,6 +127,8 @@ export default function GreenLightsPage() {
 function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) => void }) {
   // Answering only the questions added (or re-scaled) since the last submit.
   const [topUp, setTopUp] = useState(false);
+  // Going back through every answer (pre-filled) to change any of them.
+  const [editing, setEditing] = useState(false);
   if (state.kind === "loading") return <SkeletonList count={4} />;
   if (state.kind === "unauthorized") {
     return <ErrorState title="Session expired" body="Sign in again to take Green Lights." action={<Link href="/" className="btn-ghost">Back to sign-in</Link>} />;
@@ -137,7 +141,13 @@ function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) 
   const { workspace, data } = state;
   const onUpdate = (next: GreenLightsResponse) => setState({ ...state, data: next });
 
-  if (!data.mySubmitted) return <Runner workspace={workspace} onSubmitted={onUpdate} />;
+  if (!data.mySubmitted) {
+    // A new round after a reveal: last round's answers are still saved.
+    if (Object.keys(data.myAnswers || {}).length >= (data.minAnswers || 10)) {
+      return <NewRound workspace={workspace} data={data} onUpdate={onUpdate} />;
+    }
+    return <Runner workspace={workspace} onSubmitted={onUpdate} />;
+  }
   if (topUp) {
     return (
       <Runner
@@ -148,9 +158,24 @@ function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) 
       />
     );
   }
+  if (editing) {
+    return (
+      <Runner
+        workspace={workspace}
+        onSubmitted={(next) => { setEditing(false); onUpdate(next); }}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
   const startTopUp = () => setTopUp(true);
-  if (data.status !== "revealed") return <Waiting workspace={workspace} data={data} onUpdate={onUpdate} onAnswerNew={startTopUp} />;
-  return <Reveal workspace={workspace} data={data} onUpdate={onUpdate} onAnswerNew={startTopUp} />;
+  // Changing your answers never wipes them: the runner opens on your saved
+  // answers, and only a submit starts the next round.
+  const startEdit = () => {
+    saveRunnerDraft("green-lights", workspace.id, { answers: data.myAnswers, index: 0, phase: "cards" });
+    setEditing(true);
+  };
+  if (data.status !== "revealed") return <Waiting workspace={workspace} data={data} onUpdate={onUpdate} onAnswerNew={startTopUp} onChangeAnswers={startEdit} />;
+  return <Reveal workspace={workspace} data={data} onUpdate={onUpdate} onAnswerNew={startTopUp} onChangeAnswers={startEdit} />;
 }
 
 // ---------- Taking it ----------
@@ -307,6 +332,7 @@ function Runner({
             Start
           </button>
         )}
+        {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Not now</button>}
       </div>
     );
   }
@@ -402,22 +428,91 @@ function NewQuestionsPrompt({ data, onAnswerNew }: { data: GreenLightsResponse; 
   );
 }
 
-function Waiting({ workspace, data, onUpdate, onAnswerNew }: { workspace: Workspace; data: GreenLightsResponse; onUpdate: (next: GreenLightsResponse) => void; onAnswerNew: () => void }) {
+// Answers freeze per round: after a reveal, any change starts a new round and
+// both lock in again. Saved answers carry over; keeping them is one tap.
+function NewRound({ workspace, data, onUpdate }: { workspace: Workspace; data: GreenLightsResponse; onUpdate: (next: GreenLightsResponse) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (editing) return <Runner workspace={workspace} onSubmitted={onUpdate} />;
+  async function keep() {
+    setBusy(true);
+    setError("");
+    try { onUpdate(await confirmGreenLights(workspace.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Couldn't lock in. Try again."); }
+    finally { setBusy(false); }
+  }
+  function change() {
+    saveRunnerDraft("green-lights", workspace.id, { answers: data.myAnswers, index: 0, phase: "cards" });
+    setEditing(true);
+  }
+  const changed = typeof data.partnerChangedCount === "number" ? data.partnerChangedCount : null;
+  const reanswer = Boolean(data.reanswerRequired);
+  return (
+    <div className="rg-pane is-centered" data-testid="gl-new-round">
+      <p className="rg-done-title">A new round is open</p>
+      {changed !== null && changed > 0 && (
+        <p className="rg-done-body" data-testid="gl-partner-changed">
+          {partnerChangedLine(data.partnerName, changed)}
+        </p>
+      )}
+      {reanswer ? (
+        <p className="rg-done-body">
+          Look over yours before you lock in, so you know exactly what the next reveal will show.
+        </p>
+      ) : (
+        <p className="rg-done-body">
+          Your answers from last time are saved. Keep them, or change anything first. The next reveal opens once you&apos;re both in.
+        </p>
+      )}
+      {reanswer ? (
+        <button type="button" className="rg-btn pressable" disabled={busy} onClick={change}>Look over my answers</button>
+      ) : (
+        <>
+          <button type="button" className="rg-btn pressable" disabled={busy} onClick={keep}>
+            {busy ? "Locking in…" : "Keep my answers"}
+          </button>
+          <button type="button" className="btn-ghost" disabled={busy} onClick={change}>Change my answers</button>
+        </>
+      )}
+      {error && <p className="rg-error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function partnerChangedLine(partnerName: string, changed: number): string {
+  return `${partnerName || "Your partner"} changed ${changed} ${changed === 1 ? "answer" : "answers"} since last time.`;
+}
+
+function revealOpensLabel(iso?: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function Waiting({ workspace, data, onUpdate, onAnswerNew, onChangeAnswers }: { workspace: Workspace; data: GreenLightsResponse; onUpdate: (next: GreenLightsResponse) => void; onAnswerNew: () => void; onChangeAnswers: () => void }) {
   const [showMine, setShowMine] = useState(false);
   return (
     <div className="rg-pane is-centered">
       <div className="rg-done-emoji">🔒</div>
       <p className="rg-done-title">Your answers are locked in</p>
       <NewQuestionsPrompt data={data} onAnswerNew={onAnswerNew} />
-      <p className="rg-done-body">
-        {data.partnerName || "Your partner"}&apos;s stay hidden until they finish too — but you can always look back at your own.
-      </p>
+      {data.revealOpensAt ? (
+        <p className="rg-done-body">
+          You&apos;re both in. A new reveal opens a day after the last one, so this one opens {revealOpensLabel(data.revealOpensAt)}.
+        </p>
+      ) : (
+        <p className="rg-done-body">
+          {data.partnerName || "Your partner"}&apos;s stay hidden until they finish too — but you can always look back at your own.
+        </p>
+      )}
       <button type="button" className="btn-ghost" onClick={() => setShowMine((v) => !v)} aria-expanded={showMine}>
         {showMine ? "Hide my answers" : "View my answers"}
       </button>
       {showMine && <MyGreenLights data={data} />}
-      <button type="button" className="btn-ghost mt-2" onClick={() => { retakeGreenLights(workspace.id).then(onUpdate).catch(() => {}); }}>
-        Redo my answers
+      <button type="button" className="btn-ghost mt-2" onClick={onChangeAnswers} data-testid="gl-change-answers">
+        Change my answers
       </button>
     </div>
   );
@@ -465,37 +560,30 @@ function MyGreenLights({ data }: { data: GreenLightsResponse }) {
 
 // ---------- Reveal ----------
 
-function Reveal({ workspace, data, onUpdate, onAnswerNew }: { workspace: Workspace; data: GreenLightsResponse; onUpdate: (next: GreenLightsResponse) => void; onAnswerNew: () => void }) {
+function Reveal({ workspace, data, onUpdate, onAnswerNew, onChangeAnswers }: { workspace: Workspace; data: GreenLightsResponse; onUpdate: (next: GreenLightsResponse) => void; onAnswerNew: () => void; onChangeAnswers: () => void }) {
+  // The reveal opens at the top, not wherever the last screen was scrolled to.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, []);
   const partnerName = data.partnerName || "your partner";
   const [showMine, setShowMine] = useState(false);
   // The deck is the source of truth: derive every bucket from both answer sets.
-  const { greenLights, sharedConcerns, agreedLimits, talk, cadence, syncScore, categories } = useMemo(
+  const { greenLights, wordsShared, sharedConcerns, agreedLimits, talk, cadence } = useMemo(
     () => computeGreenLightsReveal(data.myAnswers || {}, data.partnerAnswers || {}),
     [data.myAnswers, data.partnerAnswers],
   );
+  const tryTogether = useMemo(() => actionableGreenLights(greenLights), [greenLights]);
+  const aligned = greenLights.length + agreedLimits.length + sharedConcerns.length;
 
   return (
     <div className="rg-reveal">
       <NewQuestionsPrompt data={data} onAnswerNew={onAnswerNew} />
       <div>
-        <p className="eyebrow">Where you stand</p>
-        {syncScore !== null && <SyncScoreReveal score={syncScore} label="On the same page" />}
-        {categories.length > 1 && (
-          <details className="sync-breakdown">
-            <summary>See it by topic</summary>
-            <ul>
-              {categories.map((c) => (
-                <li key={c.category}>
-                  <span className="sync-breakdown-title">{c.title}</span>
-                  <span className="sync-breakdown-bar" aria-hidden="true"><span style={{ transform: `scaleX(${c.score / 100})` }} /></span>
-                  <span className="sync-breakdown-value">{c.aligned}/{c.total}</span>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
+        <p className="rg-reveal-title">Where you stand together</p>
         <p className="rg-reveal-body">
-          You&apos;re aligned on <strong>{greenLights.length + agreedLimits.length + sharedConcerns.length}</strong>{talk.length > 0 ? <> — and there {talk.length === 1 ? "is" : "are"} <strong>{talk.length}</strong> worth talking through.</> : "."}
+          {aligned > 0
+            ? <>You&apos;re on the same page about <strong>{aligned}</strong> {aligned === 1 ? "thing" : "things"}.</>
+            : <>Nothing lined up exactly this round. That&apos;s fine; it&apos;s a starting point, not a verdict.</>}
         </p>
       </div>
 
@@ -532,7 +620,7 @@ function Reveal({ workspace, data, onUpdate, onAnswerNew }: { workspace: Workspa
         </section>
       )}
 
-      {talk.length > 0 && (
+      {data.compareOpen && talk.length > 0 && (
         <section>
           <p className="eyebrow text-gold">Talk about these</p>
           <div className="rg-compare">
@@ -587,6 +675,36 @@ function Reveal({ workspace, data, onUpdate, onAnswerNew }: { workspace: Workspa
         </section>
       )}
 
+      {tryTogether.length > 0 && (
+        <section data-testid="gl-try-together">
+          <p className="eyebrow">Try one together</p>
+          <p className="rg-panel-body mt-1">You both want more of these. Pick one and make it an Ask.</p>
+          <div className="rg-chips mt-2">
+            {tryTogether.map((c) => (
+              <SeedLink key={c.id} source="green-lights" acts={[c.label]} note={`From Green Lights, we both want: ${c.label}`} className="rg-chip is-small is-green pressable" testId="gl-make-it-an-ask">
+                {c.label}
+              </SeedLink>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {wordsShared.length > 0 && (
+        <section className="gl-words-shared" data-testid="gl-words-shared">
+          <p className="eyebrow" style={{ color: "var(--accent)" }}>Words you both like</p>
+          <p className="rg-panel-body mt-1">
+            Only the ones you both said yes to. Anything else stays private.
+          </p>
+          <div className="rg-chips mt-2">
+            {wordsShared.map((c) => (
+              <span key={c.id} className="rg-chip is-small">
+                {c.label}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
       {agreedLimits.length > 0 && (
         <section>
           <p className="eyebrow" style={{ color: "rgb(var(--no-rgb))" }}>Agreed limits · shared no&apos;s</p>
@@ -607,12 +725,45 @@ function Reveal({ workspace, data, onUpdate, onAnswerNew }: { workspace: Workspa
       </div>
       {showMine && <MyGreenLights data={data} />}
 
+      <CompareToggle workspace={workspace} data={data} onUpdate={onUpdate} />
+
       <p className="rg-note">
         A gap isn&apos;t a verdict — it&apos;s just where a conversation helps.
       </p>
 
-      <button type="button" className="btn-ghost" onClick={() => { retakeGreenLights(workspace.id).then(onUpdate).catch(() => {}); }}>
-        Retake
+      <button type="button" className="btn-ghost" onClick={onChangeAnswers} data-testid="gl-change-answers">
+        Change my answers
+      </button>
+      <p className="rg-note">
+        Your answers carry over, so change only what you want. A change starts a new round: you both lock in again, and the next reveal opens a day after this one.
+      </p>
+    </div>
+  );
+}
+
+// Where you differ stays private unless BOTH choose to look. Your own choice is
+// yours to see; whether your partner has chosen never shows until it is mutual,
+// so an unanswered invitation never reads as a no.
+function CompareToggle({ workspace, data, onUpdate }: { workspace: Workspace; data: GreenLightsResponse; onUpdate: (next: GreenLightsResponse) => void }) {
+  const [busy, setBusy] = useState(false);
+  if (data.compareOpen) return null;
+  const partnerName = data.partnerName || "your partner";
+  async function toggle() {
+    setBusy(true);
+    try { onUpdate(await setGreenLightsCompare({ workspaceId: workspace.id, on: !data.compareMine })); }
+    catch { /* best-effort; the toggle stays put on failure */ }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="rg-panel is-quiet" data-testid="gl-compare">
+      <p className="rg-panel-title">Compare where you differ?</p>
+      <p className="rg-panel-body">
+        {data.compareMine
+          ? `You're open to it. It opens only if ${partnerName} chooses it too, and you'll never see whether they have until then.`
+          : "Only what you agree on is shown. If you both choose to, you'll each see the rest side by side, with a gentle way into each one."}
+      </p>
+      <button type="button" className={`${data.compareMine ? "rg-chip is-small" : "rg-btn is-compact"} mt-2.5 self-start pressable`} disabled={busy} onClick={toggle}>
+        {data.compareMine ? "You're in — undo" : "I'm open to it"}
       </button>
     </div>
   );

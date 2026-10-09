@@ -143,7 +143,7 @@ test("archiving a request transitions it to archived", async () => {
   assert.equal(stored.find((r) => r.id === "r1").status, "archived");
 });
 
-test("either partner can pass an agreed request after it is on deck", async () => {
+test("either partner can withdraw an agreed request (change of plans) without a pass or cancel record", async () => {
   const yesDecision = { label: "Massage", decision: "Yes", targetType: "act" };
   const e = await setup([
     req("mine", { status: "on_deck", decisions: [yesDecision] }),
@@ -157,16 +157,111 @@ test("either partner can pass an agreed request after it is on deck", async () =
     }),
   ]);
 
-  const mine = await call(e, "PATCH", { id: "mine", action: "pass", workspaceId: "w1" });
+  // "withdraw" is the action; "pass" is the legacy name older clients send.
+  const mine = await call(e, "PATCH", { id: "mine", action: "withdraw", workspaceId: "w1" });
   const theirs = await call(e, "PATCH", { id: "theirs", action: "pass", workspaceId: "w1" });
 
   assert.equal(mine.status, 200);
   assert.equal(theirs.status, 200);
   const stored = await readRequests(e);
-  assert.equal(stored.find((r) => r.id === "mine").status, "archived");
-  assert.equal(stored.find((r) => r.id === "theirs").status, "archived");
-  assert.equal(stored.find((r) => r.id === "mine").passedByEmail, ME);
-  assert.equal(stored.find((r) => r.id === "theirs").passedByEmail, ME);
+  for (const id of ["mine", "theirs"]) {
+    const row = stored.find((r) => r.id === id);
+    assert.equal(row.status, "archived");
+    assert.equal(row.withdrawnByEmail, ME);
+    assert.ok(row.withdrawnAt);
+    assert.equal(row.passedAt, undefined, "a withdrawal is never recorded as a pass");
+    assert.equal(row.passedByEmail, undefined);
+    assert.equal(row.archivedAt, undefined, "a withdrawal is not recorded as an archive/cancel");
+  }
+  const audit = (await readKey(e, "sexualsync-audit", "workspace-w1")) || [];
+  const types = audit.map((event) => event?.type);
+  assert.ok(types.includes("request_plans_changed"));
+  assert.ok(!types.includes("request_archived"), "no archive/cancel audit row for a change of plans");
+
+  // The activity row is the warm "Change of plans", not a pass or a cancel.
+  const { readActivity } = await import("../../functions/api/_activity.js");
+  let items = [];
+  for (let i = 0; i < 20 && !items.length; i += 1) {
+    items = ((await readActivity(e, "w1", PARTNER))?.items || []).filter((item) => item.entityId === "mine");
+    if (!items.length) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(items[0]?.action, "withdrawn");
+  assert.equal(items[0]?.label, "Change of plans");
+  // Like a mood match, it has no actor: it never says which of you took it back.
+  assert.equal(items[0]?.actorEmail, "");
+  assert.doesNotMatch(items[0]?.label, /Me|Partner/);
+
+  // Health reads the board through the same reader (and migration) it uses in
+  // production: a withdrawn yes is never a moment.
+  const { sourceEventsFromRequests } = await import("../../functions/api/dashboard/health.js");
+  const healthBoard = await readRequestBoardForWorkspace(e, "w1", { expireInMemory: false });
+  assert.equal(healthBoard.requests.filter((row) => row.withdrawnAt).length, 2, "withdrawnAt survives the read path");
+  assert.deepEqual(sourceEventsFromRequests(healthBoard), [], "Health skips withdrawn Asks");
+  assert.equal(
+    sourceEventsFromRequests({ requests: stored.map(({ withdrawnAt, withdrawnByEmail, withdrawnByName, ...row }) => ({ ...row, status: "on_deck" })) }).length,
+    2,
+    "the same Asks count once nothing was withdrawn",
+  );
+});
+
+test("only an agreed Ask can be withdrawn, and a plan is cleared with it", async () => {
+  const yesDecision = { label: "Massage", decision: "Yes", targetType: "act" };
+  const planned = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const e = await setup([
+    req("agreed", { status: "on_deck", decisions: [yesDecision], plannedFor: planned, plannedByEmail: ME }),
+    req("open", { status: "sent" }),
+  ]);
+  const open = await call(e, "PATCH", { id: "open", action: "withdraw", workspaceId: "w1" });
+  assert.equal(open.status, 409);
+  const res = await call(e, "PATCH", { id: "agreed", action: "withdraw", workspaceId: "w1" });
+  assert.equal(res.status, 200);
+  const stored = (await readRequests(e)).find((r) => r.id === "agreed");
+  assert.equal(stored.plannedFor, undefined);
+  assert.equal(stored.plannedByEmail, undefined);
+});
+
+test("a withdrawn Ask can't be restored by either partner; withdrawnAt is never wiped", async () => {
+  const yesDecision = { label: "Massage", decision: "Yes", targetType: "act" };
+  const e = await setup([req("a1", { status: "reviewed", decisions: [yesDecision], reviewedAt: NOW, reviewedByEmail: PARTNER })]);
+  // The reviewer (who said yes) changes plans.
+  const withdrawn = await callAs(e, PARTNER, "PATCH", { id: "a1", action: "withdraw", workspaceId: "w1" });
+  assert.equal(withdrawn.status, 200);
+  // Neither the asker nor the withdrawer can bring that yes back.
+  for (const email of [ME, PARTNER]) {
+    for (const action of ["restore", "on_deck"]) {
+      const res = await callAs(e, email, "PATCH", { id: "a1", action, workspaceId: "w1" });
+      assert.equal(res.status, 409, `${email} ${action}`);
+      const body = await res.json();
+      assert.equal(body.error, "This one was set aside. Ask again instead.");
+      assert.equal(body.withdrawn, true);
+    }
+  }
+  const stored = (await readRequests(e)).find((r) => r.id === "a1");
+  assert.equal(stored.status, "archived");
+  assert.ok(stored.withdrawnAt, "withdrawnAt survives a refused restore");
+  assert.equal(stored.restoredAt, undefined);
+
+  // Who changed plans stays with them: the other partner's rows don't name them.
+  const theirView = await (await getBoardAs(e, ME)).json();
+  const theirRow = theirView.requests.find((r) => r.id === "a1");
+  assert.ok(theirRow.withdrawnAt);
+  assert.equal(theirRow.withdrawnByEmail, undefined);
+  assert.equal(theirRow.withdrawnByName, undefined);
+  const ownView = await (await getBoardAs(e, PARTNER)).json();
+  assert.equal(ownView.requests.find((r) => r.id === "a1").withdrawnByEmail, PARTNER);
+});
+
+test("a legacy withdrawal (archived + passedAt with a yes) can't be restored; a plain archive still can", async () => {
+  const yesDecision = { label: "Massage", decision: "Yes", targetType: "act" };
+  const e = await setup([
+    req("legacy", { status: "archived", decisions: [yesDecision], passedAt: NOW }),
+    req("archived", { status: "archived", decisions: [yesDecision], archivedAt: NOW }),
+  ]);
+  const legacy = await call(e, "PATCH", { id: "legacy", action: "restore", workspaceId: "w1" });
+  assert.equal(legacy.status, 409);
+  const plain = await call(e, "PATCH", { id: "archived", action: "restore", workspaceId: "w1" });
+  assert.equal(plain.status, 200);
+  assert.equal((await plain.json()).request.status, "on_deck");
 });
 
 test("an active workspace member who is not requester or reviewer cannot change an Ask status", async () => {
@@ -292,7 +387,300 @@ test("assigned reviewer can pass a sent request from Ask detail", async () => {
     if (!items.length) await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(items[0]?.action, "passed");
-  assert.match(items[0]?.label || "", /passed$/);
+  // A plain pass still reads warm for the asker: never a bare "passed".
+  assert.equal(items[0]?.label, "Me passed for now. No reason needed");
+  assert.equal(body.request.passNote, undefined);
+  assert.equal(body.request.rainCheckAt, undefined);
+});
+
+test("a pass can carry an allowlisted reassurance, and a rain check stores a resurface time", async () => {
+  const e = await setup([
+    req("r1", { requesterEmail: PARTNER, reviewerEmail: ME, requester: "Partner", reviewer: "Me" }),
+    req("r2", { requesterEmail: PARTNER, reviewerEmail: ME, requester: "Partner", reviewer: "Me" }),
+    req("r3", { requesterEmail: PARTNER, reviewerEmail: ME, requester: "Partner", reviewer: "Me" }),
+  ]);
+  const rainCheckAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  const warm = await call(e, "PATCH", {
+    id: "r1", action: "reply", workspaceId: "w1",
+    decisions: [{ label: "Massage", decision: "No", targetType: "act" }],
+    passNote: "still_want",
+  });
+  assert.equal(warm.status, 200);
+  const warmBody = await warm.json();
+  assert.equal(warmBody.request.passNote, "still_want");
+  assert.equal(warmBody.request.rainCheckAt, undefined);
+
+  const rain = await call(e, "PATCH", {
+    id: "r2", action: "reply", workspaceId: "w1",
+    decisions: [{ label: "Massage", decision: "No", targetType: "act" }],
+    passNote: "this_weekend",
+    rainCheckAt,
+  });
+  const rainBody = await rain.json();
+  assert.equal(rainBody.request.passNote, "this_weekend");
+  assert.equal(rainBody.request.rainCheckAt, rainCheckAt);
+
+  // Free text is never accepted as a note, and a note never rides on a yes.
+  const junk = await call(e, "PATCH", {
+    id: "r3", action: "reply", workspaceId: "w1",
+    decisions: [{ label: "Massage", decision: "Yes", targetType: "act" }],
+    passNote: "still_want",
+  });
+  const junkBody = await junk.json();
+  assert.equal(junkBody.request.passNote, undefined);
+
+  const { readActivity } = await import("../../functions/api/_activity.js");
+  let items = [];
+  for (let i = 0; i < 20 && items.length < 2; i += 1) {
+    items = ((await readActivity(e, "w1", PARTNER))?.items || []).filter((item) => item.entityId === "r1" || item.entityId === "r2");
+    if (items.length < 2) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const byId = Object.fromEntries(items.map((item) => [item.entityId, item]));
+  assert.equal(byId.r1?.action, "passed_still_want");
+  assert.equal(byId.r1?.label, "Not tonight, but Me still wants you");
+  assert.equal(byId.r2?.action, "passed_this_weekend");
+});
+
+test("a garbled pass note or out-of-range rain check is cleaned, not stored", async () => {
+  const { passReplyFields } = await import("../../functions/api/request-board.js");
+  const no = [{ label: "Massage", decision: "No", targetType: "act" }];
+  const now = Date.parse("2026-05-23T01:00:00Z");
+  assert.deepEqual(passReplyFields({ passNote: "<script>" }, no, now), {});
+  assert.deepEqual(passReplyFields({ passNote: "love_asked" }, no, now), { passNote: "love_asked" });
+  // A rain check far in the future (or in the past) falls back to the server default window.
+  const far = passReplyFields({ passNote: "next_week", rainCheckAt: "2027-01-01T00:00:00Z" }, no, now);
+  assert.equal(far.rainCheckAt, new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString());
+  assert.deepEqual(passReplyFields({ passNote: "still_want" }, [{ label: "Massage", decision: "Counter", counter: "Kiss", targetType: "act" }], now), {});
+});
+
+test("the same Ask can't be re-sent for a week after a pass; a rain check opens it early", async () => {
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const passed = req("passed", {
+    status: "reviewed",
+    categories: ["Massage", "Kiss"],
+    decisions: [
+      { label: "Massage", decision: "No", targetType: "act" },
+      { label: "Kiss", decision: "No", targetType: "act" },
+    ],
+    reviewedAt: twoDaysAgo,
+    sentAt: twoDaysAgo,
+    createdAt: twoDaysAgo,
+    timing: "Next week",
+  });
+  const e = await setup([passed]);
+  const blocked = await call(e, "POST", { workspaceId: "w1", categories: ["kiss", "Massage"], timing: "Tonight", filming: "No" });
+  assert.equal(blocked.status, 409);
+  const blockedBody = await blocked.json();
+  assert.equal(blockedBody.cooldown?.requestId, "passed");
+  assert.ok(Date.parse(blockedBody.cooldown.until) > Date.now());
+  assert.doesNotMatch(blockedBody.error, /error|denied|rejected/i);
+
+  // A different set of Acts is fine.
+  const other = await call(e, "POST", { workspaceId: "w1", categories: ["Massage"], timing: "Tonight", filming: "No" });
+  assert.equal(other.status, 201);
+
+  // A rain check that has already arrived lifts the cooldown for that Ask.
+  const e2 = await setup([{ ...passed, passNote: "this_weekend", rainCheckAt: new Date(Date.now() - 60 * 1000).toISOString() }]);
+  const reopened = await call(e2, "POST", { workspaceId: "w1", categories: ["Massage", "Kiss"], timing: "Tonight", filming: "No" });
+  assert.equal(reopened.status, 201);
+});
+
+const passedMassage = () => req("passed", {
+  status: "reviewed",
+  decisions: [{ label: "Massage", decision: "No", targetType: "act" }],
+  reviewedAt: NOW,
+  reviewedByEmail: PARTNER,
+});
+
+test("with a rain check, the Ask opens at exactly the rain-check time, even a little past the week", async () => {
+  const rainCheckAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000 + 90 * 60 * 1000).toISOString();
+  const e = await setup([{ ...passedMassage(), passNote: "next_week", rainCheckAt }]);
+  const res = await call(e, "POST", { workspaceId: "w1", categories: ["Massage"], timing: "Tonight" });
+  assert.equal(res.status, 409);
+  assert.equal((await res.json()).cooldown.until, rainCheckAt, "the same instant the rain-check copy shows");
+});
+
+test("the re-ask cooldown also holds when a saved draft is sent", async () => {
+  const e = await setup([passedMassage()]);
+  const draft = await call(e, "POST", { workspaceId: "w1", categories: ["Massage"], timing: "Tonight", status: "draft" });
+  assert.equal(draft.status, 201, "saving a draft is fine");
+  const draftId = (await draft.json()).request.id;
+  const send = await call(e, "POST", { workspaceId: "w1", id: draftId, categories: ["Massage"], timing: "Tonight", status: "sent" });
+  assert.equal(send.status, 409);
+  assert.ok((await send.json()).cooldown);
+  assert.equal((await readRequests(e)).find((r) => r.id === draftId).status, "draft");
+});
+
+test("sending a draft is a real send: pending, sentAt, a review link, one 'sent' event", async () => {
+  const e = await setup();
+  const draft = await call(e, "POST", { workspaceId: "w1", categories: ["Kiss"], timing: "Tonight", status: "draft" });
+  const draftBody = await draft.json();
+  assert.equal(draftBody.request.status, "draft");
+  assert.equal(draftBody.request.sentAt, undefined);
+  assert.equal((await readTokens(e)).length, 0, "a draft mints no review link");
+  const send = await call(e, "POST", { workspaceId: "w1", id: draftBody.request.id, status: "sent" });
+  assert.equal(send.status, 200);
+  const sent = await send.json();
+  assert.equal(sent.request.status, "pending");
+  assert.ok(sent.request.sentAt);
+  assert.ok(sent.request.reviewTokenId);
+  assert.ok(sent.reviewToken?.token);
+  assert.equal((await readTokens(e)).length, 1);
+});
+
+test("re-wording an open Ask to a set that's resting is held by the cooldown", async () => {
+  const e = await setup([passedMassage(), req("open", { categories: ["Kiss"], status: "pending" })]);
+  const res = await call(e, "POST", { workspaceId: "w1", id: "open", categories: ["Massage"] });
+  assert.equal(res.status, 409);
+  assert.deepEqual((await readRequests(e)).find((r) => r.id === "open").categories, ["Kiss"]);
+});
+
+test("editing an Ask that's already out never re-mints a link or re-notifies", async () => {
+  const e = await setup();
+  const created = await (await call(e, "POST", { workspaceId: "w1", categories: ["Kiss"], timing: "Tonight", status: "sent" })).json();
+  assert.equal((await readTokens(e)).length, 1);
+  const edit = await call(e, "POST", { workspaceId: "w1", id: created.request.id, note: "Slowly" });
+  assert.equal(edit.status, 200);
+  const body = await edit.json();
+  assert.equal(body.reviewToken, null);
+  assert.equal(body.request.sentAt, created.request.sentAt);
+  assert.equal((await readTokens(e)).length, 1);
+});
+
+test("the asker can't answer their own Ask through the edit path", async () => {
+  const yes = [{ label: "Massage", decision: "Yes", targetType: "act" }];
+  const e = await setup([req("open", { status: "pending" })]);
+  for (const status of ["on_deck", "completed", "maybe", "expired", "reviewed"]) {
+    const res = await call(e, "POST", { workspaceId: "w1", id: "open", status, decisions: yes });
+    assert.equal(res.status, 403, status);
+  }
+  // Decisions in an asker's payload are ignored even on an allowed edit.
+  const edit = await call(e, "POST", { workspaceId: "w1", id: "open", status: "sent", decisions: yes });
+  assert.equal(edit.status, 200);
+  const stored = (await readRequests(e)).find((r) => r.id === "open");
+  assert.deepEqual(stored.decisions, []);
+  assert.equal(stored.status, "sent");
+});
+
+test("a maybe can't be re-sent or re-worded by the asker", async () => {
+  const e = await setup([req("m1", { status: "maybe", maybeAt: NOW })]);
+  for (const body of [{ status: "sent" }, { categories: ["Kiss"] }, { note: "please?" }]) {
+    const res = await call(e, "POST", { workspaceId: "w1", id: "m1", ...body });
+    assert.equal(res.status, 409, JSON.stringify(body));
+  }
+  const stored = (await readRequests(e)).find((r) => r.id === "m1");
+  assert.equal(stored.status, "maybe");
+  assert.deepEqual(stored.categories, ["Massage"]);
+});
+
+test("the requester can set aside a rain-check suggestion; nothing is broadcast", async () => {
+  const e = await setup([req("r1", {
+    status: "reviewed",
+    decisions: [{ label: "Massage", decision: "No", targetType: "act" }],
+    reviewedAt: NOW,
+    passNote: "next_week",
+    rainCheckAt: new Date(Date.now() + 60 * 1000).toISOString(),
+  })]);
+  const res = await call(e, "PATCH", { id: "r1", action: "dismiss_rain_check", workspaceId: "w1" });
+  assert.equal(res.status, 200);
+  const stored = (await readRequests(e)).find((r) => r.id === "r1");
+  assert.ok(stored.rainCheckDismissedAt);
+  const { readActivity } = await import("../../functions/api/_activity.js");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const items = ((await readActivity(e, "w1", PARTNER))?.items || []).filter((item) => item.entityId === "r1");
+  assert.equal(items.length, 0);
+});
+
+async function getBoardAs(e, email) {
+  e.APP_SESSION_SECRET = APP_SESSION_SECRET;
+  e.PUBLIC_SIGNUPS_OPEN = "1";
+  const now = Math.floor(Date.now() / 1000);
+  const token = await makeSessionToken(APP_SESSION_SECRET, {
+    sid: `test-${email}`, provider: "email", email, name: email, iat: now, exp: now + 3600,
+  });
+  return board({
+    request: new Request("https://app.example.test/api/request-board?workspaceId=w1", {
+      headers: { cookie: `sxs-session=${encodeURIComponent(token)}` },
+    }),
+    env: e,
+  });
+}
+
+test("the asker's private bookkeeping (rain check set aside, nudge count) never reaches the reviewer", async () => {
+  const e = await setup([req("r1", {
+    status: "reviewed",
+    decisions: [{ label: "Massage", decision: "No", targetType: "act" }],
+    reviewedAt: NOW,
+    reviewedByEmail: PARTNER,
+    passNote: "next_week",
+    rainCheckAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    lastReminderAt: NOW,
+    reminderCount: 1,
+  })]);
+  const dismiss = await callAs(e, ME, "PATCH", { id: "r1", action: "dismiss_rain_check", workspaceId: "w1" });
+  assert.equal(dismiss.status, 200);
+  assert.ok((await dismiss.json()).request.rainCheckDismissedAt, "the asker still sees their own choice");
+
+  const theirs = await (await getBoardAs(e, PARTNER)).json();
+  for (const row of [...theirs.requests, ...theirs.activeRequests, ...theirs.history].filter((r) => r.id === "r1")) {
+    assert.equal(row.rainCheckDismissedAt, undefined);
+    assert.equal(row.lastReminderAt, undefined);
+    assert.equal(row.reminderCount, undefined);
+    assert.equal(row.rainCheckAt !== undefined, true, "the reviewer's own rain check stays visible");
+  }
+  const mine = await (await getBoardAs(e, ME)).json();
+  const myRow = mine.requests.find((r) => r.id === "r1");
+  assert.ok(myRow.rainCheckDismissedAt);
+  assert.equal(myRow.reminderCount, 1);
+
+  // A write response by the reviewer is projected for the reviewer too.
+  const write = await callAs(e, PARTNER, "PATCH", { id: "r1", action: "archive", workspaceId: "w1" });
+  const writeBody = await write.json();
+  assert.equal(writeBody.request.rainCheckDismissedAt, undefined);
+  assert.equal(writeBody.requests.find((r) => r.id === "r1").rainCheckDismissedAt, undefined);
+
+  // The shared readers (Sexboard, bootstrap) project when given a viewer.
+  const shared = await readRequestBoardForWorkspace(e, "w1", { workspaceIds: ["w1"], viewerEmail: PARTNER });
+  assert.equal(shared.requests.find((r) => r.id === "r1").rainCheckDismissedAt, undefined);
+  const serverSide = await readRequestBoardForWorkspace(e, "w1", { workspaceIds: ["w1"] });
+  assert.ok(serverSide.requests.find((r) => r.id === "r1").rainCheckDismissedAt, "server-only readers see full rows");
+});
+
+test("one manual nudge per Ask, ever: not right after sending, not after a maybe, never twice", async () => {
+  const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString();
+  const e = await setup([
+    req("fresh", { status: "sent" }),
+    req("old", { status: "sent", sentAt: fiveHoursAgo, createdAt: fiveHoursAgo }),
+    req("maybe", { status: "maybe", sentAt: fiveHoursAgo, createdAt: fiveHoursAgo, maybeAt: NOW }),
+  ]);
+  const fresh = await call(e, "PATCH", { id: "fresh", action: "remind", workspaceId: "w1" });
+  assert.equal(fresh.status, 409);
+  assert.ok((await fresh.json()).availableAt);
+  const maybe = await call(e, "PATCH", { id: "maybe", action: "remind", workspaceId: "w1" });
+  assert.equal(maybe.status, 409);
+
+  const first = await call(e, "PATCH", { id: "old", action: "remind", workspaceId: "w1" });
+  assert.equal(first.status, 200);
+  const second = await call(e, "PATCH", { id: "old", action: "remind", workspaceId: "w1" });
+  assert.equal(second.status, 409);
+  const stored = (await readRequests(e)).find((r) => r.id === "old");
+  assert.equal(stored.reminderCount, 1);
+});
+
+test("reading the board never sends an automatic reminder", async () => {
+  const dayAgo = new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString();
+  const e = await setup([req("r1", { status: "sent", sentAt: dayAgo, createdAt: dayAgo, timing: "Next week" })]);
+  const waits = [];
+  const res = await board({
+    request: new Request("http://localhost/api/request-board?workspaceId=w1", { method: "GET" }),
+    env: e,
+    waitUntil: (promise) => waits.push(promise),
+  });
+  assert.equal(res.status, 200);
+  await Promise.all(waits);
+  const stored = (await readRequests(e)).find((r) => r.id === "r1");
+  assert.equal(stored.lastReminderAt, undefined);
+  assert.equal(stored.reminderCount, undefined);
 });
 
 test("requester cannot use the direct reply action for their own sent request", async () => {
@@ -955,4 +1343,21 @@ test("migrate drops an invalid stored plannedFor", async () => {
   const row = body.activeRequests.find((r) => r.id === "r1");
   assert.equal(row.plannedFor, undefined);
   assert.equal(row.plannedByEmail, undefined);
+});
+
+test("a yes reply reads warmly in activity (\"Partner said yes\"); a counter stays neutral", async () => {
+  const { readActivity } = await import("../../functions/api/_activity.js");
+  const { reviewActivityAction } = await import("../../functions/api/request-board.js");
+  const e = await setup([req("y1", { reviewerEmail: PARTNER }), req("c1", { reviewerEmail: PARTNER })]);
+  const yes = await callAs(e, PARTNER, "PATCH", { id: "y1", action: "reply", workspaceId: "w1", decisions: [{ label: "Massage", decision: "Yes", targetType: "act" }] });
+  assert.equal(yes.status, 200);
+  let items = [];
+  for (let i = 0; i < 20 && !items.length; i += 1) {
+    items = ((await readActivity(e, "w1", ME))?.items || []).filter((item) => item.entityId === "y1");
+    if (!items.length) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(items[0]?.action, "said_yes");
+  assert.match(items[0]?.label, /said yes$/);
+  assert.equal(reviewActivityAction([{ label: "Massage", decision: "Counter", counter: "Kiss", targetType: "act" }]), "reviewed");
+  assert.equal(reviewActivityAction([{ label: "Massage", decision: "Yes", targetType: "act" }, { label: "Kiss", decision: "No", targetType: "act" }]), "said_yes");
 });

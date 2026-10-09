@@ -259,12 +259,14 @@ const revealedPile = {
   ...activePile,
   isRevealed: true,
   mine: ["🍆 Penetration", "💋 Mutual oral", "⛓️ Light restraint", "Dirty talk", "Slow positions", "Couch", "Toys", "Standing"],
+  // The server only ever sends the partner drops that matched; their misses
+  // (and how many there were) never leave it.
   partnerLabels: {
-    "jordan@example.test": ["🍆 Penetration", "Sensual massage", "From behind", "On Top", "Roleplay", "Face sitting", "Cuddling", "Cowgirl"],
+    "jordan@example.test": ["🍆 Penetration"],
   },
   overlap: ["🍆 Penetration"],
   onlyMine: ["💋 Mutual oral", "⛓️ Light restraint", "Dirty talk", "Slow positions", "Couch", "Toys", "Standing"],
-  onlyTheirs: ["Sensual massage", "From behind", "On Top", "Roleplay", "Face sitting", "Cuddling", "Cowgirl"],
+  onlyTheirs: [],
   revealNarration: "Tonight Alex penetrates Jordan.",
 };
 
@@ -312,6 +314,20 @@ const archivedBlindReveal = {
 const healthResponse = {
   workspaceId: workspace.id,
   range: { id: "30d", label: "Last 30 days", from: "2026-04-24T00:00:00.000Z", to: "2026-05-23T23:59:59.000Z" },
+  showCounts: false,
+  events: [
+    { id: "ask:req-1", type: "ask", sourceId: "req-1", sourceHref: "/ask-detail?id=req-1", title: "Tonight after dinner", at: "2026-05-22T22:10:00.000Z", acts: ["Slow kissing", "Shower sex", "Oral with eye contact", "Filming = yes"], actSummaries: [{ label: "Slow kissing", emoji: "💋" }, { label: "Shower sex", emoji: "🚿" }, { label: "Oral with eye contact", emoji: "👅" }, { label: "Filming = yes", emoji: "📹" }] },
+    { id: "pile:pile-4", type: "pile", sourceId: "pile-4", sourceHref: "/games/pile", title: "Pile overlap", at: "2026-05-22T22:05:00.000Z", acts: ["Slow kissing", "Shower sex", "Hands pinned over head"], actSummaries: [{ label: "Slow kissing", emoji: "💋" }, { label: "Shower sex", emoji: "🚿" }, { label: "Hands pinned over head", emoji: "⛓️" }] },
+    { id: "ask:req-2", type: "ask", sourceId: "req-2", sourceHref: "/ask-detail?id=req-2", title: "Long source history title that needs graceful truncation on the narrow phone surface", at: "2026-05-18T23:30:00.000Z", acts: ["Very long teasing name that should still truncate cleanly", "Hands pinned over head"], actSummaries: [{ label: "Very long teasing name that should still truncate cleanly", emoji: "💞" }, { label: "Hands pinned over head", emoji: "⛓️" }] },
+  ],
+  keepsShowingUp: [{ label: "Slow kissing", emoji: "💋" }, { label: "Shower sex", emoji: "🚿" }],
+  firsts: [{ label: "Hands pinned over head", emoji: "⛓️" }],
+};
+
+// What the same person sees after turning on "Show counts and rhythm".
+const healthCountsResponse = {
+  ...healthResponse,
+  showCounts: true,
   totals: { sexEvents: 9, sexActs: 26, uniqueActs: 12, askEvents: 5, pileEvents: 4 },
   rhythm: [
     { date: "2026-05-02", sexEvents: 1, sexActs: 2, askEvents: 1, pileEvents: 0 },
@@ -327,20 +343,6 @@ const healthResponse = {
     { label: "Hands pinned over head", count: 3, askCount: 1, pileCount: 2, firstSeenAt: "2026-05-18T22:10:00.000Z", lastSeenAt: "2026-05-22T22:10:00.000Z" },
     { label: "Very long teasing name that should still truncate cleanly", count: 2, askCount: 2, pileCount: 0, firstSeenAt: "2026-05-18T22:10:00.000Z", lastSeenAt: "2026-05-18T22:10:00.000Z" },
   ],
-  events: [
-    { id: "ask:req-1", type: "ask", sourceId: "req-1", sourceHref: "/ask-detail?id=req-1", title: "Tonight after dinner", at: "2026-05-22T22:10:00.000Z", requester: "Jordan", acts: ["Slow kissing", "Shower sex", "Oral with eye contact", "Filming = yes"], actSummaries: [{ label: "Slow kissing", emoji: "💋" }, { label: "Shower sex", emoji: "🚿" }, { label: "Oral with eye contact", emoji: "👅" }, { label: "Filming = yes", emoji: "📹" }] },
-    { id: "pile:pile-4", type: "pile", sourceId: "pile-4", sourceHref: "/games/pile", title: "Pile overlap", at: "2026-05-22T22:05:00.000Z", requester: "Both", acts: ["Slow kissing", "Shower sex", "Hands pinned over head"], actSummaries: [{ label: "Slow kissing", emoji: "💋" }, { label: "Shower sex", emoji: "🚿" }, { label: "Hands pinned over head", emoji: "⛓️" }] },
-    { id: "ask:req-2", type: "ask", sourceId: "req-2", sourceHref: "/ask-detail?id=req-2", title: "Long source history title that needs graceful truncation on the narrow phone surface", at: "2026-05-18T23:30:00.000Z", requester: "Alex", acts: ["Slow kissing", "Hands pinned over head"], actSummaries: [{ label: "Slow kissing", emoji: "💋" }, { label: "Hands pinned over head", emoji: "⛓️" }] },
-  ],
-  insights: {
-    daysSinceLast: 1,
-    requesterSplit: [{ label: "Jordan", count: 3 }, { label: "Alex", count: 2 }],
-    sourceSplit: [{ label: "Ask", count: 5 }, { label: "Pile", count: 4 }],
-    newActs: [
-      { label: "Shower sex", count: 1, askCount: 0, pileCount: 1, firstSeenAt: "2026-05-22T22:05:00.000Z", lastSeenAt: "2026-05-22T22:05:00.000Z" },
-      { label: "Hands pinned over head", count: 1, askCount: 1, pileCount: 0, firstSeenAt: "2026-05-18T23:30:00.000Z", lastSeenAt: "2026-05-18T23:30:00.000Z" },
-    ],
-  },
 };
 
 async function mockApi(page, state = {}) {
@@ -473,10 +475,16 @@ async function mockApi(page, state = {}) {
             updatedAt: "2026-05-23T00:30:00.000Z",
           };
         }
+        // Per-person desire settings persist like the real profile handler.
+        if (!body.action || body.action === "update_profile") {
+          for (const key of ["promptSpice", "explicitVoice"]) {
+            if (typeof body[key] === "string") state.profileSettings = { ...(state.profileSettings || {}), [key]: body[key] };
+          }
+        }
       }
       const currentWorkspace = state.workspace || workspace;
       return json({
-        profile: { id: "profile-ans", email: auth.email, displayName: "Alex", avatarUrl: "", createdAt: "", updatedAt: "", settings: { defaultWorkspaceId: workspace.id } },
+        profile: { id: "profile-ans", email: auth.email, displayName: "Alex", avatarUrl: "", createdAt: "", updatedAt: "", settings: { defaultWorkspaceId: workspace.id, ...(state.profileSettings || {}) } },
         workspaces: [currentWorkspace],
         activeWorkspaceId: currentWorkspace.id,
         activeWorkspace: currentWorkspace,
@@ -537,7 +545,15 @@ async function mockApi(page, state = {}) {
         state.requestActionBody = body;
         if (body.action === "reply") {
           state.requestReplyBody = body;
-          state.request = { ...boardRequest, status: "reviewed", decisions: body.decisions || [], counters: (body.decisions || []).filter((item) => item.counter) };
+          state.request = {
+            ...boardRequest,
+            status: "reviewed",
+            decisions: body.decisions || [],
+            counters: (body.decisions || []).filter((item) => item.counter),
+            reviewedAt: "2026-05-23T00:20:00.000Z",
+            ...(body.passNote ? { passNote: body.passNote } : {}),
+            ...(body.rainCheckAt ? { rainCheckAt: body.rainCheckAt } : {}),
+          };
         } else if (body.action === "maybe") {
           state.request = {
             ...boardRequest,
@@ -567,17 +583,16 @@ async function mockApi(page, state = {}) {
                 plannedByName: auth.person,
               }
             : unplanned;
-        } else if (body.action === "pass") {
+        } else if (body.action === "withdraw" || body.action === "pass") {
           state.request = {
             ...boardRequest,
             status: "archived",
-            passedAt: "2026-05-23T00:35:00.000Z",
-            passedByEmail: auth.email,
-            passedByName: auth.person,
-            archivedAt: "2026-05-23T00:35:00.000Z",
-            archivedByEmail: auth.email,
-            archivedByName: auth.person,
+            withdrawnAt: "2026-05-23T00:35:00.000Z",
+            withdrawnByEmail: auth.email,
+            withdrawnByName: auth.person,
           };
+        } else if (body.action === "dismiss_rain_check") {
+          state.request = { ...boardRequest, rainCheckDismissedAt: "2026-05-23T00:50:00.000Z" };
         }
         const updatedRequest = state.request || boardRequest;
         const nextActiveRequests = ["completed", "archived", "expired"].includes(updatedRequest.status) ? [] : [updatedRequest];
@@ -611,7 +626,7 @@ async function mockApi(page, state = {}) {
       const activeRequests = ["completed", "archived", "expired"].includes(boardRequest.status) ? [] : [boardRequest];
       const history = ["completed", "archived", "expired"].includes(boardRequest.status) ? [boardRequest] : [];
       return json({
-        profile: { id: "profile-ans", email: auth.email, displayName: "Alex", avatarUrl: "", createdAt: "", updatedAt: "", settings: { defaultWorkspaceId: workspace.id } },
+        profile: { id: "profile-ans", email: auth.email, displayName: "Alex", avatarUrl: "", createdAt: "", updatedAt: "", settings: { defaultWorkspaceId: workspace.id, ...(state.profileSettings || {}) } },
         workspaces: [workspace],
         activeWorkspaceId: workspace.id,
         activeWorkspace: workspace,
@@ -721,6 +736,17 @@ async function mockApi(page, state = {}) {
           state.chatReadAt[auth.email] = "2026-05-23T00:20:00.000Z";
           return json({ readCursors: state.chatReadCursors, readAt: state.chatReadAt });
         }
+        if (body.action === "react") {
+          state.chatReactBody = body;
+          const target = state.chatMessages.find((message) => message.id === body.id);
+          if (target) {
+            const mine = (target.reactions || []).findIndex((r) => r.by === auth.email && r.emoji === body.emoji);
+            target.reactions = mine === -1
+              ? [...(target.reactions || []), { by: auth.email, emoji: body.emoji }]
+              : target.reactions.filter((_, i) => i !== mine);
+            return json({ workspaceId: workspace.id, message: target });
+          }
+        }
         return json({ ok: true });
       }
 
@@ -808,19 +834,23 @@ async function mockApi(page, state = {}) {
     if (pathname === "/api/mood") {
       // Double-blind mood light, same contract as functions/api/mood.js: the
       // response carries only my state plus a match when both are on.
-      // state.moodPartner = { until } plays the partner's (hidden) light.
+      // state.moodPartner = { until, state? } plays the partner's (hidden)
+      // light; state "horny" (default) or "open". Any mix matches.
       const now = state.moodNow ? Date.parse(state.moodNow) : Date.now();
       const iso = (ms) => new Date(ms).toISOString();
       const mood = state.mood = state.mood || { on: false, since: null, until: null, cooldownUntil: null, match: null };
       const partnerUntil = state.moodPartner ? Date.parse(state.moodPartner.until) : 0;
+      const partnerState = state.moodPartner?.state === "open" ? "open" : "horny";
+      const myState = () => (mood.state === "open" ? "open" : "horny");
+      const kindOf = () => (myState() === partnerState ? myState() : "mixed");
       // The partner switching on while I'm on forms the match server-side.
       if (mood.on && !mood.match && partnerUntil > now) {
         mood.match = { since: iso(now), until: iso(Math.min(Date.parse(mood.until), partnerUntil)) };
       }
       const view = () => ({
         workspaceId: workspace.id,
-        mine: { on: mood.on, since: mood.since, until: mood.until, cooldownUntil: mood.cooldownUntil },
-        match: mood.match,
+        mine: { on: mood.on, state: mood.on ? myState() : null, since: mood.since, until: mood.until, cooldownUntil: mood.cooldownUntil },
+        match: mood.match ? { kind: kindOf(), partnerState, ...mood.match } : null,
         serverNow: iso(now),
       });
       if (state.moodFail) return json({ error: "Internal error" }, 500);
@@ -843,10 +873,14 @@ async function mockApi(page, state = {}) {
           }
           const until = Math.min(Math.max(Date.parse(body.until), now + 15 * 60_000), now + 24 * 60 * 60_000);
           if (!mood.on) mood.since = iso(now);
-          Object.assign(mood, { on: true, until: iso(until), cooldownUntil: null });
+          Object.assign(mood, { on: true, state: body.state === "open" ? "open" : "horny", until: iso(until), cooldownUntil: null });
           if (partnerUntil > now) {
             mood.match = { since: mood.match?.since || iso(now), until: iso(Math.min(until, partnerUntil)) };
           }
+        }
+        if (body.action === "state") {
+          if (!mood.on) return json({ error: "Switch it on first.", code: "mood_off", ...view() }, 409);
+          mood.state = body.state === "open" ? "open" : "horny";
         }
       }
       return json(view());
@@ -1347,11 +1381,11 @@ test("Ask submit routes while the send pulse is still animating", async ({ page 
 });
 
 test("Health dashboard stays compact and tappable on iPhone", async ({ page }) => {
-  await mockApi(page);
+  await mockApi(page, { health: healthCountsResponse });
   await page.goto("/space/health");
   await expect(page.getByRole("heading", { name: "Health" })).toBeVisible();
-  await expect(page.getByText("Same-night approved Asks and Pile overlaps stay separate")).toBeVisible();
-  await expect(page.getByText("Very long teasing name that should still truncate cleanly")).toBeVisible();
+  await expect(page.getByText("A picture, not a target.")).toBeVisible();
+  await expect(page.locator(".health-act-row").getByText("Very long teasing name that should still truncate cleanly")).toBeVisible();
 
   const metrics = await page.evaluate(() => {
     const rangeButton = document.querySelector(".health-range-button");
@@ -1369,7 +1403,7 @@ test("Health dashboard stays compact and tappable on iPhone", async ({ page }) =
         valueFontSize: Number.parseFloat(value ? getComputedStyle(value).fontSize : "0")
       };
     });
-    const sourceHistory = document.querySelector(".health-section[aria-label='Source history']");
+    const sourceHistory = document.querySelector(".health-section[aria-label='Moments']");
     const eventLinks = sourceHistory ? sourceHistory.querySelectorAll("a.health-event-row").length : -1;
     const emojis = sourceHistory
       ? Array.from(sourceHistory.querySelectorAll(".health-act-emoji")).map((node) => node.textContent?.trim() || "")
@@ -1389,7 +1423,8 @@ test("Health dashboard stays compact and tappable on iPhone", async ({ page }) =
   expect(metrics.horizontalOverflow).toBeLessThanOrEqual(0);
   expect(metrics.rangeButtonHeight).toBeGreaterThanOrEqual(40);
   expect(metrics.summaryHeight).toBeLessThanOrEqual(260);
-  expect(metrics.rhythmTop).toBeLessThan(560);
+  // Moments lead; the opted-in counts follow them.
+  expect(metrics.rhythmTop).toBeGreaterThan(0);
   expect(metrics.letterSpacingPx).toBe(0);
   expect(metrics.statRects.length).toBe(2);
   expect(new Set(metrics.statRects.map((rect) => rect.width)).size).toBe(1);
@@ -1401,6 +1436,121 @@ test("Health dashboard stays compact and tappable on iPhone", async ({ page }) =
   expect(metrics.emojis).toContain("💋");
   expect(metrics.emojis).toContain("🚿");
   expect(metrics.emojis).toContain("📹");
+});
+
+test("Health hides counts until this person opts in, and the switch is theirs alone", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  // Registered after mockApi, so it wins: counts only once this person's own
+  // profile setting is on.
+  await page.route("**/api/dashboard/health*", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(state.profilePatchBody?.healthShowCounts ? healthCountsResponse : healthResponse),
+  }));
+  await page.goto("/space/health");
+  await expect(page.getByRole("heading", { name: "Lately" })).toBeVisible();
+  await expect(page.getByText("Keeps coming back")).toBeVisible();
+  await expect(page.getByText("First time: Hands pinned over head")).toBeVisible();
+  // No volume, no days-since, no who-asked-more by default.
+  await expect(page.locator(".health-summary")).toHaveCount(0);
+  await expect(page.locator(".health-section[aria-label='Rhythm']")).toHaveCount(0);
+  await expect(page.getByText(/\d+d ago|days since|Ask starts|sex events?/i)).toHaveCount(0);
+
+  const toggle = page.getByTestId("health-counts-toggle");
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await toggle.click();
+  await expect.poll(() => state.profilePatchBody?.healthShowCounts).toBe(true);
+  await expect(page.locator(".health-summary")).toBeVisible();
+  await expect(page.locator(".health-section[aria-label='Rhythm']")).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+});
+
+test("No sync score on any reveal, and no count of non-matches", async ({ page }) => {
+  await mockApi(page, {
+    sexQuizFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      myRatings: { oral: { interest: "into" } }, myTopPicks: [],
+      matches: [{ cardId: "oral", myRole: "give", partnerRole: "receive", complementary: true }],
+      curiousTogether: [], partnerTopPicks: ["oral"], partnerName: "Jordan",
+      fullRevealMine: false, fullRevealOpen: false, partnerRatings: null,
+    },
+    greenLightsFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      myAnswers: { "am-happy": { value: "agree" }, "tk-laugh": { value: "agree" } },
+      partnerAnswers: { "am-happy": { value: "agree" } }, partnerName: "Jordan", compareMine: false, compareOpen: false,
+    },
+    pile: revealedPile,
+  });
+  await page.goto("/games/sex-quiz");
+  await expect(page.getByText("What you both want")).toBeVisible();
+  await expect(page.getByText(/\d+\s*%/)).toHaveCount(0);
+  await expect(page.getByText(/in sync/i)).toHaveCount(0);
+
+  await page.goto("/games/green-lights");
+  await expect(page.getByText("Where you stand together")).toBeVisible();
+  await expect(page.getByText(/\d+\s*%/)).toHaveCount(0);
+  await expect(page.getByText(/to talk through|worth talking through|\d+\/\d+/)).toHaveCount(0);
+  // Differences stay private until both opt in to compare.
+  await expect(page.getByText("Talk about these")).toHaveCount(0);
+  await expect(page.getByTestId("gl-compare")).toBeVisible();
+
+  await page.goto("/games/pile");
+  await expect(page.getByText("Misses disappear. No record kept.")).toBeVisible();
+  await expect(page.getByText(/\d+\s+drops?\s+disappeared/)).toHaveCount(0);
+});
+
+test("changing quiz answers after a reveal keeps them: no wipe, the runner opens on your saved answers", async ({ page }) => {
+  const myRatings = Object.fromEntries(["oral", "kissing", "massage", "dirty-talk", "spanking", "rimming", "toys", "teasing", "edging", "fingering", "lingerie", "shower"].map((id) => [id, { interest: "into" }]));
+  const state = {
+    sexQuizFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      myRatings, myTopPicks: [], matches: [], curiousTogether: [], partnerTopPicks: [], partnerName: "Jordan",
+      fullRevealMine: false, fullRevealOpen: false, partnerRatings: null,
+    },
+  };
+  await mockApi(page, state);
+  await page.goto("/games/sex-quiz");
+  await expect(page.getByRole("button", { name: "Retake the quiz" })).toHaveCount(0);
+  await page.getByTestId("quiz-change-answers").click();
+  await expect(page.getByRole("button", { name: "Resume — 12 rated" })).toBeVisible();
+  expect((state.sexQuizSubmits || []).filter((body) => body.action === "retake")).toEqual([]);
+  // Backing out leaves everything as it was.
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByTestId("quiz-change-answers")).toBeVisible();
+});
+
+test("Make it an Ask from a reveal prefills the Ask composer", async ({ page }) => {
+  const state = {
+    sexQuizFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      myRatings: { oral: { interest: "into" } }, myTopPicks: [],
+      matches: [{ cardId: "oral", myRole: "give", partnerRole: "receive", complementary: true }],
+      curiousTogether: [], partnerTopPicks: [], partnerName: "Jordan",
+      fullRevealMine: false, fullRevealOpen: false, partnerRatings: null,
+    },
+    pile: revealedPile,
+  };
+  await mockApi(page, state);
+  await page.goto("/games/sex-quiz");
+  await page.getByTestId("make-it-an-ask").click();
+  await expect(page).toHaveURL(/\/ask\?seed=1$/);
+  await expect(page.getByTestId("ask-seed-from-reveal")).toContainText("our Sex Quiz");
+  // A quiz card isn't an Act in the library: it joins the grid as an Act for
+  // this Ask, picked, so the Ask can go out straight away.
+  await expect(page.getByRole("button", { name: /^Oral$/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("ask-submit")).toHaveAttribute("aria-disabled", "false");
+  await expect(page.getByTestId("ask-send-status")).not.toContainText("Choose at least one Act");
+  await expect(page.getByRole("textbox", { name: "Note" })).toHaveValue(/From our Sex Quiz: Oral/);
+  await page.getByTestId("ask-submit").click();
+  await expect.poll(() => state.requestCreateBody?.categories).toEqual(["Oral"]);
+
+  // A Pile overlap is an Act, so it arrives preselected.
+  await page.goto("/games/pile");
+  await page.waitForTimeout(6300);
+  await page.getByTestId("pile-make-it-an-ask").click();
+  await expect(page).toHaveURL(/\/ask\?seed=1$/);
+  await expect(page.getByRole("button", { name: /Penetration/ })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("Play art uses app theme colors on iPhone", async ({ page }) => {
@@ -1582,12 +1732,30 @@ test("Play badge clears after viewed Pile and Blind Reveal reveals", async ({ pa
   await expect(page.getByRole("link", { name: /Play [1-9] unread/ })).toHaveCount(0);
 });
 
+test("a Pile past its reveal time says who it waits on without telling 0 drops from 1", async ({ page }) => {
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const state = { pile: { ...activePile, revealAt: past, mine: ["Kiss"], minDropCount: 2, partnerHasDropped: false, waitingForDrops: true } };
+  await mockApi(page, state);
+  await page.goto("/games/pile");
+  await expect(page.locator(".pile-time-meta")).toHaveText("Waiting on you: drop 1 more");
+  await expect(page.locator(".pile-waiting-pill")).toHaveCount(0);
+
+  state.pile = { ...state.pile, mine: ["Kiss", "Massage"] };
+  await page.reload();
+  await expect(page.locator(".pile-time-meta")).toHaveText("Waiting on more drops");
+
+  state.pile = { ...activePile, revealAt: new Date(Date.now() + 30_000).toISOString(), mine: ["Kiss", "Massage"], minDropCount: 2 };
+  await page.reload();
+  await expect(page.locator(".pile-time-meta")).toHaveText("Reveal in under a minute");
+});
+
 test("Pile waiting-on-partner pill is centered on iPhone", async ({ page }) => {
   await mockApi(page, {
     pile: {
       ...activePile,
       partnerHasDropped: false,
-      mine: ["Kiss"],
+      mine: ["Kiss", "Massage"],
+      minDropCount: 2,
     },
   });
   await page.goto("/games/pile");
@@ -1704,7 +1872,8 @@ test("Sexboard online presence mark breathes green", async ({ page }) => {
 });
 
 test("Sexboard treats the Pile count as an optional cap", async ({ page }) => {
-  await mockApi(page, { pile: activePile });
+  // At the two-drop minimum (under the cap of 3) your side is in.
+  await mockApi(page, { pile: { ...activePile, mine: ["Kiss", "Massage"], minDropCount: 2 } });
   await page.goto("/sexboard");
   const pileRow = page.locator(".sexboard-handoff-row").filter({ hasText: "Up to 3 each" });
   await expect(pileRow.getByText("Both Pile lists are in")).toBeVisible();
@@ -1712,6 +1881,15 @@ test("Sexboard treats the Pile count as an optional cap", async ({ page }) => {
   await expect(pileRow.getByText("Drop 2 more Acts")).toHaveCount(0);
   await expect(pileRow.getByText("Your side needs 3 before reveal can open.")).toHaveCount(0);
   await expect(page.locator(".game-progress-alert")).toHaveCount(0);
+});
+
+test("one drop under the Pile's minimum is needs-you: add one more so it can open", async ({ page }) => {
+  await mockApi(page, { pile: { ...activePile, mine: ["Kiss"], minDropCount: 2 } });
+  await page.goto("/sexboard");
+  const pileRow = page.locator('a.sexboard-handoff-row[href="/games/pile"]');
+  await expect(pileRow.getByText("Add one more", { exact: true })).toBeVisible();
+  await expect(pileRow.getByText("Add one more to the Pile so it can open.")).toBeVisible();
+  await expect(pileRow.getByText("Both Pile lists are in")).toHaveCount(0);
 });
 
 test("Sexboard hides expired unrevealed Piles", async ({ page }) => {
@@ -1730,13 +1908,14 @@ test("Sexboard hides expired unrevealed Piles", async ({ page }) => {
   await expect(page.locator('a.sexboard-handoff-row[href="/games/pile"]')).toHaveCount(0);
 });
 
-test("Green Lights reveal breaks alignment down by topic and names shared worries", async ({ page }) => {
+test("Green Lights reveal names shared worries and keeps differences private", async ({ page }) => {
   const mine = { "am-happy": { value: "agree" }, "am-more": { value: "yes" }, "tk-laugh": { value: "agree" }, "pl-pressure": { value: "agree" } };
-  const partner = { "am-happy": { value: "agree" }, "am-more": { value: "open" }, "tk-laugh": { value: "agree" }, "pl-pressure": { value: "agree" } };
+  // The server only sends the partner answers that match yours.
+  const partner = { "am-happy": { value: "agree" }, "tk-laugh": { value: "agree" }, "pl-pressure": { value: "agree" } };
   await mockApi(page, {
     greenLightsFull: {
       workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
-      updatedAt: "", revealedAt: "", myAnswers: mine, partnerAnswers: partner, partnerName: "Jordan",
+      myAnswers: mine, partnerAnswers: partner, partnerName: "Jordan", compareMine: false, compareOpen: false,
     },
   });
   await page.goto("/games/green-lights");
@@ -1744,11 +1923,8 @@ test("Green Lights reveal breaks alignment down by topic and names shared worrie
   const concerns = page.locator(".gl-shared-concerns");
   await expect(concerns.getByText("Shared, worth naming")).toBeVisible();
   await expect(concerns.getByText("I feel pressure to orgasm, or to make you orgasm")).toBeVisible();
-
-  const breakdown = page.locator("details.sync-breakdown");
-  await breakdown.getByText("See it by topic").click();
-  await expect(breakdown.locator("li").filter({ hasText: "Amount & cadence" })).toContainText("1/2");
-  await expect(breakdown.locator("li").filter({ hasText: "Talking about sex" })).toContainText("1/1");
+  await expect(page.locator("details.sync-breakdown")).toHaveCount(0);
+  await expect(page.getByText("I'd like sex more often than we do")).toHaveCount(0);
 });
 
 test("Sex Quiz reveal shows where the overlap clusters", async ({ page }) => {
@@ -1758,7 +1934,7 @@ test("Sex Quiz reveal shows where the overlap clusters", async ({ page }) => {
       updatedAt: "", revealedAt: "", myRatings: { oral: { interest: "into" } }, myTopPicks: [],
       matches: [{ cardId: "oral", myRole: "", partnerRole: "", complementary: false }, { cardId: "sixtynine", myRole: "", partnerRole: "", complementary: false }, { cardId: "frombehind", myRole: "", partnerRole: "", complementary: false }],
       curiousTogether: [{ cardId: "facesitting" }], syncScore: 72, partnerTopPicks: [], partnerName: "Jordan",
-      fullRevealMine: false, fullRevealPartner: false, partnerRatings: null,
+      fullRevealMine: false, fullRevealOpen: false, partnerRatings: null,
     },
   });
   await page.goto("/games/sex-quiz");
@@ -1776,7 +1952,7 @@ test("Sex Quiz locked-in screen moves to the reveal when the partner finishes", 
       workspaceId: "ws-demo", status: "open", requiredCount: 2, mySubmitted: true, partnerSubmitted: false,
       updatedAt: "", revealedAt: "", myRatings: { oral: { interest: "into" } }, myTopPicks: ["oral"],
       matches: [], curiousTogether: [], syncScore: 0, partnerTopPicks: [], partnerName: "Jordan",
-      fullRevealMine: false, fullRevealPartner: false, partnerRatings: null,
+      fullRevealMine: false, fullRevealOpen: false, partnerRatings: null,
     },
   };
   await mockApi(page, state);
@@ -1800,7 +1976,7 @@ test("Sex Quiz locked-in screen moves to the reveal when the partner finishes", 
     event: { seq: 2, resource: "sex-quiz", action: "submitted", actorEmail: "jordan@example.test", actorName: "Jordan", passive: true, at: new Date().toISOString() },
   }));
   await expect(page.getByText("Your answers are locked in")).toHaveCount(0);
-  await expect(page.locator(".sync-score-reveal")).toBeVisible();
+  await expect(page.getByText("What you both want")).toBeVisible();
 });
 
 test("Sex Quiz offers only the new cards to someone who answered an older deck", async ({ page }) => {
@@ -1815,7 +1991,7 @@ test("Sex Quiz offers only the new cards to someone who answered an older deck",
     sexQuizFull: {
       workspaceId: "ws-demo", status: "open", requiredCount: 2, mySubmitted: true, partnerSubmitted: false,
       updatedAt: "", revealedAt: "", myRatings, myTopPicks: ["oral", "handedge"], matches: [], curiousTogether: [],
-      syncScore: null, partnerTopPicks: [], partnerName: "Jordan", fullRevealMine: false, fullRevealPartner: false, partnerRatings: null,
+      syncScore: null, partnerTopPicks: [], partnerName: "Jordan", fullRevealMine: false, fullRevealOpen: false, partnerRatings: null,
     },
   };
   await mockApi(page, state);
@@ -2003,18 +2179,18 @@ test("Sexboard approved Ask opens the shared approval splash", async ({ page }) 
   await expect(page.getByText(/Sensual massage/)).toBeVisible();
   await expect(page.locator(".mutual-mark")).toHaveCount(1);
   await expect(page.locator(".brand-bar")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Pass tonight" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change of plans" })).toBeVisible();
   await page.waitForTimeout(700);
   const markCenters = await page.evaluate(() => window.__mutualMarkCenters || []);
   expect(markCenters.length).toBeGreaterThan(3);
   expect(Math.max(...markCenters) - Math.min(...markCenters)).toBeLessThanOrEqual(2);
 
-  // The pass confirm is the in-page accessible confirmAction <dialog>
-  // (was window.confirm) — click its primary button instead of arming a
-  // native dialog handler.
-  await page.getByRole("button", { name: "Pass tonight" }).click();
+  // "Change of plans" confirms in the in-page accessible confirmAction
+  // <dialog>, with no-blame copy, then withdraws (never a pass or a cancel).
+  await page.getByRole("button", { name: "Change of plans" }).click();
+  await expect(page.locator(".ss-confirm-dialog")).toContainText("No reason needed, and nothing is counted.");
   await page.locator(".ss-confirm-dialog .ss-confirm-primary").click();
-  await expect.poll(() => state.requestActionBody?.action).toBe("pass");
+  await expect.poll(() => state.requestActionBody?.action).toBe("withdraw");
   await expect(page).toHaveURL(/\/sexboard$/);
 });
 
@@ -2121,6 +2297,8 @@ test("Plan it puts the match on the calendar and the Sexboard shows it as Planne
   await expect(planButton).toBeEnabled();
   await planButton.click();
   await expect(page.getByRole("group", { name: "When?" })).toBeVisible();
+  // One research-backed line about planning, inside the picker.
+  await expect(page.locator(".match-plan-belief")).toHaveText("Couples who plan sex enjoy it as much as the spontaneous kind, and the waiting is half the fun.");
   await expect(page.getByRole("radio", { name: /Tonight/ })).toBeChecked();
   await page.getByRole("radio", { name: /This weekend/ }).check();
   await expect(page.getByRole("radio", { name: /This weekend/ })).toBeChecked();
@@ -2135,6 +2313,9 @@ test("Plan it puts the match on the calendar and the Sexboard shows it as Planne
   expect(plannedFor.getHours()).toBe(21);
   await expect(page.getByRole("button", { name: /Planned.*Change/ })).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: /Planned for/ })).toHaveCount(1);
+  // Planned: the main action is a teaser, and nothing is scheduled to nag.
+  await expect(page.getByRole("link", { name: "Send a teaser" })).toHaveAttribute("href", /^\/chat\?draft=Tomorrow%20I'm%20going%20to%20$/);
+  await expect(page.locator(".match-planned-teaser")).toContainText("The waiting’s part of it.");
 
   await page.getByRole("link", { name: "Back to Sexboard" }).click();
   await expect(page).toHaveURL(/\/sexboard$/);
@@ -2143,8 +2324,30 @@ test("Plan it puts the match on the calendar and the Sexboard shows it as Planne
   const plannedRow = plannedSection.locator(".sexboard-handoff-row");
   await expect(plannedRow).toContainText("Planned for");
   await expect(plannedRow).toContainText("Sensual massage");
-  await expect(plannedRow).toContainText("You put it on the calendar.");
+  // A warm countdown, not a to-do.
+  await expect(plannedRow).toContainText(/(In \d+ hours|Tomorrow)\. The waiting’s part of it\./);
   await expect(plannedRow).toHaveAttribute("href", /\/mutual\?source=ask&requestId=req-1/);
+});
+
+test("Send a teaser opens Sext with the first words typed, and never sends them", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const plannedFor = "2026-05-23T04:00:00.000Z";
+  const state = { request: { ...approvedMatchRequest, plannedFor, plannedByEmail: "alex@example.test", plannedByName: "Alex" } };
+  await mockApi(page, state);
+  await page.goto("/mutual?source=ask&requestId=req-1");
+
+  await expect(page.getByRole("button", { name: /Planned.*Change/ })).toBeVisible();
+  const teaser = page.getByRole("link", { name: "Send a teaser" });
+  await expect(teaser).toHaveAttribute("href", /draft=/);
+  await teaser.click();
+  await expect(page).toHaveURL(/\/chat$/);
+  const composer = page.getByRole("textbox", { name: "Message Jordan" });
+  await expect(composer).toHaveValue(/^(Tonight|Later|Tomorrow) I.m going to $/);
+  await page.waitForTimeout(400);
+  expect(state.chatPostBody).toBeUndefined();
+  // The prefill is consumed: a reload doesn't stack a second copy.
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "Message Jordan" })).toHaveValue(/^(Tonight|Later|Tomorrow) I.m going to $/);
 });
 
 test("Pile reveal final state fits the iPhone viewport", async ({ page }) => {
@@ -2393,6 +2596,225 @@ test("Shelf partner reactions use the partner name", async ({ page }) => {
   await expect(page.getByText("Jordan sees it the moment you do.")).toBeVisible();
 });
 
+// ---------- Saying it out loud: responses, labels, normalization, voice ----------
+
+const kinkCatalog = [
+  { id: "curious", glyph: "🤔", label: "Curious", tone: "positive", caption: "{name} is curious." },
+  { id: "hell_yeah", glyph: "🔥", label: "Hell yeah", tone: "positive", caption: "{name} said hell yeah." },
+  { id: "tell_me_more", glyph: "👀", label: "Tell me more", tone: "positive", caption: "{name} wants to hear more." },
+  { id: "me_too", glyph: "🤤", label: "Me too", tone: "positive", caption: "{name} said me too." },
+  { id: "give_me_a_minute", glyph: "💭", label: "Give me a minute", tone: "pause", caption: "{name} needs a minute on this." },
+  { id: "save_for_later", glyph: "🔖", label: "Saving this for later", tone: "positive", caption: "{name} is saving this for later." },
+  { id: "not_for_me", glyph: "🌷", label: "Not for me — thank you for telling me", tone: "no", caption: "{name} passed, with grace." },
+];
+
+function fantasyWith(ideas) {
+  return { workspaceId: workspace.id, reactionCatalog: kinkCatalog, ideas, graveyard: [] };
+}
+
+test("Kink detail offers warm one-tap replies and asks nothing back", async ({ page }) => {
+  const state = { fantasy: fantasyWith([{ ...kink }]) };
+  await mockApi(page, state);
+  await page.goto("/inspiration/kink?id=kink-1");
+
+  const quick = page.getByRole("group", { name: "Quick replies" });
+  await expect(quick.getByRole("button", { name: /Hell yeah/ })).toBeVisible();
+  await expect(quick.getByRole("button", { name: /Tell me more/ })).toBeVisible();
+  await expect(page.getByText(/No reply needed/)).toBeVisible();
+  await quick.getByRole("button", { name: /Saving this for later/ }).click();
+  await expect.poll(() => state.fantasyPatchBody?.reactions?.[0]?.label).toBe("Saving this for later");
+  await expect(page.getByText("Waiting on Jordan")).toHaveCount(0);
+});
+
+test("Sext has no Seen receipt and offers quick warm reactions on the partner's newest message", async ({ page }) => {
+  const state = {
+    chatMessages: [
+      ...cloneJson(chatSeedMessages),
+      { id: "chat-2", seq: 2, email: auth.email, name: "Alex", text: "Read this", at: "2026-05-23T00:13:00.000Z", reactions: [] },
+      { id: "chat-3", seq: 3, email: "jordan@example.test", name: "Jordan", text: "Thinking about you", at: "2026-05-23T00:14:00.000Z", reactions: [] },
+    ],
+    chatReadCursors: { "jordan@example.test": 3 },
+    chatReadAt: { "jordan@example.test": "2026-05-23T00:15:00.000Z" },
+  };
+  await mockApi(page, state);
+  await page.goto("/chat");
+  await expect(page.getByText("Thinking about you")).toBeVisible();
+  await expect(page.getByText(/^Seen/)).toHaveCount(0);
+
+  const quick = page.getByRole("group", { name: "Quick replies" });
+  await expect(quick).toHaveCount(1);
+  await quick.getByRole("button", { name: /Into it/ }).click();
+  await expect.poll(() => state.chatReactBody).toMatchObject({ id: "chat-3", emoji: "🔥", action: "react" });
+  await expect(page.getByRole("group", { name: "Quick replies" })).toHaveCount(0);
+});
+
+test("Sext prompt chips put a partner-directed line in the composer", async ({ page }) => {
+  await mockApi(page, { chatMessages: [] });
+  await page.goto("/chat");
+  const prompts = page.getByRole("group", { name: "Sext prompts" });
+  await expect(prompts).toBeVisible();
+  await prompts.getByRole("button", { name: "I want you because" }).click();
+  await expect(page.getByPlaceholder(/Message Jordan/)).toHaveValue("I want you because ");
+  // The row toggles from the composer tools.
+  await page.getByRole("button", { name: "Prompts" }).click();
+  await expect(page.getByRole("group", { name: "Sext prompts" })).toBeVisible();
+});
+
+test("Kink normalization tag cites its source, and an unmapped theme gets none", async ({ page }) => {
+  const powerKink = { ...kink, id: "kink-power", text: "Tie me up and take control." };
+  await mockApi(page, { fantasy: fantasyWith([powerKink, { ...kink }]) });
+
+  await page.goto("/inspiration/kink?id=kink-power");
+  await expect(page.getByTestId("kink-norm-tag")).toHaveText("Power play is a common fantasy");
+  const why = page.getByRole("link", { name: "Why we say this" });
+  await expect(why).toHaveAttribute("href", "/inspiration/why#power");
+  await why.click();
+  await expect(page).toHaveURL(/\/inspiration\/why#power$/);
+  await expect(page.locator("#power")).toContainText("Joyal");
+
+  await page.goto("/inspiration/kink?id=kink-1");
+  await expect(page.locator(".kd-body-lead")).toHaveText("Try the hotel window fantasy.");
+  await expect(page.getByTestId("kink-norm-tag")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Why we say this" })).toHaveCount(0);
+});
+
+test("The sharer's intent label goes with the kink and the partner sees it", async ({ page }) => {
+  const labeled = { ...kink, id: "kink-labeled", text: "The hotel window, just in my head.", intent: "fantasy" };
+  const state = { fantasy: fantasyWith([labeled]) };
+  await mockApi(page, state);
+
+  // Alex sees Jordan's label on the card and the detail.
+  await page.goto("/inspiration");
+  await page.locator("#shared-kinks summary").click();
+  await expect(page.locator(".kink-card").getByTestId("kink-intent-pill")).toHaveText("Just a fantasy");
+  await page.goto("/inspiration/kink?id=kink-labeled");
+  await expect(page.getByTestId("kink-intent-pill")).toHaveText("Just a fantasy");
+
+  // Sharing one carries the label in the request.
+  await page.goto("/inspiration");
+  await page.getByLabel("Add a kink, fantasy, or confession").fill("Fuck me in the car.");
+  await page.getByRole("radio", { name: "Want to try it" }).click();
+  const posted = page.waitForRequest((req) => req.url().includes("/api/fantasy-backlog") && req.method() === "POST");
+  await page.getByRole("button", { name: "Share with Jordan" }).click();
+  expect((await posted).postDataJSON()).toMatchObject({ text: "Fuck me in the car.", intent: "try" });
+});
+
+test("A spice ceiling of mild hides the spicier prompts", async ({ page }) => {
+  await mockApi(page, { profileSettings: { promptSpice: "mild" } });
+  await page.goto("/inspiration");
+  const starters = page.getByRole("group", { name: "Starter lines" }).or(page.locator(".kink-template-row"));
+  await expect(page.locator(".kink-template-chip")).toHaveCount(3);
+  const labels = await page.locator(".kink-template-chip").allTextContents();
+  for (const label of labels) {
+    expect(["I love it when you", "My favorite memory of us is", "I want you because", "My favorite thing about your body is", "Next time,"]).toContain(label.trim());
+  }
+  await expect(starters.first()).toBeVisible();
+  // Today's prompt stays on the mild rungs too (the generated prompt is held back).
+  await expect(page.getByTestId("todays-prompt")).not.toContainText("Name the fantasy");
+});
+
+test("High-risk themes get a talk-first step before becoming an Ask", async ({ page }) => {
+  const groupKink = {
+    ...kink,
+    id: "kink-group",
+    text: "A threesome with someone else.",
+    reactions: [{ by: auth.email, id: "hell_yeah", glyph: "🔥", label: "Hell yeah", caption: "Alex said hell yeah.", tone: "positive", createdAt: "2026-05-23T00:10:00.000Z" }],
+  };
+  await mockApi(page, { fantasy: fantasyWith([groupKink]) });
+  await page.goto("/inspiration/kink?id=kink-group");
+
+  await page.getByRole("button", { name: "Make it an Ask" }).click();
+  await expect(page.getByText("Worth a talk first?")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Make it an Ask anyway" })).toHaveAttribute("href", "/ask?kink=kink-group");
+  // The Kink's words reach Sext through a one-shot handoff: never in a URL,
+  // which a navigation would send to the host.
+  const urls = [];
+  page.on("request", (req) => urls.push(req.url()));
+  await expect(page.getByRole("link", { name: "Talk first" })).toHaveAttribute("href", "/chat?compose=1");
+  await page.getByRole("link", { name: "Talk first" }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page.getByPlaceholder(/Message Jordan/)).toHaveValue(/About "A threesome with someone else\."/);
+  expect(urls.filter((url) => /threesome/i.test(decodeURIComponent(url)))).toEqual([]);
+});
+
+test("Explicit-language setting changes the Home greeting for that person only", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/space?settings=1");
+  const voice = page.getByTestId("desire-voice");
+  await voice.scrollIntoViewIfNeeded();
+  await voice.getByRole("radio", { name: "Filthier" }).click();
+  await expect.poll(() => state.profilePatchBody?.explicitVoice).toBe("filthy");
+  await expect(voice.getByRole("radio", { name: "Filthier" })).toHaveAttribute("aria-checked", "true");
+
+  await page.goto("/sexboard");
+  await expect(page.getByText("Hey, dirty Alex")).toBeVisible();
+});
+
+test("Words I like reveals only the words you both said yes to", async ({ page }) => {
+  // The server already strips non-overlaps; the client must never show a
+  // one-sided yes or a pass even if one slipped through.
+  const mine = { "am-happy": { value: "agree" }, "wd-call-baby": { value: "yes" }, "wd-call-slut": { value: "yes" }, "wd-use-beg": { value: "pass" } };
+  const partner = { "am-happy": { value: "agree" }, "wd-call-baby": { value: "yes" }, "wd-call-slut": { value: "pass" }, "wd-use-beg": { value: "yes" } };
+  await mockApi(page, {
+    greenLightsFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      updatedAt: "", revealedAt: "", myAnswers: mine, partnerAnswers: partner, partnerName: "Jordan",
+    },
+  });
+  await page.goto("/games/green-lights");
+  const words = page.getByTestId("gl-words-shared");
+  await expect(words).toContainText("Being called “baby”");
+  await expect(words).not.toContainText("slut");
+  await expect(words).not.toContainText("Begging");
+  // Never in the talk-about list either.
+  await expect(page.getByText("Being called a “slut”")).toHaveCount(0);
+});
+
+test("a new Green Lights round says how many of their answers changed; a small change needs a fresh look", async ({ page }) => {
+  const myAnswers = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`q${i}`, { value: "good" }]));
+  const round = (partnerChangedCount, reanswerRequired) => ({
+    workspaceId: "ws-demo", status: "open", round: 2, requiredCount: 2, mySubmitted: false, partnerSubmitted: true,
+    minAnswers: 10, myAnswers, partnerAnswers: {}, partnerName: "Jordan", partnerChangedCount, reanswerRequired,
+  });
+  const state = { greenLightsFull: round(1, true) };
+  await mockApi(page, state);
+  await page.goto("/games/green-lights");
+  const pane = page.getByTestId("gl-new-round");
+  await expect(pane.getByTestId("gl-partner-changed")).toHaveText("Jordan changed 1 answer since last time.");
+  await expect(pane.getByRole("button", { name: "Keep my answers" })).toHaveCount(0);
+  await expect(pane.getByRole("button", { name: "Look over my answers" })).toBeVisible();
+
+  state.greenLightsFull = round(6, false);
+  await page.reload();
+  await expect(page.getByTestId("gl-partner-changed")).toHaveText("Jordan changed 6 answers since last time.");
+  await expect(page.getByRole("button", { name: "Keep my answers" })).toBeVisible();
+});
+
+test("Shelf leads with sharing and never counts a partner's private saves", async ({ page }) => {
+  // A mutual find comes back neutral: shared, attributed to both, no private saver.
+  const mutual = { ...shelfItem, id: "shelf-mutual", title: "Both of us", share: "together", mutual: true, addedByName: "", addedByEmail: "alex@example.test" };
+  const together = { ...shelfItem, id: "shelf-together", title: "Tonight", share: "together" };
+  const state = {
+    shelf: { workspaceId: workspace.id, reactionCatalog: shelfReactionCatalog, items: [mutual, together] },
+  };
+  await mockApi(page, state);
+  await page.goto("/inspiration/shelf");
+
+  const actions = page.locator(".shelf-mode-actions button");
+  await expect(actions).toHaveText(["Send to Jordan", "Watch together", "Save for me"]);
+  await expect(page.getByText("You both saved this")).toBeVisible();
+  await expect(page.locator(".shelf-card").filter({ hasText: "You both saved this" }).locator(".meta-author").first()).toContainText("Both of you");
+  await expect(page.getByText("Jordan wants to watch this with you")).toBeVisible();
+  await expect(page.getByText(/saved \d+ items?/i)).toHaveCount(0);
+  await expect(page.locator(".shelf-card")).toHaveCount(2);
+
+  await page.getByLabel("Link or passage").fill("https://example.test/mine");
+  const posted = page.waitForRequest((req) => req.url().includes("/api/shelf") && req.method() === "POST");
+  await page.getByRole("button", { name: "Save for me" }).click();
+  expect((await posted).postDataJSON()).toMatchObject({ content: "https://example.test/mine", mode: "private" });
+});
+
 test("Activity deep links glow Ask and Kink targets", async ({ page }) => {
   await mockApi(page);
   await page.goto("/ask-detail?id=req-1&activity=1");
@@ -2494,14 +2916,16 @@ test("Ask reply Pass can be undone, then sends with a calm result", async ({ pag
 
   await expect.poll(() => state.requestReplyBody?.action).toBe("reply");
   await expect.poll(() => state.requestReplyBody?.decisions?.map((item) => item.decision)).toEqual(["No", "No"]);
+  // A plain pass (no chip picked) carries no note.
+  expect(state.requestReplyBody.passNote).toBeUndefined();
   const result = page.getByTestId("ask-reply-result");
-  await expect(result.getByRole("heading", { name: "Passed." })).toBeFocused();
+  await expect(result.getByRole("heading", { name: "Passed for now." })).toBeFocused();
   // The explanation is spoken through the app's one polite announcer.
-  await expect(page.getByTestId("app-announcer")).toHaveText("Avery gets a quiet heads-up. No reason needed.");
+  await expect(page.getByTestId("app-announcer")).toHaveText("Avery sees a kind pass. No reason needed.");
   await expect(result.getByRole("link", { name: "Back to Sexboard" })).toHaveAttribute("href", "/sexboard");
   await expect(page.getByRole("heading", { name: "Your reply" })).toBeVisible();
-  await expect(page.getByTestId("ask-reply-verdict")).toHaveText("Passed on all of it.");
-  await expect(page.getByTestId("ask-status")).toHaveText("Passed");
+  await expect(page.getByTestId("ask-reply-verdict")).toHaveText("You passed for now. No reason needed.");
+  await expect(page.getByTestId("ask-status")).toHaveText("Passed for now");
   await expect(page.getByText("Countered with")).toHaveCount(0);
   await expect(page.getByText("Partner response")).toHaveCount(0);
 });
@@ -2629,9 +3053,246 @@ test("Answered Ask views label the reply from each side", async ({ page }) => {
   state.request = { ...request, requesterEmail: auth.email, requesterName: "Alex", requester: "Alex", reviewerEmail: "jordan@example.test", reviewerName: "Jordan", reviewer: "Jordan" };
   await page.reload();
   await expect(page.getByTestId("ask-status")).toHaveText("Waiting on Jordan");
-  await expect(page.getByRole("button", { name: "Remind Jordan" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Nudge Jordan" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Take back this Ask" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Yes" })).toHaveCount(0);
+});
+
+// Desire research rec #2: a pass stays one tap, and can carry one optional
+// reassurance. A rain check stores when it comes back to the asker.
+test("Ask reply Pass offers optional warm words; a rain check chip sends at once", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = {
+    request: {
+      ...request,
+      requesterEmail: "ans@example.test",
+      requesterName: "Avery",
+      requester: "Avery",
+      reviewerEmail: auth.email,
+      reviewerName: "Rowan",
+      reviewer: "Rowan",
+      categories: ["Slow kissing"],
+      status: "sent",
+    },
+  };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+
+  await page.getByRole("button", { name: "Pass" }).click();
+  const chips = page.getByRole("group", { name: /Add a few warm words for Avery/ });
+  await expect(chips).toBeVisible();
+  await expect(chips.getByRole("button")).toHaveText([
+    "Not tonight, I still want you",
+    "Love that you asked",
+    "Ask me this weekend",
+    "Rain check: next week",
+  ]);
+  // Layout height (offsetHeight), not the painted rect: the undo panel rises
+  // in with a transform, and mid-animation under load the rect can read a
+  // hair under 44 (43.9999) even though the chip's box is 44px.
+  for (const box of await chips.getByRole("button").evaluateAll((nodes) => nodes.map((node) => node.offsetHeight))) {
+    expect(box).toBeGreaterThanOrEqual(44);
+  }
+  await chips.getByRole("button", { name: "Ask me this weekend" }).click();
+
+  await expect.poll(() => state.requestReplyBody?.passNote).toBe("this_weekend");
+  expect(state.requestReplyBody.decisions.map((item) => item.decision)).toEqual(["No"]);
+  const rainCheckAt = Date.parse(state.requestReplyBody.rainCheckAt);
+  expect(rainCheckAt).toBeGreaterThan(Date.parse("2026-05-23T01:00:00Z"));
+  expect(rainCheckAt).toBeLessThan(Date.parse("2026-05-31T00:00:00Z"));
+  const result = page.getByTestId("ask-reply-result");
+  await expect(result.getByRole("heading", { name: "Passed for now." })).toBeVisible();
+  await expect(page.getByTestId("app-announcer")).toContainText("Avery sees “Ask me again this weekend.”");
+  await expect(page.getByText(/^Passed\.$/)).toHaveCount(0);
+});
+
+const passedOwnAsk = {
+  ...request,
+  requesterEmail: auth.email,
+  requesterName: "Alex",
+  requester: "Alex",
+  reviewerEmail: "jordan@example.test",
+  reviewerName: "Jordan",
+  reviewer: "Jordan",
+  categories: ["💆 Sensual massage"],
+  status: "reviewed",
+  decisions: [{ label: "💆 Sensual massage", decision: "No", counter: "", counterActId: "", note: "", targetType: "act", actId: "" }],
+  sentAt: "2026-05-22T19:00:00.000Z",
+  createdAt: "2026-05-22T19:00:00.000Z",
+  updatedAt: "2026-05-22T20:00:00.000Z",
+  reviewedAt: "2026-05-22T20:00:00.000Z",
+};
+
+test("The asker never sees a cold pass, and a due rain check comes back on Home for them to decide", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = {
+    request: { ...passedOwnAsk, passNote: "this_weekend", rainCheckAt: "2026-05-23T00:30:00.000Z" },
+  };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+  await expect(page.getByTestId("ask-reply-verdict")).toHaveText("Jordan passed for now and wants you to ask again this weekend.");
+  await expect(page.getByTestId("ask-status")).toHaveText("Passed for now");
+  await expect(page.getByText(/^Passed\.?$/)).toHaveCount(0);
+  await expect(page.getByTestId("ask-rain-check")).toContainText("you decide");
+
+  await page.goto("/sexboard");
+  const suggestion = page.getByTestId("rain-check");
+  await expect(suggestion).toBeVisible();
+  await expect(suggestion).toContainText("Try this again?");
+  // The hero doesn't say "caught up" above a suggestion.
+  await expect(page.locator(".sexboard-status-copy h2")).toHaveText("Something to try again.");
+  await expect(suggestion).toContainText("Jordan said to ask again this weekend. It’s your call.");
+  await expect(suggestion.getByRole("link", { name: "Ask again" })).toHaveAttribute("href", "/ask?again=req-1");
+  // Nothing was re-sent on the asker's behalf.
+  expect(state.requestCreateBody).toBeUndefined();
+  await suggestion.getByRole("button", { name: "Not now" }).click();
+  await expect.poll(() => state.requestActionBody?.action).toBe("dismiss_rain_check");
+  await expect(page.getByTestId("rain-check")).toHaveCount(0);
+});
+
+test("Ask again from a rain check preselects the same Acts, and the rain check lifts the cooldown", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = {
+    request: { ...passedOwnAsk, timing: "Next week", passNote: "this_weekend", rainCheckAt: "2026-05-23T00:30:00.000Z" },
+  };
+  await mockApi(page, state);
+  await page.goto("/ask?again=req-1");
+  await expect(page.locator(".ask-act-grid").getByRole("button", { name: /Sensual massage/ })).toHaveAttribute("aria-pressed", "true");
+  // It keeps the original timing too.
+  await expect(page.getByRole("radio", { name: "Next week" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("ask-rest-note")).toHaveCount(0);
+  await expect(page.getByTestId("ask-submit")).toHaveAttribute("aria-disabled", "false");
+});
+
+// Rec #4: the same Ask rests for a week after a pass. Said as timing, not an error.
+test("Re-asking the same Acts right after a pass rests calmly instead of sending", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = { request: { ...passedOwnAsk } };
+  await mockApi(page, state);
+  await page.goto("/ask");
+
+  const massage = page.locator(".ask-act-grid").getByRole("button", { name: /Sensual massage/ });
+  await massage.click();
+  const note = page.getByTestId("ask-rest-note");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("Jordan passed on this one recently, so it rests until");
+  await expect(page.locator(".ask-panel [role='alert']")).toHaveCount(0);
+  await expect(page.getByTestId("ask-send-status")).toContainText("This one rests until");
+  await expect(page.getByTestId("ask-submit")).toHaveAttribute("aria-disabled", "true");
+  await page.getByTestId("ask-submit").click({ force: true }); // sticky bar can sit under the tab bar mid-scroll
+  expect(state.requestCreateBody).toBeUndefined();
+
+  // A different set of Acts is free to send.
+  await page.locator(".ask-act-grid").getByRole("button", { name: /Mutual oral/ }).click();
+  await expect(note).toHaveCount(0);
+  await expect(page.getByTestId("ask-submit")).toHaveAttribute("aria-disabled", "false");
+});
+
+// Rec #15 (FRIES): either partner can take back a yes; it's a change of plans.
+test("An agreed Ask can be withdrawn as a change of plans, not a pass or a cancel", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = {
+    request: {
+      ...request,
+      status: "reviewed",
+      decisions: [{ label: "Kiss", decision: "Yes", counter: "", counterActId: "", note: "", targetType: "act", actId: "" }],
+      reviewedAt: "2026-05-23T00:20:00.000Z",
+    },
+  };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+  await expect(page.getByText(/This yes is for this Ask/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Pass/ })).toHaveCount(0);
+  // Never a stray tap: the same confirm as the match moment, and "Keep it" keeps it.
+  await page.getByRole("button", { name: "Change of plans" }).click();
+  await expect(page.locator(".ss-confirm-dialog")).toContainText("No reason needed, and nothing is counted.");
+  await page.locator(".ss-confirm-dialog").getByRole("button", { name: "Keep it" }).click();
+  expect(state.requestActionBody?.action).toBeUndefined();
+  await page.getByRole("button", { name: "Change of plans" }).click();
+  await page.locator(".ss-confirm-dialog .ss-confirm-primary").click();
+  await expect.poll(() => state.requestActionBody?.action).toBe("withdraw");
+  await expect(page).toHaveURL(/\/sexboard$/);
+  expect(state.request.withdrawnAt).toBeTruthy();
+  expect(state.request.passedAt).toBeUndefined();
+
+  // Reading it back: no blame, nothing counted, and no way to restore that yes,
+  // only to ask again.
+  await page.goto("/ask-detail?id=req-1");
+  await expect(page.getByTestId("ask-status")).toHaveText("Change of plans");
+  await expect(page.getByTestId("ask-withdrawn")).toContainText("nothing is counted");
+  await expect(page.getByTestId("ask-action-restore")).toHaveCount(0);
+  await expect(page.getByTestId("ask-action-ask-again")).toHaveAttribute("href", "/ask?again=req-1");
+});
+
+test("An agreed Ask with a plan shows the plan, not its original timing", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const plannedFor = new Date("2026-05-24T02:00:00Z").toISOString();
+  await mockApi(page, {
+    request: {
+      ...request,
+      status: "reviewed",
+      timing: "Tomorrow",
+      plannedFor,
+      decisions: [{ label: "Kiss", decision: "Yes", counter: "", counterActId: "", note: "", targetType: "act", actId: "" }],
+      reviewedAt: "2026-05-23T00:20:00.000Z",
+    },
+  });
+  await page.goto("/ask-detail?id=req-1");
+  await expect(page.getByTestId("ask-timing-chip")).not.toHaveText("Tomorrow");
+  await expect(page.getByText(/This yes is for this Ask, (tomorrow|tonight|today|\w+day), /)).toBeVisible();
+});
+
+// Rec #4: one gentle nudge per Ask, ever; never after a maybe.
+test("The asker gets one gentle nudge per Ask and none after a maybe", async ({ page }) => {
+  const own = {
+    ...request,
+    requesterEmail: auth.email,
+    requesterName: "Alex",
+    requester: "Alex",
+    reviewerEmail: "jordan@example.test",
+    reviewerName: "Jordan",
+    reviewer: "Jordan",
+  };
+  const state = { request: { ...own, lastReminderAt: "2026-05-23T00:40:00.000Z", reminderCount: 1 } };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+  await expect(page.getByTestId("ask-nudge-copy")).toContainText("You sent your one nudge");
+  await expect(page.getByRole("button", { name: /Nudge|Remind/ })).toHaveCount(0);
+  await expect(page.getByText(/automatically|still waiting/i)).toHaveCount(0);
+
+  state.request = { ...own, status: "maybe", maybeAt: "2026-05-23T00:20:00.000Z" };
+  await page.reload();
+  await expect(page.getByTestId("ask-maybe-note")).toContainText("there’s nothing you need to do");
+  await expect(page.getByRole("button", { name: /Nudge|Remind/ })).toHaveCount(0);
+});
+
+// Rec #16: a no-goal touch Act, offered as a low-stakes way in.
+test("Ask offers a slow touch, no-finish-line Act as a low-key way in", async ({ page }) => {
+  await mockApi(page, {});
+  await page.goto("/ask");
+  const offer = page.getByTestId("ask-slow-touch");
+  await expect(offer).toHaveText("Low-key? Slow touch, no finish line");
+  await offer.click();
+  await expect(page.locator(".ask-act-grid").getByRole("button", { name: /Slow touch, no finish line/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("ask-slow-touch-hint")).toContainText("Fifteen minutes of slow touching");
+  await expect(page.getByTestId("ask-slow-touch")).toHaveCount(0);
+});
+
+// Rec #4: recipient-controlled quiet hours live in Settings, for this device only.
+test("Settings offers private quiet hours for this device", async ({ page }) => {
+  await mockApi(page, {});
+  await page.goto("/space");
+  await page.getByTestId("us-settings-open").click();
+  const quiet = page.getByTestId("quiet-hours");
+  await expect(quiet).toContainText("Only you can see this.");
+  const toggle = quiet.getByRole("switch", { name: /Quiet hours/ });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(quiet.getByLabel("From")).toHaveValue("22:00");
+  await expect(quiet.getByLabel("Until")).toHaveValue("08:00");
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("sexualsync-quiet-hours") || "null"));
+  expect(stored).toEqual({ enabled: true, start: "22:00", end: "08:00" });
 });
 
 test("Accepting an Ask counter shows the partner note before approval", async ({ page }) => {
@@ -3219,7 +3880,7 @@ test("Notification presets write the per-device preference map", async ({ page }
   await customize.click();
   await expect(customize).toHaveAttribute("aria-expanded", "true");
   await expect(sheet.locator("[data-push-pref]")).toHaveCount(10);
-  const mood = sheet.getByRole("switch", { name: /You're both horny/ });
+  const mood = sheet.getByRole("switch", { name: /Horny matches/ });
   await expect(mood).toHaveAttribute("aria-checked", "true");
   // Flipping one switch leaves no preset matching: a custom mix.
   await sheet.getByRole("switch", { name: /Sext messages/ }).click();
@@ -3311,7 +3972,7 @@ test("A pass on my Ask is a reply outcome, not something waiting", async ({ page
   await mockApi(page, { request: passed });
   await page.goto("/sexboard");
   const replies = page.locator(".sexboard-handoff-section", { hasText: "Replies" });
-  await expect(replies.locator("a.sexboard-handoff-row")).toContainText("Jordan passed.");
+  await expect(replies.locator("a.sexboard-handoff-row")).toContainText("Jordan passed for now. No reason needed.");
   const waiting = page.locator(".sexboard-handoff-section").filter({ hasText: "Waiting on Jordan" });
   await expect(waiting.locator("a.sexboard-handoff-row")).toHaveCount(0);
   await expect(page.getByText("Jordan reviewed it.")).toHaveCount(0);
@@ -3349,7 +4010,7 @@ test("Mood light switches on from an inline chooser and shows only my own state"
   const mood = page.getByTestId("mood-light");
   const trigger = mood.getByRole("button", { name: "I’m horny" });
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(mood).toContainText("Only shows if Jordan's horny too.");
+  await expect(mood).toContainText("Only shows if Jordan's up for it too.");
 
   // Compact when off: "Needs you" stays above the fold on a 390x844 screen.
   const off = await mood.boundingBox();
@@ -3472,6 +4133,32 @@ test("Mood match deep link focuses the mood light, and its activity row has no a
   await expect(row.locator(".live-activity-glyph.is-mood svg")).toHaveCount(1);
 });
 
+test("a change of plans activity row names nobody", async ({ page }) => {
+  const state = { activity: cloneJson(activityResponse) };
+  state.activity.items.unshift({
+    id: "withdrawn:1",
+    workspaceId: workspace.id,
+    resource: "request-board",
+    resourceLabel: "Sexboard",
+    action: "withdrawn",
+    label: "Change of plans",
+    entityId: "req-withdrawn",
+    // The server records it with no actor (the fallback name is never shown).
+    actorEmail: "",
+    actorName: "Partner",
+    at: new Date(Date.now() - 2 * 60_000).toISOString(),
+    passive: false,
+    unread: true,
+  });
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+  const row = page.locator(".live-activity-item", { hasText: "Change of plans" });
+  await expect(row.locator(".live-activity-meta")).toHaveText("Sexboard");
+  await expect(row).not.toContainText("Jordan");
+  await expect(row).not.toContainText("Partner");
+  await expect(row).not.toContainText("You");
+});
+
 test("Mood match bloom is static with reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const state = moodOnState();
@@ -3531,6 +4218,133 @@ test("Mood match toast away from Home links back to the mood light, once per mat
   await emitMoodEvent(page, "ended");
   await page.waitForTimeout(600);
   await expect(page.locator(".live-activity-toast")).toHaveCount(0);
+});
+
+test("Mood light: open to being seduced is a first-class on, and switching states is an update", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+
+  const mood = page.getByTestId("mood-light");
+  await mood.getByRole("button", { name: "I’m horny" }).click();
+  const feel = page.getByRole("group", { name: "How you feel" });
+  await expect(feel.getByRole("radio", { name: "Horny" })).toBeChecked();
+  // Normalizing copy only appears for the open state.
+  await expect(mood.locator(".mood-light-state-note")).toHaveCount(0);
+  await feel.getByRole("radio", { name: "Open to being seduced" }).check();
+  await expect(mood.locator(".mood-light-state-note")).toContainText("wanting shows up once things start");
+  for (const height of await feel.locator(".mood-light-state").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))) {
+    expect(height).toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole("group", { name: "Open for" }).getByRole("button", { name: /Tonight/ }).click();
+
+  await expect(mood).toHaveAttribute("data-phase", "on");
+  await expect(mood).toHaveAttribute("data-mood-state", "open");
+  await expect(mood).toContainText(/You.re open to it until \d{1,2}:\d{2}/);
+  await expect(mood).not.toContainText(/both|Jordan.s (horny|open)|for you/i);
+  expect(state.moodPosts.at(-1)).toMatchObject({ action: "on", state: "open" });
+  await expect(page.getByTestId("app-announcer")).toContainText(/You.re open to it until/);
+
+  // Open -> horny keeps the window: an update, not a new switch-on.
+  const until = state.mood.until;
+  await mood.getByRole("button", { name: "I’m horny now" }).click();
+  await expect(mood).toContainText(/You.re horny until \d{1,2}:\d{2}/);
+  expect(state.moodPosts.at(-1)).toEqual({ workspaceId: workspace.id, action: "state", state: "horny" });
+  expect(state.mood.until).toBe(until);
+  await expect(mood.getByRole("button", { name: "Just open to it" })).toBeVisible();
+});
+
+test("Mood matches read from each side: horny + open, open + horny, open + open", async ({ page }) => {
+  const cases = [
+    { mine: "horny", theirs: "open", title: "Jordan’s open to being seduced.", nudge: "Your move." },
+    { mine: "open", theirs: "horny", title: "Jordan’s horny for you.", nudge: "Let yourself be seduced." },
+    { mine: "open", theirs: "open", title: "You’re both open to it.", nudge: "Start slow and see where it goes." },
+  ];
+  for (const { mine, theirs, title, nudge } of cases) {
+    const state = moodOnState();
+    state.mood.state = mine;
+    await mockApi(page, state);
+    await page.goto("/sexboard");
+    const mood = page.getByTestId("mood-light");
+    await expect(mood).toHaveAttribute("data-phase", "on");
+    state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString(), state: theirs };
+    await emitMoodEvent(page, "match");
+
+    await expect(mood).toHaveAttribute("data-phase", "match");
+    await expect(mood.getByRole("heading", { name: title })).toBeVisible();
+    await expect(mood).toContainText(nudge);
+    await expect(page.getByTestId("app-announcer")).toHaveText(title.replace(/’/g, "'"));
+    // Either side can switch while matched: open escalates, horny softens.
+    await expect(mood.getByRole("button", { name: "I’m horny now" })).toHaveCount(mine === "open" ? 1 : 0);
+    await expect(mood.getByRole("button", { name: "Just open to it" })).toHaveCount(mine === "horny" ? 1 : 0);
+  }
+});
+
+test("Mood: the horny side softening to open while matched keeps the match, no second bloom", async ({ page }) => {
+  const state = moodOnState();
+  state.mood.state = "horny";
+  state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString(), state: "horny" };
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+  const mood = page.getByTestId("mood-light");
+  await expect(mood.getByRole("heading", { name: "You’re both horny." })).toBeVisible();
+  await mood.getByRole("button", { name: "Just open to it" }).click();
+  await expect(mood).toHaveAttribute("data-phase", "match");
+  await expect(mood.getByRole("button", { name: "I’m horny now" })).toBeVisible();
+  await expect(mood).not.toHaveAttribute("data-blooming", "true");
+});
+
+test("Mood: the open side escalating while matched updates the copy without a second bloom", async ({ page }) => {
+  const state = moodOnState();
+  state.mood.state = "open";
+  state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString(), state: "horny" };
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+  const mood = page.getByTestId("mood-light");
+  await expect(mood.getByRole("heading", { name: "Jordan’s horny for you." })).toBeVisible();
+  await expect(mood).not.toHaveAttribute("data-blooming", "true");
+  await mood.getByRole("button", { name: "I’m horny now" }).click();
+  await expect(mood.getByRole("heading", { name: "You’re both horny." })).toBeVisible();
+  await expect(page.getByTestId("app-announcer")).toHaveText("You're both horny.");
+  await expect(mood).not.toHaveAttribute("data-blooming", "true");
+});
+
+test("Mood leak check: without a match the card is identical whether Jordan is off, horny or open", async ({ page }) => {
+  // My side off, then on (open), against every partner state the mock can
+  // play. The rendered card must not differ by a single character.
+  const partnerStates = [null, { state: "horny" }, { state: "open" }];
+  for (const myOn of [false, true]) {
+    const seen = [];
+    for (const partner of partnerStates) {
+      const state = myOn ? moodOnState() : {};
+      if (myOn) state.mood.state = "open";
+      // Partner on but me off: no match is ever formed.
+      if (partner && !myOn) state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString(), ...partner };
+      // Me on: the partner is off (null) or lapsed, the only non-matching cases.
+      if (partner && myOn) state.moodPartner = { until: new Date(Date.now() - 60_000).toISOString(), ...partner };
+      await mockApi(page, state);
+      await page.goto("/sexboard");
+      const mood = page.getByTestId("mood-light");
+      await expect(mood).toHaveAttribute("data-phase", myOn ? "on" : "off");
+      seen.push((await mood.innerText()).replace(/\d{1,2}:\d{2}\s?[ap]m/g, "TIME"));
+      await expect(mood).not.toContainText(/both|for you|Jordan.s (horny|open)/i);
+    }
+    expect(new Set(seen).size, `card text identical across partner states (me ${myOn ? "on" : "off"})`).toBe(1);
+  }
+});
+
+test("Mood match toast away from Home stays actor-less for a mixed match", async ({ page }) => {
+  const state = moodOnState();
+  state.mood.state = "open";
+  state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString(), state: "horny" };
+  state.mood.match = { since: new Date(Date.now() - 60_000).toISOString(), until: state.mood.until };
+  await mockApi(page, state);
+  await page.goto("/games");
+  await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+  await emitMoodEvent(page, "match");
+  const toast = page.locator("a.live-activity-toast--mood");
+  await expect(toast).toHaveText("You're both up for it.");
+  await expect(toast).not.toContainText("Jordan");
 });
 
 test("Ambient loops pause while the app is hidden and the atmosphere has no blur or blend", async ({ page }) => {

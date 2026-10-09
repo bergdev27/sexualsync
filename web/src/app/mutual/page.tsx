@@ -28,7 +28,6 @@ import {
   activePlanDate,
   currentTimingLabel,
   isApprovedSexActRequest,
-  timingCopyForRequest,
 } from "@/lib/request-state";
 import {
   PLAN_SLOTS,
@@ -42,6 +41,8 @@ import {
   slotForPlan,
   toDatetimeLocalValue,
   PLAN_MAX_AHEAD_DAYS,
+  PLAN_BELIEF_LINE,
+  planTeaserDraft,
 } from "@/lib/plan-time";
 import { consumeMatchMorph } from "@/lib/match-transition";
 import { useDayRollover } from "@/lib/use-day-rollover";
@@ -405,14 +406,16 @@ export default function MutualPage() {
     if (pickerOpen) pickerRef.current?.querySelector<HTMLInputElement>("input[type='radio']:checked, input[type='radio']")?.focus();
   }, [pickerOpen]);
 
+  // "Change of plans" (FRIES consent, research rec #15): either of you can
+  // take back a yes, no reason needed. It isn't recorded as a pass or a cancel,
+  // and Health never counts it.
   async function passTonight() {
     if (!passContext || passBusy) return;
-    const timingCopy = timingCopyForRequest(passContext.request);
     const confirmed = await confirmAction({
-      title: `Pass on this Ask for ${timingCopy}?`,
-      body: "It will leave the active Sexboard for both of you.",
-      confirmLabel: "Pass",
-      destructive: true,
+      title: "Change of plans?",
+      body: "It comes off the Sexboard for both of you. No reason needed, and nothing is counted.",
+      confirmLabel: "Change plans",
+      cancelLabel: "Keep it",
     });
     if (!confirmed) return;
     setPassBusy(true);
@@ -421,12 +424,12 @@ export default function MutualPage() {
       await updateRequestAction({
         workspaceId: passContext.workspaceId,
         id: passContext.request.id,
-        action: "pass",
+        action: "withdraw",
       });
       if (navigator.vibrate) navigator.vibrate(8);
       router.push("/sexboard");
     } catch (error) {
-      setPassError(error instanceof Error ? error.message : "Couldn't pass on this Ask.");
+      setPassError(error instanceof Error ? error.message : "Couldn't change plans. Try again.");
       setPassBusy(false);
     }
   }
@@ -493,7 +496,6 @@ export default function MutualPage() {
 
   const fallbackLabel = `${celebration.count} mutual yes${celebration.count === 1 ? "" : "es"}`;
   const narrationText = celebration.narration || fallbackNarrationForCelebration(celebration);
-  const passTimingCopy = passContext ? timingCopyForRequest(passContext.request) : "tonight";
   const partner = partnerName || "them";
   const canPlan = Boolean(celebration.requestId) && celebration.source === "ask";
   const whenLabel = plannedDate
@@ -621,7 +623,7 @@ export default function MutualPage() {
               disabled={passBusy}
               onClick={passTonight}
             >
-              {passBusy ? "Passing..." : `Pass ${passTimingCopy}`}
+              {passBusy ? "Changing plans..." : "Change of plans"}
             </button>
           )}
           {passError && <p className="mutual-error" role="alert">{passError}</p>}
@@ -636,8 +638,10 @@ export default function MutualPage() {
                 void savePlan();
               }}
             >
-              <fieldset ref={pickerRef} className="match-plan-fieldset">
+              <fieldset ref={pickerRef} className="match-plan-fieldset" aria-describedby="match-plan-belief">
                 <legend className="match-plan-legend">When?</legend>
+                {/* Research-backed nudge; sources in lib/plan-time.ts. */}
+                <p id="match-plan-belief" className="match-plan-belief">{PLAN_BELIEF_LINE}</p>
                 <div className="match-plan-options">
                   {PLAN_SLOTS.map((option) => {
                     const resolved = resolvePlanSlot(option.id, now);
@@ -734,12 +738,29 @@ export default function MutualPage() {
               {canPlan && !plannedDate && (
                 <p id="match-plan-hint" className="sr-only">Put it on the calendar for both of you.</p>
               )}
+              {canPlan && plannedDate ? (
+                <p id="match-plan-teaser-hint" className="match-planned-teaser">
+                  The waiting&rsquo;s part of it. Give {partner} something to think about until then.
+                </p>
+              ) : null}
               <div className={canPlan ? "match-secondary-row" : "match-secondary-row match-secondary-row--lead"}>
                 {canPlan ? (
                   <>
-                    <Link href="/chat" className={`${plannedDate ? "cta-primary" : "btn-ghost"} match-secondary pressable`}>
-                      Message {partner}
-                    </Link>
+                    {plannedDate ? (
+                      // Opens Sext with the first words typed, never sends.
+                      // No reminder or push is ever scheduled for a plan.
+                      <Link
+                        href={`/chat?draft=${encodeURIComponent(planTeaserDraft(plannedDate, now))}`}
+                        className="cta-primary match-secondary pressable"
+                        aria-describedby="match-plan-teaser-hint"
+                      >
+                        Send a teaser
+                      </Link>
+                    ) : (
+                      <Link href="/chat" className="btn-ghost match-secondary pressable">
+                        Message {partner}
+                      </Link>
+                    )}
                     <Link href="/sexboard" className="btn-ghost match-secondary pressable">
                       Back to Sexboard
                     </Link>

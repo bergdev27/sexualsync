@@ -36,9 +36,9 @@
 
 // Bumped whenever cards are added or re-scaled. Partners who answered an older
 // deck get an "answer the new questions" prompt instead of a full retake.
-export const GREEN_LIGHT_DECK_VERSION = 2;
+export const GREEN_LIGHT_DECK_VERSION = 3;
 
-export type GreenLightScale = "comfort" | "agree" | "want" | "matters" | "prefer" | "cadence";
+export type GreenLightScale = "comfort" | "agree" | "want" | "matters" | "prefer" | "cadence" | "words";
 
 // Kept for back-compat: the comfort scale's value ids.
 export type GreenLightValue = "good" | "depends" | "no";
@@ -55,9 +55,14 @@ export interface GreenLightCard {
   heavy: boolean;
   scale: GreenLightScale;
   valence?: "concern";
-  // Inline options for per-question scales (prefer, cadence). For the shared
-  // scales (comfort/agree/want/matters) options come from SHARED_SCALE_OPTIONS.
+  // Inline options for per-question scales (prefer, cadence, words). For the
+  // shared scales (comfort/agree/want/matters) options come from
+  // SHARED_SCALE_OPTIONS.
   options?: GreenLightOption[];
+  // Reveal only where you overlap: a mismatch or a pass is never shown, and
+  // the server never even sends the partner's answer (green-lights.js
+  // overlapOnlyPartnerAnswers, which keys on the "wd-" id prefix).
+  overlapOnly?: boolean;
 }
 
 // Shared option sets — ordered most-positive → most-negative.
@@ -103,6 +108,17 @@ function prefer(poleA: string, poleB: string): GreenLightOption[] {
   ];
 }
 
+// "Words I like" answers: a yes, or a pass that is never revealed. The ids
+// ("yes" / "pass") are what the server's overlap filter checks.
+function words(yesLabel: string): GreenLightOption[] {
+  return [
+    { id: "yes", label: yesLabel },
+    { id: "pass", label: "Pass" },
+  ];
+}
+const CALL_ME = words("Yes, call me that");
+const USE_IT = words("Yes, I'd love to");
+
 export interface GreenLightCategory {
   id: string;
   title: string;
@@ -124,6 +140,7 @@ export const GREEN_LIGHT_CATEGORIES: GreenLightCategory[] = [
   { id: "trust", title: "Telling & trust" },
   { id: "others", title: "Physical with others" },
   { id: "sharing", title: "Sharing & compersion" },
+  { id: "words", title: "Words I like" },
 ];
 
 export const GREEN_LIGHT_DECK: GreenLightCard[] = [
@@ -282,6 +299,23 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "sh-watch-me", category: "sharing", label: "The thought of you watching me with someone else turns me on", heavy: true, scale: "agree" },
   // Compersion, the gentle end — taking joy in your partner's own (solo) pleasure
   // What they picture while solo (you / others)
+
+  // Words I like — affectionate, then explicit, then dominant/submissive.
+  // Each person picks the words for themselves; only shared yeses ever show.
+  // Self-chosen labels are the version that can feel empowering rather than
+  // demeaning (Galinsky et al. 2013), so nothing here is applied by default.
+  { id: "wd-call-baby", category: "words", label: "Being called \u201cbaby\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-call-gorgeous", category: "words", label: "Being called \u201cgorgeous\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-call-dirty", category: "words", label: "Being called \u201cdirty\u201d or \u201cfilthy\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-call-slut", category: "words", label: "Being called a \u201cslut\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-call-good", category: "words", label: "Being called a \u201cgood girl\u201d or \u201cgood boy\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-call-mine", category: "words", label: "Being told \u201cyou're mine\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-call-toy", category: "words", label: "Being called your \u201ctoy\u201d", heavy: false, scale: "words", options: CALL_ME, overlapOnly: true },
+  { id: "wd-use-praise", category: "words", label: "Telling you how good you feel, in detail", heavy: false, scale: "words", options: USE_IT, overlapOnly: true },
+  { id: "wd-use-explicit", category: "words", label: "Saying the explicit words out loud", heavy: false, scale: "words", options: USE_IT, overlapOnly: true },
+  { id: "wd-use-beg", category: "words", label: "Begging you for it", heavy: false, scale: "words", options: USE_IT, overlapOnly: true },
+  { id: "wd-use-names", category: "words", label: "Calling you dirty names in bed", heavy: false, scale: "words", options: USE_IT, overlapOnly: true },
+  { id: "wd-use-orders", category: "words", label: "Telling you exactly what to do", heavy: false, scale: "words", options: USE_IT, overlapOnly: true },
 ];
 
 export const GREEN_LIGHT_BY_ID: Record<string, GreenLightCard> = Object.fromEntries(
@@ -338,6 +372,8 @@ export function valueTone(card: GreenLightCard, value: string): GreenLightTone {
   const opts = optionsForCard(card);
   const i = opts.findIndex((o) => o.id === value);
   if (card.scale === "prefer" || card.scale === "cadence") return i === 1 && card.scale === "prefer" ? "mid" : "pole";
+  // A pass on a word is neutral, never a red "no".
+  if (card.scale === "words") return i === 0 ? "pos" : "pole";
   if (i === 0) return "pos";
   if (i === opts.length - 1) return "neg";
   return "mid";
@@ -375,24 +411,30 @@ export interface GreenLightTalkItem extends GreenLightPairItem {
 export interface GreenLightCadenceItem extends GreenLightPairItem {
   gap: number;
 }
-export interface GreenLightCategoryScore {
-  category: string;
-  title: string;
-  aligned: number;
-  total: number;
-  // 0-100, same rule as the overall sync score.
-  score: number;
-}
+// No score and no per-topic tally: a "% on the same page" turns agreement
+// into a benchmark, and "aligned/total" is a count of differences in disguise.
 export interface GreenLightsReveal {
   greenLights: GreenLightRevealItem[];
+  // Words I like: only the words you BOTH said yes to. Never mismatches.
+  wordsShared: GreenLightRevealItem[];
   // Both admitted the same worry or brake: common ground to name out loud.
   sharedConcerns: GreenLightRevealItem[];
   agreedLimits: GreenLightRevealItem[];
+  // Only populated when both partners opted in to compare (the server sends
+  // differing answers only then).
   talk: GreenLightTalkItem[];
   cadence: GreenLightCadenceItem[];
-  syncScore: number | null;
-  // Per-topic alignment, in deck order, for topics you both answered.
-  categories: GreenLightCategoryScore[];
+}
+
+// Green lights you could act on together: things you BOTH said you want more
+// of. Statements about initiation, amount, confidence or openness are not
+// something to send as an Ask, so they stay out.
+const NON_ACTIONABLE_CATEGORIES = new Set(["amount", "initiation", "confidence", "sharing"]);
+export function actionableGreenLights(items: GreenLightRevealItem[]): GreenLightRevealItem[] {
+  return items.filter((item) => {
+    const card = GREEN_LIGHT_BY_ID[item.id];
+    return Boolean(card && card.scale === "want" && !card.heavy && !NON_ACTIONABLE_CATEGORIES.has(card.category));
+  });
 }
 
 function gentleOpener(card: GreenLightCard, ia: number, ib: number): string {
@@ -417,9 +459,7 @@ export function computeGreenLightsReveal(
   const agreedLimits: GreenLightRevealItem[] = [];
   const talk: GreenLightTalkItem[] = [];
   const cadence: GreenLightCadenceItem[] = [];
-  let both = 0;
-  let aligned = 0;
-  const perCategory = new Map<string, { aligned: number; total: number }>();
+  const wordsShared: GreenLightRevealItem[] = [];
 
   for (const card of GREEN_LIGHT_DECK) {
     const a = mine[card.id];
@@ -430,10 +470,18 @@ export function computeGreenLightsReveal(
     const ib = opts.findIndex((o) => o.id === b.value);
     // Skip any answer that isn't a current option for the card's scale — e.g. a
     // value stored under the deck's PREVIOUS scale before a card was re-scaled.
-    // It can't be compared, so it must never land in a bucket or the sync math
-    // (a stale "good" on an `agree` card would findIndex→-1 and otherwise both
-    // corrupt syncScore and leak the raw id to the UI). Re-taking refreshes it.
+    // It can't be compared, so it must never land in a bucket (a stale "good"
+    // on an `agree` card would findIndex→-1 and leak the raw id to the UI).
+    // Re-taking refreshes it.
     if (ia < 0 || ib < 0) continue;
+    // Overlap-only cards stay out of every other bucket: a shared yes is all
+    // they can ever say.
+    if (card.overlapOnly) {
+      if (a.value === "yes" && b.value === "yes") {
+        wordsShared.push({ id: card.id, label: card.label, valueLabel: "", scale: card.scale });
+      }
+      continue;
+    }
     const mineSide = { value: a.value, label: labelForCardValue(card, a.value), note: a.note };
     const partnerSide = { value: b.value, label: labelForCardValue(card, b.value), note: b.note };
 
@@ -443,16 +491,10 @@ export function computeGreenLightsReveal(
         mine: mineSide, partner: partnerSide,
         gap: ia >= 0 && ib >= 0 ? Math.abs(ia - ib) : 0,
       });
-      continue; // gap-based, excluded from the sync math
+      continue;
     }
 
-    both += 1;
     const same = a.value === b.value;
-    if (same) aligned += 1;
-    const tally = perCategory.get(card.category) || { aligned: 0, total: 0 };
-    tally.total += 1;
-    if (same) tally.aligned += 1;
-    perCategory.set(card.category, tally);
 
     if (card.scale === "prefer") {
       if (same) {
@@ -488,22 +530,10 @@ export function computeGreenLightsReveal(
 
   return {
     greenLights,
+    wordsShared,
     sharedConcerns,
     agreedLimits,
     talk,
     cadence,
-    syncScore: both === 0 ? null : Math.round((aligned / both) * 100),
-    categories: GREEN_LIGHT_CATEGORIES
-      .filter((category) => perCategory.has(category.id))
-      .map((category) => {
-        const tally = perCategory.get(category.id)!;
-        return {
-          category: category.id,
-          title: category.title,
-          aligned: tally.aligned,
-          total: tally.total,
-          score: Math.round((tally.aligned / tally.total) * 100),
-        };
-      }),
   };
 }

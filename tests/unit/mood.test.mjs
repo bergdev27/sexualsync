@@ -22,6 +22,8 @@ import {
   clampMoodUntil,
   applyMoodOn,
   applyMoodOff,
+  applyMoodState,
+  normalizeMoodState,
   MOOD_STORE_NAME,
   MOOD_COOLDOWN_MS,
   MOOD_MAX_WINDOW_MS,
@@ -105,8 +107,12 @@ async function call(e, email, { method = "GET", body } = {}) {
   return { status: res.status, text, json: text ? JSON.parse(text) : null };
 }
 
-const on = (e, email, untilMs) => call(e, email, { method: "POST", body: { action: "on", until: new Date(untilMs).toISOString() } });
+const on = (e, email, untilMs, state) => call(e, email, {
+  method: "POST",
+  body: { action: "on", until: new Date(untilMs).toISOString(), ...(state ? { state } : {}) },
+});
 const off = (e, email) => call(e, email, { method: "POST", body: { action: "off" } });
+const switchState = (e, email, state) => call(e, email, { method: "POST", body: { action: "state", state } });
 
 // Strip the server clock so two responses taken a few ms apart compare equal.
 function blindShape(json) {
@@ -129,7 +135,7 @@ test("double-blind: my response is identical whether the partner is off, on, or 
   // I'm off; partner has never touched it.
   const baseline = await call(e, ME);
   assert.equal(baseline.status, 200);
-  assert.deepEqual(baseline.json.mine, { on: false, since: null, until: null, cooldownUntil: null });
+  assert.deepEqual(baseline.json.mine, { on: false, state: null, since: null, until: null, cooldownUntil: null });
   assert.equal(baseline.json.match, null);
 
   // Partner switches on → my view must not change at all.
@@ -291,12 +297,16 @@ test("expiry: windows lapse at `until` without a write, and the match goes with 
     },
   };
   const during = publicMood(record, workspace, ME, t0 + 30 * 60 * 1000);
-  assert.deepEqual(during.match, { since: new Date(t0 + 10 * 60 * 1000).toISOString(), until: new Date(t0 + HOUR).toISOString() });
+  assert.deepEqual(
+    during.match,
+    { since: new Date(t0 + 10 * 60 * 1000).toISOString(), until: new Date(t0 + HOUR).toISOString(), kind: "horny", partnerState: "horny" },
+    "entries written before the open state existed read as horny",
+  );
   const afterPartner = publicMood(record, workspace, ME, t0 + HOUR);
   assert.equal(afterPartner.match, null, "match ends exactly at the earlier until");
   assert.equal(afterPartner.mine.on, true, "my own window still runs");
   const afterMine = publicMood(record, workspace, ME, t0 + 2 * HOUR);
-  assert.deepEqual(afterMine.mine, { on: false, since: null, until: null, cooldownUntil: null }, "lapse is not an off: no cooldown");
+  assert.deepEqual(afterMine.mine, { on: false, state: null, since: null, until: null, cooldownUntil: null }, "lapse is not an off: no cooldown");
 
   // Partner switches back on after lapsing → a NEW match with a new since.
   const later = t0 + 90 * 60 * 1000;
@@ -352,4 +362,212 @@ test("a room with three active members never forms a match", async () => {
   await on(e, PARTNER, Date.now() + HOUR);
   assert.equal((await call(e, ME)).json.match, null, "two of three is not a match");
   assert.equal(room.events.length, 0);
+});
+
+// ── Second state: "open to being seduced" ───────────────────────────────────
+
+// Every partner state that is NOT a match for me, written straight into the
+// record so each one is exact (no cooldown side effects from the handler).
+function partnerStates() {
+  const now = Date.now();
+  const at = (ms) => new Date(now + ms).toISOString();
+  return {
+    never: null,
+    horny: { since: at(-10 * 60 * 1000), until: at(HOUR), state: "horny" },
+    open: { since: at(-10 * 60 * 1000), until: at(HOUR), state: "open" },
+    legacyOn: { since: at(-10 * 60 * 1000), until: at(HOUR) },
+    coolingDown: { offAt: at(-60 * 1000) },
+    expiredHorny: { since: at(-3 * HOUR), until: at(-HOUR), state: "horny" },
+    expiredOpen: { since: at(-3 * HOUR), until: at(-HOUR), state: "open" },
+  };
+}
+
+async function setPartner(e, entry) {
+  await setRecord(e, (rec) => {
+    const byEmail = { ...rec.byEmail };
+    if (entry) byEmail[PARTNER] = entry;
+    else delete byEmail[PARTNER];
+    return { ...rec, byEmail };
+  });
+}
+
+test("leak: while I'm off, my response is identical for every partner state (off, horny, open, legacy, cooling, expired)", async () => {
+  const { e, room } = await setup();
+  const baseline = await call(e, ME);
+  assert.equal(baseline.json.match, null);
+  for (const [name, entry] of Object.entries(partnerStates())) {
+    await setPartner(e, entry);
+    const view = await call(e, ME);
+    assert.equal(view.status, 200);
+    assert.equal(blindShape(view.json), blindShape(baseline.json), `partner ${name} is invisible while I'm off`);
+    assert.ok(!/horny|open/.test(JSON.stringify(view.json)), `no state word leaks for partner ${name}`);
+  }
+  assert.equal(room.events.length, 0);
+});
+
+test("leak: on alone (horny or open), my response is identical for every non-matching partner state", async () => {
+  for (const myState of ["horny", "open"]) {
+    const { e } = await setup();
+    await on(e, ME, Date.now() + 2 * HOUR, myState);
+    const alone = await call(e, ME);
+    assert.equal(alone.json.mine.on, true);
+    assert.equal(alone.json.mine.state, myState, "my own state is mine to see");
+    assert.equal(alone.json.match, null);
+    const { never, coolingDown, expiredHorny, expiredOpen } = partnerStates();
+    for (const [name, entry] of Object.entries({ never, coolingDown, expiredHorny, expiredOpen })) {
+      await setPartner(e, entry);
+      const view = await call(e, ME);
+      assert.equal(blindShape(view.json), blindShape(alone.json), `${myState} alone: partner ${name} is invisible`);
+    }
+  }
+});
+
+test("leak: switching horny <-> open while alone changes nothing the partner can see, and emits nothing", async () => {
+  const { e, room } = await setup();
+  const partnerBefore = await call(e, PARTNER);
+  await on(e, ME, Date.now() + HOUR, "horny");
+  const toOpen = await switchState(e, ME, "open");
+  assert.equal(toOpen.status, 200);
+  assert.equal(toOpen.json.mine.state, "open");
+  assert.equal(toOpen.json.match, null);
+  const back = await switchState(e, ME, "horny");
+  assert.equal(back.json.mine.state, "horny");
+  assert.equal(back.json.mine.since, toOpen.json.mine.since, "a state switch keeps my switch-on time");
+  assert.equal(back.json.mine.until, toOpen.json.mine.until, "a state switch keeps my window");
+  const partnerAfter = await call(e, PARTNER);
+  assert.equal(blindShape(partnerAfter.json), blindShape(partnerBefore.json), "my switching is invisible to an off partner");
+  assert.equal(room.events.length, 0, "a lone state switch never reaches the room");
+  const activity = await readKey(e, "sexualsync-activity", `events:${WS}`);
+  assert.ok(!activity || activity.length === 0, "a lone state switch never reaches activity");
+});
+
+test("match matrix: horny+horny, horny+open and open+open all match, each side sees the other's state", async () => {
+  const cases = [
+    { mine: "horny", theirs: "horny", kind: "horny", label: "You're both horny" },
+    { mine: "horny", theirs: "open", kind: "mixed", label: "You're both up for it" },
+    { mine: "open", theirs: "horny", kind: "mixed", label: "You're both up for it" },
+    { mine: "open", theirs: "open", kind: "open", label: "You're both open to it" },
+  ];
+  for (const { mine, theirs, kind, label } of cases) {
+    const { e, room } = await setup();
+    await on(e, ME, Date.now() + HOUR, mine);
+    const formed = await on(e, PARTNER, Date.now() + HOUR, theirs);
+    assert.ok(formed.json.match, `${mine}+${theirs} matches`);
+    assert.equal(formed.json.match.kind, kind);
+    assert.equal(formed.json.match.partnerState, mine, "the switcher sees my state inside the match");
+    const view = await call(e, ME);
+    assert.equal(view.json.match.kind, kind);
+    assert.equal(view.json.match.partnerState, theirs, "I see theirs inside the match");
+    assert.equal(view.json.match.since, formed.json.match.since, "same formation time for both");
+    assert.equal(view.json.match.until, formed.json.match.until, "same end for both");
+
+    const broadcasts = room.events.filter((evt) => evt.path === "/broadcast");
+    assert.equal(broadcasts.length, 1, "one room event per formed match");
+    assert.deepEqual(
+      { resource: broadcasts[0].body.resource, action: broadcasts[0].body.action, actorEmail: broadcasts[0].body.actorEmail },
+      { resource: "mood", action: "match", actorEmail: "" },
+      "the room event keeps its shape whatever the kind",
+    );
+    const activity = await readKey(e, "sexualsync-activity", `events:${WS}`);
+    assert.equal(activity.length, 1);
+    assert.equal(activity[0].label, label, `${kind} match row reads the same for both`);
+    assert.equal(activity[0].actorEmail, "");
+    assert.equal(activity[0].id, broadcasts[0].body.id, "the event and its row share an id");
+  }
+});
+
+test("switching state while matched updates the match in place: no new formation, push or activity row", async () => {
+  const { e, room } = await setup();
+  await on(e, ME, Date.now() + HOUR, "open");
+  const formed = await on(e, PARTNER, Date.now() + HOUR, "horny");
+  assert.equal(formed.json.match.kind, "mixed");
+  const since = formed.json.match.since;
+
+  // Open -> horny while matched.
+  const escalated = await switchState(e, ME, "horny");
+  assert.equal(escalated.status, 200);
+  assert.equal(escalated.json.match.kind, "horny");
+  assert.equal(escalated.json.match.since, since, "same match, same formation time");
+  const partnerView = await call(e, PARTNER);
+  assert.equal(partnerView.json.match.kind, "horny");
+  assert.equal(partnerView.json.match.partnerState, "horny");
+
+  const matchEvents = room.events.filter((evt) => evt.body.action === "match");
+  assert.equal(matchEvents.length, 2, "one live refetch hint for the restated match");
+  assert.equal(matchEvents[1].body.entityId, since, "the hint carries the original formation time");
+  assert.equal(matchEvents[1].body.actorEmail, "");
+  const activity = await readKey(e, "sexualsync-activity", `events:${WS}`);
+  assert.equal(activity.length, 1, "no second activity row for a state switch");
+
+  // Same state again is a no-op: no write, no event.
+  const again = await switchState(e, ME, "horny");
+  assert.equal(again.status, 200);
+  assert.equal(room.events.filter((evt) => evt.body.action === "match").length, 2);
+
+  // Re-sending "on" with a new state + the same window also restates, not re-forms.
+  await on(e, PARTNER, new Date(partnerView.json.mine.until).getTime(), "open");
+  assert.equal((await call(e, ME)).json.match.kind, "mixed");
+  assert.equal(room.events.filter((evt) => evt.body.action === "match").length, 3);
+  assert.equal((await readKey(e, "sexualsync-activity", `events:${WS}`)).length, 1);
+});
+
+test("state action: off callers get a 409 with only their own state; bad states are 400", async () => {
+  const { e } = await setup();
+  await on(e, PARTNER, Date.now() + HOUR, "horny");
+  const offSwitch = await switchState(e, ME, "open");
+  assert.equal(offSwitch.status, 409, "switching state is never a way to switch on");
+  assert.equal(offSwitch.json.code, "mood_off");
+  assert.equal(offSwitch.json.mine.on, false);
+  assert.equal(offSwitch.json.match, null, "the 409 says nothing about the partner");
+  assert.ok(!(await readKey(e, MOOD_STORE_NAME, moodKey(WS))).byEmail[ME], "no entry written for me");
+
+  assert.equal((await call(e, ME, { method: "POST", body: { action: "state", state: "frisky" } })).status, 400);
+  assert.equal((await call(e, ME, { method: "POST", body: { action: "state" } })).status, 400);
+  assert.equal((await call(e, ME, { method: "POST", body: { action: "on", until: new Date(Date.now() + HOUR).toISOString(), state: "frisky" } })).status, 400);
+});
+
+test("cooldown covers both states: off from open blocks going back on as horny or open", async () => {
+  const { e } = await setup();
+  await on(e, ME, Date.now() + HOUR, "open");
+  await off(e, ME);
+  for (const state of ["horny", "open"]) {
+    const blocked = await on(e, ME, Date.now() + HOUR, state);
+    assert.equal(blocked.status, 429, `${state} is refused inside the cooldown`);
+    assert.equal(blocked.json.code, "mood_cooldown");
+  }
+});
+
+test("pure transitions: state is stored per entry, legacy reads as horny, no-op only when until and state match", () => {
+  const workspace = workspaceFor();
+  const now = Date.parse("2026-10-07T20:00:00.000Z");
+  assert.equal(normalizeMoodState(undefined), "horny");
+  assert.equal(normalizeMoodState("open"), "open");
+  assert.equal(normalizeMoodState("OPEN!"), "horny");
+
+  const first = applyMoodOn(null, workspace, ME, now + HOUR, now, "open");
+  assert.equal(first.value.byEmail[ME].state, "open");
+  const sameStateSameUntil = applyMoodOn(first.value, workspace, ME, now + HOUR + 1000, now + 5000, "open");
+  assert.equal(sameStateSameUntil.write, false);
+  const newStateSameUntil = applyMoodOn(first.value, workspace, ME, now + HOUR, now + 5000, "horny");
+  assert.notEqual(newStateSameUntil.write, false, "a new state is a real change");
+  assert.equal(newStateSameUntil.value.byEmail[ME].state, "horny");
+  assert.equal(newStateSameUntil.result.formed, false);
+
+  // A legacy partner entry (no state) plus my open entry: a mixed match.
+  const legacy = { v: 1, byEmail: { [PARTNER]: { since: new Date(now - 60_000).toISOString(), until: new Date(now + HOUR).toISOString() } } };
+  const formed = applyMoodOn(legacy, workspace, ME, now + HOUR, now, "open");
+  assert.equal(formed.result.formed, true);
+  assert.equal(formed.result.match.kind, "mixed");
+  assert.equal(publicMood(formed.value, workspace, ME, now).match.partnerState, "horny");
+
+  // applyMoodState never switches anyone on, and keeps the window.
+  assert.equal(applyMoodState(null, workspace, ME, "open", now).result.status, "off");
+  const switched = applyMoodState(first.value, workspace, ME, "horny", now + 1000);
+  assert.equal(switched.value.byEmail[ME].until, first.value.byEmail[ME].until);
+  assert.equal(switched.value.byEmail[ME].since, first.value.byEmail[ME].since);
+  assert.equal(switched.result.restated, false, "no match, nothing to restate");
+
+  // Switching off drops the state with the window (only offAt remains).
+  const offed = applyMoodOff(first.value, workspace, ME, now + 2000);
+  assert.deepEqual(Object.keys(offed.value.byEmail[ME]), ["offAt"]);
 });

@@ -17,14 +17,14 @@ import Link from "next/link";
 import AppShell, { useFocusedRun } from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import DesireStyles from "@/components/DesireStyles";
-import SyncScoreReveal from "@/components/SyncScoreReveal";
+import MatchActions, { SeedLink } from "@/components/MatchActions";
 import { ErrorState, SkeletonList } from "@/components/States";
 import TopTurnOns from "@/components/TopTurnOns";
 import {
   ApiUnauthorizedError,
+  confirmSexQuiz,
   createBoundary,
   getSexQuiz,
-  retakeSexQuiz,
   setSexQuizFullReveal,
   setSexQuizTopPicks,
   submitSexQuiz,
@@ -39,7 +39,6 @@ import {
   quizOverlapByCategory,
   unratedQuizCards,
   categoryTitle,
-  proposeHref,
   type QuizCard,
   type QuizInterest,
   type QuizRole,
@@ -111,6 +110,8 @@ export default function SexQuizPage() {
 function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) => void }) {
   // Rating only the cards added since this person last submitted.
   const [topUp, setTopUp] = useState(false);
+  // Going back through every answer (pre-filled) to change any of them.
+  const [editing, setEditing] = useState(false);
   if (state.kind === "loading") return <SkeletonList count={4} />;
   if (state.kind === "unauthorized") {
     return <ErrorState title="Session expired" body="Sign in again to take the Sex Quiz." action={<Link href="/" className="btn-ghost">Back to sign-in</Link>} />;
@@ -124,6 +125,10 @@ function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) 
   const onUpdate = (next: SexQuizResponse) => setState({ ...state, quiz: next });
 
   if (!quiz.mySubmitted) {
+    // A new round after a reveal: last round's answers are still saved.
+    if (Object.keys(quiz.myRatings || {}).length >= (quiz.minAnswers || 10)) {
+      return <NewRound workspace={workspace} quiz={quiz} onUpdate={onUpdate} />;
+    }
     return <QuizRunner workspace={workspace} onSubmitted={onUpdate} />;
   }
   if (topUp) {
@@ -136,11 +141,26 @@ function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) 
       />
     );
   }
-  const startTopUp = () => setTopUp(true);
-  if (quiz.status !== "revealed") {
-    return <Waiting workspace={workspace} quiz={quiz} onUpdate={onUpdate} onRateNew={startTopUp} />;
+  if (editing) {
+    return (
+      <QuizRunner
+        workspace={workspace}
+        onSubmitted={(next) => { setEditing(false); onUpdate(next); }}
+        onCancel={() => setEditing(false)}
+      />
+    );
   }
-  return <Reveal workspace={workspace} quiz={quiz} onUpdate={onUpdate} onRateNew={startTopUp} />;
+  const startTopUp = () => setTopUp(true);
+  // Changing your answers never wipes them: the runner opens on your saved
+  // answers, and only a submit starts the next round.
+  const startEdit = () => {
+    saveRunnerDraft("sex-quiz", workspace.id, { ratings: quiz.myRatings, topPicks: quiz.myTopPicks, index: 0, phase: "cards" });
+    setEditing(true);
+  };
+  if (quiz.status !== "revealed") {
+    return <Waiting workspace={workspace} quiz={quiz} onUpdate={onUpdate} onRateNew={startTopUp} onChangeAnswers={startEdit} />;
+  }
+  return <Reveal workspace={workspace} quiz={quiz} onUpdate={onUpdate} onRateNew={startTopUp} onChangeAnswers={startEdit} />;
 }
 
 // ---------- Taking the quiz ----------
@@ -367,6 +387,7 @@ function QuizRunner({
             Start
           </button>
         )}
+        {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Not now</button>}
       </div>
     );
   }
@@ -484,6 +505,73 @@ function QuizRunner({
   );
 }
 
+// ---------- A new round ----------
+
+// Answers freeze per round. After a reveal, any change starts a new round and
+// both partners lock in again, so nobody can edit one card and watch what
+// changes. Your saved answers carry over; keeping them is one tap.
+function NewRound({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (editing) return <QuizRunner workspace={workspace} onSubmitted={onUpdate} />;
+  async function keep() {
+    setBusy(true);
+    setError("");
+    try { onUpdate(await confirmSexQuiz(workspace.id)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Couldn't lock in. Try again."); }
+    finally { setBusy(false); }
+  }
+  function change() {
+    // Load last round's answers into the runner so changing one card doesn't
+    // mean re-rating the whole deck.
+    saveRunnerDraft("sex-quiz", workspace.id, { ratings: quiz.myRatings, topPicks: quiz.myTopPicks, index: 0, phase: "cards" });
+    setEditing(true);
+  }
+  // A small change since the last reveal is the shape of a one-card probe, so
+  // it gets a fresh look instead of a one-tap keep (server rule, see
+  // functions/api/_reveal_round.js).
+  const changed = typeof quiz.partnerChangedCount === "number" ? quiz.partnerChangedCount : null;
+  const reanswer = Boolean(quiz.reanswerRequired);
+  return (
+    <div className="rg-pane is-centered" data-testid="quiz-new-round">
+      <p className="rg-done-title">A new round is open</p>
+      {changed !== null && changed > 0 && (
+        <p className="rg-done-body" data-testid="quiz-partner-changed">
+          {`${quiz.partnerName || "Your partner"} changed ${changed} ${changed === 1 ? "answer" : "answers"} since last time.`}
+        </p>
+      )}
+      {reanswer ? (
+        <p className="rg-done-body">
+          Look over yours before you lock in, so you know exactly what the next reveal will show.
+        </p>
+      ) : (
+        <p className="rg-done-body">
+          Your answers from last time are saved. Keep them as they are, or change anything first. The next reveal opens once you&apos;re both in.
+        </p>
+      )}
+      {reanswer ? (
+        <button type="button" className="rg-btn pressable" disabled={busy} onClick={change}>Look over my answers</button>
+      ) : (
+        <>
+          <button type="button" className="rg-btn pressable" disabled={busy} onClick={keep}>
+            {busy ? "Locking in…" : "Keep my answers"}
+          </button>
+          <button type="button" className="btn-ghost" disabled={busy} onClick={change}>Change my answers</button>
+        </>
+      )}
+      {error && <p className="rg-error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function revealOpensLabel(iso?: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
 // ---------- Waiting for partner ----------
 
 // Shown once someone has submitted but the deck has grown since.
@@ -503,7 +591,7 @@ function NewCardsPrompt({ quiz, onRateNew }: { quiz: SexQuizResponse; onRateNew:
   );
 }
 
-function Waiting({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void; onRateNew: () => void }) {
+function Waiting({ workspace, quiz, onUpdate, onRateNew, onChangeAnswers }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void; onRateNew: () => void; onChangeAnswers: () => void }) {
   const [showMine, setShowMine] = useState(false);
   const hasPicks = (quiz.myTopPicks?.length || 0) > 0;
   // Open the pinner by default when nothing's pinned yet — this is the step
@@ -514,9 +602,15 @@ function Waiting({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspac
       <div className="rg-done-emoji">🔒</div>
       <p className="rg-done-title">Your answers are locked in</p>
       <NewCardsPrompt quiz={quiz} onRateNew={onRateNew} />
-      <p className="rg-done-body">
-        {quiz.partnerName || "Your partner"}&apos;s answers stay hidden until they finish too — but you can always look back at your own.
-      </p>
+      {quiz.revealOpensAt ? (
+        <p className="rg-done-body" data-testid="quiz-reveal-opens">
+          You&apos;re both in. A new reveal opens a day after the last one, so this one opens {revealOpensLabel(quiz.revealOpensAt)}.
+        </p>
+      ) : (
+        <p className="rg-done-body">
+          {quiz.partnerName || "Your partner"}&apos;s answers stay hidden until they finish too — but you can always look back at your own.
+        </p>
+      )}
       <button type="button" className="btn-ghost" onClick={() => setEditPicks((v) => !v)} aria-expanded={editPicks}>
         {hasPicks ? (editPicks ? "Done editing turn-ons" : "Edit my top turn-ons") : (editPicks ? "Hide" : "Pick my top turn-ons")}
       </button>
@@ -526,8 +620,8 @@ function Waiting({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspac
       </button>
       {showMine && <MyAnswers quiz={quiz} />}
       <EdgePassToLimits workspace={workspace} quiz={quiz} />
-      <button type="button" className="btn-ghost mt-2" onClick={() => { retakeSexQuiz(workspace.id).then(onUpdate).catch(() => {}); }}>
-        Redo my answers
+      <button type="button" className="btn-ghost mt-2" onClick={onChangeAnswers} data-testid="quiz-change-answers">
+        Change my answers
       </button>
     </div>
   );
@@ -630,7 +724,11 @@ function MyAnswers({ quiz }: { quiz: SexQuizResponse }) {
 
 // ---------- Reveal ----------
 
-function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void; onRateNew: () => void }) {
+function Reveal({ workspace, quiz, onUpdate, onRateNew, onChangeAnswers }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void; onRateNew: () => void; onChangeAnswers: () => void }) {
+  // The reveal opens at the top, not wherever the last screen was scrolled to.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, []);
   const fits = quiz.matches.filter((m) => m.complementary).length;
   const overlapByCategory = useMemo(
     () => quizOverlapByCategory(quiz.matches, quiz.curiousTogether),
@@ -644,14 +742,11 @@ function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace
     <div className="rg-reveal">
       <NewCardsPrompt quiz={quiz} onRateNew={onRateNew} />
       <div>
-        <p className="eyebrow">Revealed</p>
-        {quiz.syncScore !== null ? (
-          <SyncScoreReveal score={quiz.syncScore} label="In sync" />
-        ) : (
-          <p className="rg-reveal-title">You&apos;re in sync 🔥</p>
-        )}
+        <p className="rg-reveal-title">{quiz.matches.length ? "What you both want" : "Your reveal is open"}</p>
         <p className="rg-reveal-body">
-          You both lit up on <strong>{quiz.matches.length}</strong> of the same desires{fits > 0 ? <> — and <strong>{fits}</strong> are a perfect give/receive fit.</> : "."}
+          {quiz.matches.length
+            ? <>You both lit up on <strong>{quiz.matches.length}</strong> of the same desires{fits > 0 ? <> and <strong>{fits}</strong> are a perfect give/receive fit.</> : "."}</>
+            : <>No shared &ldquo;into it&rdquo; this round. Anything you&apos;re both curious about is below.</>}
         </p>
       </div>
 
@@ -680,14 +775,14 @@ function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace
               const card = QUIZ_CARD_BY_ID[m.cardId];
               if (!card) return null;
               return (
-                <Link key={m.cardId} href={proposeHref(card.label)} className="rg-list-row pressable">
+                <SeedLink key={m.cardId} source="quiz" acts={[card.label]} note={`From our Sex Quiz: ${card.label}`} className="rg-list-row pressable">
                   <span className="rg-list-emoji">{card.emoji}</span>
                   <span className="rg-list-label">{card.label}</span>
                   <span className="rg-list-meta" style={{ color: m.complementary ? "var(--accent)" : "var(--cream-faint)" }}>
                     {roleTag(m)}
                   </span>
                   <span aria-hidden="true" className="rg-list-chevron">›</span>
-                </Link>
+                </SeedLink>
               );
             })}
           </div>
@@ -701,7 +796,7 @@ function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace
             {quiz.curiousTogether.map(({ cardId }) => {
               const card = QUIZ_CARD_BY_ID[cardId];
               if (!card) return null;
-              return <Link key={cardId} href={proposeHref(card.label)} className="rg-chip is-small pressable">{card.emoji} {card.label}</Link>;
+              return <SeedLink key={cardId} source="quiz" acts={[card.label]} note={`Curious together, from our Sex Quiz: ${card.label}`} className="rg-chip is-small pressable">{card.emoji} {card.label}</SeedLink>;
             })}
           </div>
         </section>
@@ -712,12 +807,16 @@ function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace
       </p>
 
       {quiz.matches.length > 0 && (
-        <div className="rg-actions is-wrap">
-          <Link href={`/ask?note=${encodeURIComponent(askNote(quiz))}`} className="rg-btn is-grow pressable min-w-[180px]">
-            Turn a match into an Ask
-          </Link>
-        </div>
+        <MatchActions
+          workspaceId={workspace.id}
+          source="quiz"
+          acts={topMatchLabels(quiz)}
+          note={askNote(quiz)}
+          lead="Something new you both want. Make it an Ask whenever it feels right."
+        />
       )}
+
+      <LightsThemUp workspace={workspace} quiz={quiz} />
 
       {quiz.partnerRatings && (
         <section>
@@ -743,11 +842,82 @@ function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace
       </button>
       {editPicks && <TopPicksEditor workspace={workspace} quiz={quiz} onUpdate={onUpdate} />}
 
-      <button type="button" className="btn-ghost" onClick={() => { retakeSexQuiz(workspace.id).then(onUpdate).catch(() => {}); }}>
-        Retake the quiz
+      <button type="button" className="btn-ghost" onClick={onChangeAnswers} data-testid="quiz-change-answers">
+        Change my answers
       </button>
+      <p className="rg-note">
+        Your answers carry over, so change only what you want. A change starts a new round: you both lock in again, and the next reveal opens a day after this one.
+      </p>
     </div>
   );
+}
+
+// What lights them up: the partner's wants that you share, offered as ideas if
+// you feel like spoiling them. Only mutual matches ever appear (never a want of
+// theirs you didn't match), there are no counts, and it starts closed. Your own
+// side sits right next to it so the giving runs both ways.
+const LIGHTS_PREF_KEY = "ss:lights-them-up";
+
+function LightsThemUp({ workspace, quiz }: { workspace: Workspace; quiz: SexQuizResponse }) {
+  const partnerName = quiz.partnerName || "your partner";
+  // Rendered only after the quiz loads on the client, so reading storage in the
+  // initializer can't mismatch a server render.
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(`${LIGHTS_PREF_KEY}:${workspace.id}`) === "1"; } catch { return false; }
+  });
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem(`${LIGHTS_PREF_KEY}:${workspace.id}`, next ? "1" : "0"); } catch { /* per-device only */ }
+  }
+  const giver = (role: string) => role === "give" || role === "both";
+  const receiver = (role: string) => role === "receive" || role === "both";
+  const theirs = quiz.matches.filter((m) => quiz.partnerTopPicks.includes(m.cardId) || (m.complementary && receiver(m.partnerRole) && giver(m.myRole)));
+  const yours = quiz.matches.filter((m) => quiz.myTopPicks.includes(m.cardId) || (m.complementary && receiver(m.myRole) && giver(m.partnerRole)));
+  if (theirs.length === 0 && yours.length === 0) return null;
+  const chip = (cardId: string, note: string) => {
+    const card = QUIZ_CARD_BY_ID[cardId];
+    if (!card) return null;
+    return (
+      <SeedLink key={cardId} source="lights-them-up" acts={[card.label]} note={`${note} ${card.label}`} className="rg-chip is-small pressable">
+        {card.emoji} {card.label}
+      </SeedLink>
+    );
+  };
+  return (
+    <section className="rg-panel is-quiet lights-them-up" data-testid="lights-them-up">
+      <button type="button" className="lights-them-up-toggle pressable" aria-expanded={open} onClick={toggle}>
+        <span>What lights {partnerName} up</span>
+        <span aria-hidden="true">{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div className="lights-them-up-body">
+          {theirs.length > 0 && (
+            <>
+              <p className="rg-panel-body">Ideas {partnerName} is into that you&apos;re into too, if you&apos;re ever in the mood to spoil them.</p>
+              <div className="rg-chips">{theirs.map((m) => chip(m.cardId, "Something I'd love to give you:"))}</div>
+            </>
+          )}
+          {yours.length > 0 && (
+            <>
+              <p className="rg-panel-body">And what lights you up, that {partnerName} wants too. Ask for yours as freely as you give.</p>
+              <div className="rg-chips">{yours.map((m) => chip(m.cardId, "Something I'd love from you:"))}</div>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// The labels a "Make it an Ask" carries: give/receive fits first, then the
+// partner's pinned favorites, then the rest. A few, not the whole list.
+function topMatchLabels(quiz: SexQuizResponse): string[] {
+  const ranked = [...quiz.matches].sort((a, b) => {
+    const score = (m: typeof a) => (m.complementary ? 2 : 0) + (quiz.partnerTopPicks.includes(m.cardId) ? 1 : 0);
+    return score(b) - score(a);
+  });
+  return ranked.slice(0, 3).map((m) => QUIZ_CARD_BY_ID[m.cardId]?.label).filter((label): label is string => Boolean(label));
 }
 
 function FullRevealToggle({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void }) {
@@ -758,7 +928,7 @@ function FullRevealToggle({ workspace, quiz, onUpdate }: { workspace: Workspace;
     catch { /* best-effort; toggle simply stays put on failure */ }
     finally { setBusy(false); }
   }
-  const both = quiz.fullRevealMine && quiz.fullRevealPartner;
+  const both = Boolean(quiz.fullRevealOpen);
   return (
     <div className="rg-panel is-quiet">
       <p className="rg-panel-title">Open the full deck to each other?</p>
@@ -823,9 +993,8 @@ function roleTag(m: { myRole: string; partnerRole: string; complementary: boolea
 }
 
 function askNote(quiz: SexQuizResponse): string {
-  const top = quiz.matches.find((m) => m.complementary) || quiz.matches[0];
-  const label = top ? QUIZ_CARD_BY_ID[top.cardId]?.label : "";
-  return label ? `From our Sex Quiz: ${label}` : "From our Sex Quiz";
+  const labels = topMatchLabels(quiz);
+  return labels.length ? `From our Sex Quiz: ${labels.join(", ")}` : "From our Sex Quiz";
 }
 
 const INTEREST_ORDER: Record<string, number> = { into: 0, curious: 1, pass: 2 };

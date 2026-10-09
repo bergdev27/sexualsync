@@ -60,6 +60,9 @@ const KINK_REACTIONS = [
   { id: "tell_me_more", glyph: "👀", label: "Tell me more", tone: "positive", caption: "{name} wants to hear more." },
   { id: "me_too", glyph: "🤤", label: "Me too", tone: "positive", caption: "{name} said me too." },
   { id: "give_me_a_minute", glyph: "💭", label: "Give me a minute", tone: "pause", caption: "{name} needs a minute on this." },
+  // A warm, no-obligation response: "I heard you, I like it, not now." Counts
+  // as a reply (so nothing keeps asking) without committing to anything.
+  { id: "save_for_later", glyph: "🔖", label: "Saving this for later", tone: "positive", caption: "{name} is saving this for later." },
   { id: "not_for_me", glyph: "🌷", label: "Not for me — thank you for telling me", tone: "no", caption: "{name} passed, with grace." }
 ];
 const KINK_REACTIONS_PUBLIC = KINK_REACTIONS.map(({ id, glyph, label, tone, caption }) => ({ id, glyph, label, tone, caption }));
@@ -90,6 +93,16 @@ const VALID_TAGS = new Set([
   "soft", "rough", "quick", "slow", "romantic", "experimental",
   "talk-first", "needs-prep", "kink", "oral", "position", "roleplay"
 ]);
+
+// What the sharer means by it, so a fantasy is never mistaken for a request.
+// Stored plaintext only when the room is not encrypted; under Room Encryption
+// the label rides inside the encrypted text box with the words themselves.
+const VALID_INTENTS = new Set(["fantasy", "talk", "try"]);
+
+export function cleanIntent(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  return VALID_INTENTS.has(raw) ? raw : "";
+}
 
 function fantasyStore(env) {
   return getStore(env, STORE_NAME);
@@ -433,6 +446,9 @@ function migrate(idea, legacyPeople = {}) {
   };
   if (encryptedText) migrated.encryptedText = encryptedText;
   else delete migrated.encryptedText;
+  const intent = encryptedText ? "" : cleanIntent(idea.intent);
+  if (intent) migrated.intent = intent;
+  else delete migrated.intent;
 
   if (clearAuthorSeed || !normalizedStatus || !normalizedSetterEmail || normalizedSetterEmail === normalizedAddedByEmail) {
     delete migrated.status;
@@ -859,6 +875,7 @@ export async function onRequest(context) {
       updatedAt: now
     };
     if (encryptedText) idea.encryptedText = encryptedText;
+    else if (cleanIntent(payload.intent)) idea.intent = cleanIntent(payload.intent);
 
     // Prepend atomically against THIS workspace's fresh snapshot so a concurrent
     // partner POST or PATCH composes instead of clobbering (mirrors the PATCH
@@ -1115,7 +1132,11 @@ export async function onRequest(context) {
       }
       const nextText = encryptedText ? "Encrypted kink" : cleanIdeaText(payload.text);
       if (!nextText) return jsonResponse(400, { error: "Fantasy text can't be empty." });
-      textPlan = { text: nextText, encryptedText };
+      textPlan = {
+        text: nextText,
+        encryptedText,
+        intent: Object.prototype.hasOwnProperty.call(payload, "intent") ? cleanIntent(payload.intent) : null
+      };
     }
 
     // Apply the plan atomically. mutateKey routes through the StateStore DO
@@ -1251,6 +1272,13 @@ export async function onRequest(context) {
         updates.text = textPlan.text;
         if (textPlan.encryptedText) updates.encryptedText = textPlan.encryptedText;
         else delete updates.encryptedText;
+        // Encrypted rooms carry the label inside the box; never leave a stale
+        // plaintext one beside it.
+        if (textPlan.encryptedText) delete updates.intent;
+        else if (textPlan.intent !== null) {
+          if (textPlan.intent) updates.intent = textPlan.intent;
+          else delete updates.intent;
+        }
         updates.textEditedAt = now;
       }
 

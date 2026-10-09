@@ -34,7 +34,9 @@ export interface LiveRoomEventDetail {
 // Mood light room events. Both carry NO actor (so they reach every device of
 // both partners and never say who switched): `match` when the second partner
 // switches on (entityId/at = when the match formed), `ended` when either
-// switches off during a match. A match that simply runs out at `match.until`
+// switches off during a match. A `match` with the same entityId is sent again
+// when someone switches horny <-> open while matched (at = now), so the other
+// screen refetches its copy. A match that simply runs out at `match.until`
 // sends nothing — clients time that out from the GET /api/mood response.
 // Events can arrive via reconnect replay, so treat them as "refetch" hints and
 // confirm with getMood() before celebrating.

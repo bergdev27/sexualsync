@@ -17,6 +17,7 @@ import { onRequest as quizRequest, readSexQuizStatus, publicQuiz } from "../../f
 import { onRequest as glRequest, readGreenLightsStatus, publicGreenLights } from "../../functions/api/green-lights.js";
 import { mutatePlatformState } from "../../functions/api/_workspaces.js";
 import { mutateKey, readKey } from "../../functions/api/_state.js";
+import { MIN_ROUND_ANSWERS } from "../../functions/api/_reveal_round.js";
 import { makeSessionToken, makeStateEnv } from "./helpers.mjs";
 
 const ME = "me@example.test";
@@ -44,9 +45,28 @@ async function setup(members = COUPLE) {
   return e;
 }
 
+// Rounds need a minimum batch (see _reveal_round.js), so pad every submit with
+// neutral filler cards: quiz fillers are passes (never a match), Green Lights
+// fillers share one value.
+function padToMinimum(body) {
+  const out = { ...body };
+  if (out.ratings) {
+    const ratings = { ...out.ratings };
+    for (let i = 0; Object.keys(ratings).length < MIN_ROUND_ANSWERS; i += 1) ratings[`filler${i}`] = { interest: "pass" };
+    out.ratings = ratings;
+  }
+  if (out.answers) {
+    const answers = { ...out.answers };
+    for (let i = 0; Object.keys(answers).length < MIN_ROUND_ANSWERS; i += 1) answers[`filler${i}`] = { value: "filler" };
+    out.answers = answers;
+  }
+  return out;
+}
+
 // Drive a game handler as a specific signed-in partner (mirrors the real cookie
 // session the browser sends; lets us submit as ME vs PARTNER independently).
-async function submitAs(handler, e, email, body) {
+async function submitAs(handler, e, email, rawBody) {
+  const body = padToMinimum(rawBody);
   e.APP_SESSION_SECRET = APP_SESSION_SECRET;
   e.PUBLIC_SIGNUPS_OPEN = "1";
   const now = Math.floor(Date.now() / 1000);
@@ -94,7 +114,7 @@ test("Sex Quiz: partner-first stays blind until I submit, then reveals matches",
   assert.deepEqual(blindView.matches, [], "no matches leaked pre-submit");
   assert.equal(blindView.partnerRatings, null, "partner ratings hidden pre-submit");
   assert.deepEqual(blindView.partnerTopPicks, [], "partner top picks hidden pre-submit");
-  assert.equal(blindView.syncScore, null, "no sync score pre-submit");
+  assert.equal("syncScore" in blindView, false, "no sync score, ever");
 
   // I submit (also into c1) → both in → reveal opens.
   const myRes = await submitAs(quizRequest, e, ME, {
@@ -112,7 +132,7 @@ test("Sex Quiz: partner-first stays blind until I submit, then reveals matches",
   const openView = publicQuiz(openRecord, workspace, ME);
   assert.equal(openView.status, "revealed");
   assert.deepEqual(openView.matches.map((m) => m.cardId), ["c1"], "c1 is the both-into match");
-  assert.notEqual(openView.syncScore, null, "sync score computed once revealed");
+  assert.equal("syncScore" in openView, false, "no sync score after reveal either");
 });
 
 test("Green Lights: my submit first leaves me waiting, partner's submit reveals", async () => {

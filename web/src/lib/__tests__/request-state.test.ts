@@ -12,6 +12,7 @@ import {
   currentTimingLabel,
   isApprovedSexActStale,
   isStalePendingAsk,
+  isWithdrawnRequest,
   timingAnchorForRequest,
   timingCopyForRequest,
 } from "../request-state";
@@ -403,5 +404,20 @@ describe("isApprovedSexActStale", () => {
       counterAcceptedAt: undefined,
       updatedAt: "",
     }))).toBe(false);
+  });
+});
+
+describe("isWithdrawnRequest (mirrors the server's restore guard)", () => {
+  const YES: DecisionItem = { ...TIMING_COUNTER, label: "Massage", decision: "Yes", counter: "", targetType: "act" };
+  const NO: DecisionItem = { ...YES, decision: "No" };
+
+  it("is true for a change of plans and for the legacy archived + passedAt yes", () => {
+    expect(isWithdrawnRequest(req({ status: "archived", decisions: [YES], withdrawnAt: T2 }))).toBe(true);
+    expect(isWithdrawnRequest(req({ status: "archived", decisions: [YES], passedAt: T2 }))).toBe(true);
+  });
+
+  it("is false for a plain archive or a plain pass, which stay restorable", () => {
+    expect(isWithdrawnRequest(req({ status: "archived", decisions: [YES] }))).toBe(false);
+    expect(isWithdrawnRequest(req({ status: "archived", decisions: [NO], passedAt: T2 }))).toBe(false);
   });
 });

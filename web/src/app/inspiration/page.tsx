@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, memo, useEffect, useRef, useState } from "react";
+import { FormEvent, memo, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
@@ -20,6 +20,7 @@ import { getCachedResource, setCachedResource, useColdStart } from "@/lib/resour
 import type {
   AuthInfo,
   FantasyBacklogResponse,
+  KinkIntent,
   KinkReaction,
   KinkIdea,
   ProfileResponse,
@@ -30,7 +31,10 @@ import { useLiveRoomReload } from "@/lib/use-live-room";
 import { fireSendPulse } from "@/lib/send-pulse";
 import { fallbackPromptForToday } from "@/lib/inspiration-prompts";
 import { relativeAge } from "@/lib/relative-time";
+import { dailyPromptFor, pickStarterLadder, useDesireSettings, voiced, type ExplicitVoice } from "@/lib/desire-voice";
+import { INTENT_LABELS, normTagFor } from "@/lib/fantasy-themes";
 import "./inspiration.css";
+import "./desire.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -43,6 +47,8 @@ type LoadState =
       workspace: Workspace;
       backlog: FantasyBacklogResponse;
       promptText: string;
+      // True once the generated prompt replaced the offline ladder line.
+      promptIsLive?: boolean;
     };
 
 const KINK_DRAFT_PREFIX = "ss:kink-composer-draft:";
@@ -76,6 +82,7 @@ export default function InspirationPage() {
   // Instant paint from the last snapshot on revisit; reload() revalidates.
   const [state, setState] = useState<LoadState>(() => getCachedResource<LoadState>("inspiration") ?? { kind: "loading" });
   useColdStart("inspiration", setState);
+  const { voice } = useDesireSettings();
 
   async function reload(workspaceId?: string) {
     const profile: ProfileResponse = await getProfileCached();
@@ -108,9 +115,10 @@ export default function InspirationPage() {
   async function upgradePrompt(workspaceId: string) {
     try {
       const text = await loadPrompt(workspaceId);
+      if (!text) return;
       setState((current) => {
         if (current.kind !== "ready" || current.workspace.id !== workspaceId) return current;
-        return { ...current, promptText: text };
+        return { ...current, promptText: text, promptIsLive: true };
       });
     } catch {
       // Fallback prompt is already on screen — silent failure is fine.
@@ -171,10 +179,15 @@ export default function InspirationPage() {
           <>
             Find the spark.
             <br />
-            Release the inner slut.
+            {/* Copy follows this person's own voice setting (desire-voice.ts). */}
+            {voice === "gentle" ? "Say what you want." : voice === "filthy" ? "Be filthy out loud." : "Release the inner slut."}
           </>
         )}
-        subtitle="Where ideas live before they become acts. Get inspired below with porn, erotica, your own clips, then share kinks/fantasies, and see what lands with your partner."
+        subtitle={voice === "gentle"
+          ? "Where ideas live before they become acts. Find something that gets you going, then share a fantasy and see what lands with your partner."
+          : voice === "filthy"
+            ? "Porn, erotica, your own clips. Get yourself worked up, then tell your partner exactly what you want them to do to you."
+            : "Where ideas live before they become acts. Get inspired below with porn, erotica, your own clips, then share kinks/fantasies, and see what lands with your partner."}
       />
       <div className="insp-stage">
         <Body
@@ -230,12 +243,13 @@ function emptyBacklog(workspaceId: string): FantasyBacklogResponse {
   return { workspaceId, reactionCatalog: [], ideas: [], graveyard: [] };
 }
 
+// The generated prompt, or "" when there isn't one (the ladder line stays).
 async function loadPrompt(workspaceId: string) {
   try {
     const result = await getPrompt({ workspaceId, kind: "curiosity" });
-    return result.text || fallbackPromptForToday();
+    return result.text || "";
   } catch {
-    return fallbackPromptForToday();
+    return "";
   }
 }
 
@@ -311,6 +325,10 @@ function InspirationReady({
   const partner = partnerOf(state.workspace, state.auth.email);
   const partnerName = partner?.displayName?.split(" ")[0] || "your partner";
   const kinks = state.backlog.ideas;
+  const { spice, voice } = useDesireSettings();
+  // Today's prompt walks a low-to-high ladder capped at this person's own
+  // ceiling. The generated prompt (confession-style) only shows above "mild".
+  const promptText = spice !== "mild" && state.promptIsLive ? state.promptText : dailyPromptFor(spice);
 
   return (
     <>
@@ -326,19 +344,24 @@ function InspirationReady({
         <button
           type="button"
           className="weekly-prompt-card pressable"
+          data-testid="todays-prompt"
           onClick={() => {
+            // Take the prompt straight to the composer.
+            const field = document.querySelector<HTMLTextAreaElement>("#kink-compose textarea");
+            if (!field) return;
             const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-            window.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
+            field.scrollIntoView({ block: "center", behavior: prefersReducedMotion ? "auto" : "smooth" });
+            field.focus({ preventScroll: true });
           }}
         >
           <span className="weekly-prompt-kicker">Today&apos;s prompt</span>
-          <span className="weekly-prompt-text">{state.promptText}</span>
+          <span className="weekly-prompt-text">{promptText}</span>
         </button>
-        <KinkComposer workspaceId={state.workspace.id} partnerName={partnerName} onSaved={onReload} />
-        <KinkLibrary kinks={kinks} auth={state.auth} workspace={state.workspace} openOnLoad={openSharedKinks} onReload={onReload} />
+        <KinkComposer workspaceId={state.workspace.id} partnerName={partnerName} onSaved={onReload} spice={spice} voice={voice} />
+        <KinkLibrary kinks={kinks} auth={state.auth} workspace={state.workspace} openOnLoad={openSharedKinks} onReload={onReload} voice={voice} />
         {state.backlog.graveyard.length > 0 && (
           <details className="ideas-graveyard-v1">
-            <summary>graveyard 😢 <span>{state.backlog.graveyard.length}</span></summary>
+            <summary>Archived <span>{state.backlog.graveyard.length}</span></summary>
             <ul className="kink-list mt-3">
               {state.backlog.graveyard.map((kink) => (
                 <ArchivedKinkCard
@@ -365,12 +388,14 @@ function KinkLibrary({
   workspace,
   openOnLoad,
   onReload,
+  voice,
 }: {
   kinks: KinkIdea[];
   auth: AuthInfo;
   workspace: Workspace;
   openOnLoad: boolean;
   onReload: () => Promise<void>;
+  voice: ExplicitVoice;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
@@ -454,7 +479,11 @@ function KinkLibrary({
       <div className="card p-5">
         <p className="font-display text-display-sm italic leading-tight text-ink">No kinks yet.</p>
         <p className="mt-2 text-sm leading-relaxed text-ink-2">
-          The first one can be tiny. A phrase, a scene, a maybe.
+          {voiced(voice, {
+            gentle: "The first one can be tiny. Something you liked, a memory, a maybe.",
+            standard: "The first one can be tiny. A phrase, a scene, a maybe.",
+            filthy: "Start with the dirtiest thing you've thought about this week. A phrase is enough.",
+          })}
         </p>
       </div>
     );
@@ -623,43 +652,45 @@ function SourceCardContent({ source }: { source: InspirationSource }) {
   );
 }
 
-const STARTER_LINES = [
-  "I keep thinking about ",
-  "I want to try ",
-  "What if we ",
-  "I want you to ",
-  "Fuck me like ",
-  "I've never told you ",
-  "Next time, ",
-  "It turns me on when ",
-  "Tie me up and ",
-];
-
-function pickStarterLines(count: number): string[] {
-  const pool = [...STARTER_LINES];
-  const picked: string[] = [];
-  while (picked.length < count && pool.length) {
-    picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
-  }
-  return picked;
+// A small seeded generator so the starter row is stable for a visit (and only
+// re-picks when the person's own spice ceiling changes).
+function seededRandom(seed: number) {
+  let state = Math.floor(seed * 2 ** 31) || 1;
+  return () => {
+    state = (state * 48271) % 2147483647;
+    return state / 2147483647;
+  };
 }
+
+const INTENT_OPTIONS: KinkIntent[] = ["fantasy", "talk", "try"];
 
 function KinkComposer({
   workspaceId,
   partnerName,
   onSaved,
+  spice,
+  voice,
 }: {
   workspaceId: string;
   partnerName: string;
   onSaved: () => Promise<void>;
+  spice: "mild" | "spicy" | "filthy";
+  voice: ExplicitVoice;
 }) {
   const [text, setText] = useState("");
+  const [intent, setIntent] = useState<KinkIntent | "">("");
   const skipNextDraftWrite = useRef(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-  // Three short stems (the row is a fixed three-column grid), picked fresh per
-  // visit so the prompt to confess something doesn't go stale.
-  const [templates] = useState(() => pickStarterLines(3));
+  // Three short stems (the row is a fixed three-column grid), low risk to
+  // high, capped at this person's own ceiling (desire-voice.ts STARTER_LADDER).
+  const [seed] = useState(() => Math.random());
+  const templates = useMemo(() => pickStarterLadder(spice, 3, seededRandom(seed)), [spice, seed]);
+  const placeholder = voiced(voice, {
+    gentle: `Something you love, or something you've been wanting to tell ${partnerName}`,
+    standard: `Write that dirty thing you’ve always wanted to say to ${partnerName}`,
+    filthy: `Tell ${partnerName} the filthiest thing you want. Don't clean it up.`,
+  });
 
   useEffect(() => {
     // Gate the write-effect's mount run synchronously (as before), then load the
@@ -701,10 +732,11 @@ function KinkComposer({
     try {
       // Await the write FIRST; only confirm (pulse + haptic + clear draft) once
       // it actually succeeds, so a failed send never fakes a confirmation.
-      await createKink({ workspaceId, text: clean });
+      await createKink({ workspaceId, text: clean, ...(intent ? { intent } : {}) });
       fireSendPulse(pulseTarget);
       void writeKinkDraft(workspaceId, "");
       setText("");
+      setIntent("");
       if (navigator.vibrate) navigator.vibrate([6, 16, 8]);
       await onSaved();
     } catch {
@@ -725,7 +757,7 @@ function KinkComposer({
         className="input min-h-[118px] resize-none"
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder={`Write that dirty thing you’ve always wanted to say to ${partnerName}`}
+        placeholder={placeholder}
         aria-label="Add a kink, fantasy, or confession"
         autoCapitalize="none"
         autoCorrect="on"
@@ -741,6 +773,22 @@ function KinkComposer({
             onClick={() => setText((current) => current || template)}
           >
             {template.trim()}
+          </button>
+        ))}
+      </div>
+      {/* What you mean by it, so it isn't mistaken for a request. Optional. */}
+      <span className="kink-intent-lead" id="kink-intent-lead">Label it, if you like. {partnerName} sees the label.</span>
+      <div className="kink-intent-row" role="radiogroup" aria-labelledby="kink-intent-lead">
+        {INTENT_OPTIONS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={intent === option}
+            className={`kink-intent-chip pressable ${intent === option ? "is-active" : ""}`}
+            onClick={() => setIntent((current) => (current === option ? "" : option))}
+          >
+            {INTENT_LABELS[option]}
           </button>
         ))}
       </div>
@@ -791,6 +839,7 @@ const KinkCard = memo(function KinkCard({
         </span>
       </div>
       <p className="kink-body">{kink.text}</p>
+      <KinkContext kink={kink} />
       <div className="kink-footer">
         <div className="kink-reactions">
           {counts.length ? counts.map((reaction) => (
@@ -944,8 +993,9 @@ function KinkSignal({ signal }: { signal: KinkSignalInfo }) {
 
 function signalClass(signal: KinkSignalInfo) {
   if (signal.label === "LIVE ASK") return "is-action";
-  if (signal.label === "THEY WANT YOUR TAKE") return "is-needed";
-  if (signal.label.startsWith("WAITING ON")) return "is-waiting";
+  if (signal.state === "needs-response") return "is-needed";
+  if (signal.state === "waiting-on-them") return "is-waiting";
+  if (signal.status === "Saving this for later") return "is-later";
   if (signal.status === "Commented") return "is-commented";
   if (signal.status === "Tell me more" || signal.status === "Curious") return "is-curious";
   if (signal.status === "Me too" || signal.status === "Hell yeah") return "is-hell-yeah";
@@ -986,12 +1036,12 @@ function kinkSignal(kink: KinkIdea, auth: AuthInfo, workspace: Workspace): KinkS
         title: `${partnerName} replied in comments`,
       };
     }
+    // Shared is the whole act. No "waiting on" clock for the partner.
     return {
-      label: `WAITING ON ${partnerName.toUpperCase()}`,
+      label: "SHARED",
       status: "",
       state: "waiting-on-them",
-      title: `${partnerName} needs to respond`,
-      pulse: true,
+      title: `Shared with ${partnerName}. No reply needed.`,
     };
   }
 
@@ -1016,11 +1066,10 @@ function kinkSignal(kink: KinkIdea, auth: AuthInfo, workspace: Workspace): KinkS
   }
 
   return {
-    label: "THEY WANT YOUR TAKE",
+    label: `NEW FROM ${partnerName.toUpperCase()}`,
     status: "",
     state: "needs-response",
-    title: "You have not responded yet",
-    pulse: true,
+    title: `${partnerName} shared this. React if you like; no reply needed.`,
   };
 }
 
@@ -1090,6 +1139,7 @@ function normalizeReactionLabel(value: string) {
     tell_me_more: "Tell me more",
     me_too: "Me too",
     give_me_a_minute: "Give me a minute",
+    save_for_later: "Saving this for later",
     not_for_me: "Not for me — thank you for telling me",
   };
   const aliases: Record<string, string> = {
@@ -1109,6 +1159,7 @@ function idForLabel(label: string) {
   if (label === "Tell me more") return "tell_me_more";
   if (label === "Me too") return "me_too";
   if (label === "Give me a minute") return "give_me_a_minute";
+  if (label === "Saving this for later") return "save_for_later";
   if (label === "Not for me — thank you for telling me") return "not_for_me";
   return "curious";
 }
@@ -1118,6 +1169,7 @@ function glyphForLabel(label: string) {
   if (label === "Tell me more") return "👀";
   if (label === "Me too") return "🤤";
   if (label === "Give me a minute") return "💭";
+  if (label === "Saving this for later") return "🔖";
   if (label === "Not for me — thank you for telling me") return "🌷";
   return "🤔";
 }
@@ -1137,6 +1189,7 @@ function statusForResponse(response: KinkResponse) {
 function signalLabelForResponse(response: KinkResponse) {
   if (isMutualYesResponse(response)) return "BOTH IN";
   if (wantsDetailsResponse(response)) return "WANTS DETAILS";
+  if (response.label === "Saving this for later") return "SAVED FOR LATER";
   if (response.tone === "pause") return "MAYBE";
   return "NOT TONIGHT";
 }
@@ -1159,3 +1212,18 @@ function hasLiveAsk(kink: KinkIdea) {
   return Boolean(maybeKink.promotedRequestId || maybeKink.requestId || maybeKink.askId || maybeKink.promotedAt);
 }
 
+// The sharer's intent label (seen by both partners) and, when the research
+// has measured the theme, an honest "how common is this" line. Inside a card
+// that is already a link, so the "Why we say this" link lives on the detail.
+function KinkContext({ kink }: { kink: KinkIdea }) {
+  const norm = kink.e2eeLocked ? null : normTagFor(kink.text);
+  if (!kink.intent && !norm) return null;
+  return (
+    <div className="kink-context-row">
+      {kink.intent && (
+        <span className={`kink-intent-pill is-${kink.intent}`} data-testid="kink-intent-pill">{INTENT_LABELS[kink.intent]}</span>
+      )}
+      {norm && <span className="kink-norm-tag" data-testid="kink-norm-tag">{norm.label}</span>}
+    </div>
+  );
+}

@@ -1,0 +1,233 @@
+/* Saying it out loud: intent labels, "how common" tags, warm quick replies,
+   the talk-first step, and the "Why we say this" explainer. Shared by
+   Inspiration, Kink detail, the Shelf and the explainer page. */
+
+/* Intent picker in the composer: optional, one tap to set, again to clear. */
+.kink-intent-lead {
+  display: block;
+  margin: 2px 0 6px;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.35;
+}
+
+.kink-intent-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.kink-intent-chip {
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--cream-a08);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.2;
+  transition: background-color 160ms ease-out, color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.kink-intent-chip.is-active {
+  border-color: var(--accent-fog);
+  background: var(--accent-mist);
+  color: var(--accent);
+}
+
+.kink-intent-chip:focus-visible,
+.kd-quick:focus-visible,
+.kd-next-btn:focus-visible,
+.shelf-mode-btn:focus-visible,
+.chat-prompt-chip:focus-visible,
+.chat-quick-react:focus-visible,
+.desire-seg-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* On a card / detail: what the sharer meant, and what research says. */
+.kink-context-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.kink-intent-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--accent-mist);
+  color: var(--accent);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.kink-intent-pill.is-fantasy {
+  background: var(--cream-a06);
+  color: var(--cream-muted);
+}
+
+.kink-intent-pill.is-talk {
+  background: rgb(var(--gold-rgb) / 0.16);
+  color: var(--gold);
+}
+
+.kink-norm-tag {
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.35;
+}
+
+.kink-norm-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: var(--accent);
+  font-size: var(--fs-12);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Kink detail: warm one-tap replies before the full emoji tray. */
+.kd-quick-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+
+.kd-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--cream-a08);
+  border-radius: var(--r-pill);
+  background: var(--cream-a04);
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  transition: background-color 160ms ease-out, border-color 160ms ease-out;
+}
+
+.kd-quick.is-active {
+  border-color: var(--accent-fog);
+  background: var(--accent-mist);
+  color: var(--accent);
+}
+
+.kd-quick:disabled {
+  opacity: 0.6;
+}
+
+/* Turning a liked Kink into a plan: talk about it, or make it an Ask. */
+.kd-next {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 24px;
+}
+
+.kd-next-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.kd-next-btn {
+  flex: 1;
+  min-height: 44px;
+}
+
+.kd-talk-first {
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid rgb(var(--gold-rgb) / 0.28);
+  border-radius: var(--r-md);
+  background: rgb(var(--gold-rgb) / 0.08);
+}
+
+.kd-talk-first-title {
+  margin: 0 0 6px;
+  color: var(--cream);
+  font-size: var(--fs-17);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.kd-talk-first .kd-next-actions {
+  flex-direction: column;
+}
+
+.kd-premium > .kink-context-row {
+  margin: 12px 0 18px;
+}
+
+.kd-talk-first-body {
+  margin: 0 0 12px;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  line-height: 1.5;
+}
+
+/* "Why we say this" explainer. */
+.why-stage {
+  display: grid;
+  gap: 22px;
+  max-width: 620px;
+  padding: 18px 22px calc(var(--tabbar-height) + 32px);
+}
+
+.why-lead {
+  margin: 0;
+  color: var(--cream);
+  font-size: var(--fs-17);
+  line-height: 1.5;
+}
+
+.why-section {
+  display: grid;
+  gap: 6px;
+  scroll-margin-top: 88px;
+}
+
+.why-section p {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  line-height: 1.55;
+}
+
+.why-section:target .why-title {
+  color: var(--accent);
+}
+
+.why-title {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.why-section .why-source {
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+}
+
+.why-foot {
+  margin: 0;
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}

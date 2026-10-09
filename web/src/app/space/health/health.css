@@ -535,4 +535,44 @@
   to   { transform: scaleX(1); }
 }
 
+/* Counts are a private, per-person opt-in. The switch thumb styles live in
+   space.css for /space; Health renders the same switch, so it carries its own. */
+.health-counts-setting .settings-row {
+  min-height: 56px;
+  border-radius: var(--r-lg);
+}
+
+.health-counts-setting .settings-row-sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}
+
+.health-counts-setting .switch-thumb {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: var(--cream-muted);
+  transition: transform 340ms var(--ease-press, ease), background 220ms var(--ease-settle, ease);
+}
+
+.health-counts-setting .switch.is-on .switch-thumb {
+  transform: translateX(20px);
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-fog);
+}
+
+.health-counts-error {
+  margin: 0;
+  color: rgb(var(--no-rgb));
+  font-size: var(--fs-13);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health-counts-setting .switch-thumb { transition: none; }
+}
+
 

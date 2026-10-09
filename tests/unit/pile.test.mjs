@@ -7,6 +7,7 @@ import {
   publicPile,
   randomPileMaxDropCount,
   readPile,
+  PILE_MIN_DROPS,
 } from "../../functions/api/pile.js";
 import { mutatePlatformState } from "../../functions/api/_workspaces.js";
 import { mutateKey, readKey } from "../../functions/api/_state.js";
@@ -51,15 +52,38 @@ test("Pile reveals after reveal time when both partners have drops", () => {
   assert.equal(partnerView.isRevealed, true);
   assert.deepEqual(partnerView.overlap, ["Kiss"]);
   assert.deepEqual(partnerView.onlyMine, ["Dirty talk"]);
+  // The partner's misses never leave the server: only the matched drop does.
   assert.deepEqual(partnerView.partnerLabels, {
-    "alex@example.test": ["Kiss", "Massage"],
+    "alex@example.test": ["Kiss"],
   });
-  // Regression: onlyTheirs used to diff against the FIRST contributor's set
-  // (key order), so the non-starter viewer always saw [] here.
-  assert.deepEqual(partnerView.onlyTheirs, ["Massage"], "non-starter viewer sees the partner's quiet drops");
+  assert.deepEqual(partnerView.onlyTheirs, [], "the partner's quiet drops stay private");
+  assert.deepEqual(Object.keys(partnerView.counts), ["partner@example.test"], "only my own count, even after reveal");
 
   const alexView = publicPile(pile, "alex@example.test");
-  assert.deepEqual(alexView.onlyTheirs, ["Dirty talk"], "starter viewer unchanged");
+  assert.deepEqual(alexView.onlyTheirs, [], "same for the starter");
+  assert.deepEqual(alexView.partnerLabels, { "partner@example.test": ["Kiss"] });
+  assert.ok(!JSON.stringify(alexView).includes("Dirty talk"), "a partner miss appears nowhere in the payload");
+});
+
+test("Pile waits for the minimum drops from each partner before revealing", () => {
+  const pile = {
+    revealAt: new Date(Date.now() - 60_000).toISOString(),
+    startedAt: new Date(Date.now() - 3_600_000).toISOString(),
+    startedByEmail: "alex@example.test",
+    maxDropCount: 3,
+    contributions: {
+      "alex@example.test": ["Kiss", "Massage"],
+      "partner@example.test": ["Kiss"],
+    },
+  };
+  const view = publicPile(pile, "alex@example.test");
+  assert.equal(view.isRevealed, false, "a one-drop side cannot open a reveal");
+  assert.equal(view.minDropCount, PILE_MIN_DROPS);
+  assert.equal(view.partnerLabels, null);
+
+  // A Pile capped at 1 can still reveal with one drop each (the cap wins).
+  const tiny = { ...pile, maxDropCount: 1, contributions: { "alex@example.test": ["Kiss"], "partner@example.test": ["Kiss"] } };
+  assert.equal(publicPile(tiny, "alex@example.test").isRevealed, true);
 });
 
 // --- handler-level: start guard + lock idempotency ---
@@ -134,7 +158,7 @@ test("double-tapped lock derives exactly one session", async () => {
       revealAt: new Date(Date.now() - 60_000).toISOString(),
       maxDropCount: 3,
       targetDropCount: 3,
-      contributions: { [ME]: ["Kiss", "Massage"], [PARTNER]: ["Kiss"] },
+      contributions: { [ME]: ["Kiss", "Massage"], [PARTNER]: ["Kiss", "Bath"] },
     },
   }));
 
@@ -149,6 +173,7 @@ test("double-tapped lock derives exactly one session", async () => {
 
   const sessions = await readKey(e, STORE, "pile:w1:sessions");
   assert.equal(sessions.length, 1, "exactly one locked session persisted");
+  assert.equal("quietDropCount" in sessions[0], false, "no count of misses is kept");
   assert.equal(await readKey(e, STORE, "pile:w1:active"), null, "active pile cleared");
 });
 
@@ -190,13 +215,14 @@ test("pileDropCapMax scales as floor(actPool / 3)", () => {
   assert.equal(pileDropCapMax(30), 10);
 });
 
-test("randomPileMaxDropCount stays within [1, pileDropCapMax]", () => {
+test("randomPileMaxDropCount stays within [min(PILE_MIN_DROPS, cap), pileDropCapMax]", () => {
   for (const pool of [1, 3, 6, 12, 30]) {
     const cap = pileDropCapMax(pool);
+    const floor = Math.min(PILE_MIN_DROPS, cap);
     for (let i = 0; i < 250; i += 1) {
       const value = randomPileMaxDropCount(pool);
       assert.ok(Number.isInteger(value), `integer for pool ${pool}`);
-      assert.ok(value >= 1 && value <= cap, `${value} not in [1, ${cap}] for pool ${pool}`);
+      assert.ok(value >= floor && value <= cap, `${value} not in [${floor}, ${cap}] for pool ${pool}`);
     }
   }
 });
@@ -204,7 +230,8 @@ test("randomPileMaxDropCount stays within [1, pileDropCapMax]", () => {
 test("randomPileMaxDropCount can reach both ends of a wide range", () => {
   const seen = new Set();
   for (let i = 0; i < 2000; i += 1) seen.add(randomPileMaxDropCount(30));
-  assert.ok(seen.has(1), "should be able to draw the floor (1)");
+  assert.ok(seen.has(PILE_MIN_DROPS), "should be able to draw the floor");
+  assert.ok(!seen.has(1), "never a one-drop Pile when the library allows more");
   assert.ok(seen.has(10), "should be able to draw the cap (10)");
 });
 
@@ -241,4 +268,28 @@ test("computeOverlapLabels requires the label in ALL contributors", () => {
     [],
     "no shared labels → empty",
   );
+});
+
+// A Pile under the minimum never says whether the partner dropped none or one:
+// not before the reveal time, not after it.
+test("a partner's 0 or 1 drop reads the same before and after the reveal time", () => {
+  const ME = "me@x.test";
+  const PARTNER = "jordan@x.test";
+  for (const revealAt of [new Date(Date.now() + 3_600_000).toISOString(), new Date(Date.now() - 60_000).toISOString()]) {
+    const base = { id: "p", workspaceId: "w1", revealAt, startedAt: revealAt, maxDropCount: 4, targetMaxDropCount: 4, actPoolCount: 20 };
+    const zero = publicPile({ ...base, contributions: { [ME]: ["A", "B"] } }, ME);
+    const one = publicPile({ ...base, contributions: { [ME]: ["A", "B"], [PARTNER]: ["A"] } }, ME);
+    assert.deepEqual(one, zero, `identical views (${revealAt})`);
+    assert.equal(one.partnerHasDropped, false);
+    assert.equal(one.isRevealed, false);
+    const two = publicPile({ ...base, contributions: { [ME]: ["A", "B"], [PARTNER]: ["C", "D"] } }, ME);
+    if (Date.parse(revealAt) > Date.now()) {
+      assert.equal(two.partnerHasDropped, true, "at the minimum they're in");
+      assert.equal(two.waitingForDrops, false);
+    } else {
+      assert.equal(two.isRevealed, true);
+      assert.equal(one.waitingForDrops, true, "past the reveal time: a neutral waiting state");
+    }
+  }
+  assert.equal(PILE_MIN_DROPS, 2);
 });

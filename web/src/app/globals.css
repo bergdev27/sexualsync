@@ -4505,47 +4505,6 @@ button.card:active,
   transition: opacity var(--dur-tap) ease;
 }
 
-/* ── Sync-score reveal moment (Sex Quiz + Green Lights payoff) ──────────────
-   The card blooms in, an accent glow blooms once behind the number, and the
-   bar fills 0 → its target (the JS count-up handles the number). Reuses the
-   shared motion tokens; reduced-motion drops straight to the resting state. */
-.sync-score-reveal {
-  animation: sync-score-bloom var(--dur-route, 560ms) var(--ease-bloom, cubic-bezier(0.16, 1, 0.3, 1)) both;
-}
-@keyframes sync-score-bloom {
-  from { opacity: 0; transform: scale(0.94) translateY(8px); }
-  to   { opacity: 1; transform: none; }
-}
-.sync-score-glow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(130px 84px at 50% 38%, rgb(var(--accent-rgb) / 0.3), transparent 70%);
-  opacity: 0;
-  animation: sync-score-glow 1500ms var(--ease-bloom, cubic-bezier(0.16, 1, 0.3, 1)) both;
-}
-@keyframes sync-score-glow {
-  0%   { opacity: 0; transform: scale(0.7); }
-  45%  { opacity: 1; }
-  100% { opacity: 0.42; transform: scale(1); }
-}
-.sync-score-fill {
-  width: var(--sync-target, 0%);
-  transform-origin: left;
-  animation: sync-score-fill 1000ms var(--ease-settle, cubic-bezier(0.22, 1, 0.36, 1)) both;
-}
-/* scaleX, not width: the one-shot reveal used to run layout for every frame
-   of its 1s fill. */
-@keyframes sync-score-fill { from { transform: scaleX(0); } }
-
-@media (prefers-reduced-motion: reduce) {
-  .sync-score-reveal,
-  .sync-score-glow,
-  .sync-score-fill { animation: none; }
-  .sync-score-glow { opacity: 0.4; }
-  .sync-score-fill { width: var(--sync-target, 0%); }
-}
-
 /* Primer note — a small tap-to-open reassurance on the questionnaire intros
    (desire styles, libido & solo pleasure). Normalizes things people answer
    dishonestly about when they feel judged. Native <details>; chevron rotates
@@ -4871,6 +4830,35 @@ button.card:active,
   text-decoration: none;
 }
 .rg-btn.is-grow { flex: 1; }
+
+/* Reveal results → "Make it an Ask" / "Plan it" (components/MatchActions). */
+.match-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.match-actions-lead {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  line-height: 1.5;
+}
+.match-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.match-actions-row .rg-btn { min-width: 180px; }
+.match-actions-plan {
+  min-height: 44px;
+  justify-content: center;
+}
+.match-actions.is-compact .rg-btn {
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: var(--fs-15);
+}
 .rg-btn.is-compact {
   padding: 10px 16px;
   white-space: nowrap;
@@ -5075,6 +5063,13 @@ button.card:active,
   color: var(--cream-muted);
   font-size: var(--fs-15);
   line-height: 1.55;
+}
+/* Reveal headline, shared by the Sex Quiz and Green Lights results. */
+.rg-reveal-title {
+  margin-top: 2px;
+  color: var(--cream);
+  font-size: var(--fs-24);
+  font-weight: 600;
 }
 .rg-reveal-body {
   margin-top: 10px;

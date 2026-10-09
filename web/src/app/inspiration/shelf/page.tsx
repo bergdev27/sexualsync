@@ -20,6 +20,7 @@ import type {
   ShelfItem,
   ShelfReactionOption,
   ShelfResponse,
+  ShelfShareMode,
   Workspace,
 } from "@/lib/types";
 import { useFocusActivity } from "@/lib/use-focus-activity";
@@ -28,6 +29,7 @@ import { useLiveRoomReload } from "@/lib/use-live-room";
 import { memberByEmail, normalizeEmail, partnerOf } from "@/lib/workspace";
 import { relativeAge } from "@/lib/relative-time";
 import "./shelf.css";
+import "../desire.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -229,7 +231,7 @@ function ShelfReady({
       <p className="shelf-hint">
         Tiles open hidden. {partnerName} taps <em>Reveal</em> when they are ready. GIFs stay muted.
       </p>
-      <ShelfComposer workspaceId={state.workspace.id} onSaved={onShelfChange} />
+      <ShelfComposer workspaceId={state.workspace.id} partnerName={partnerName} onSaved={onShelfChange} />
       {state.shelf.items.length ? (
         <div className="shelf-list">
           {state.shelf.items.map((item) => (
@@ -260,35 +262,48 @@ function ShelfReady({
 
 function ShelfComposer({
   workspaceId,
+  partnerName,
   onSaved,
 }: {
   workspaceId: string;
+  partnerName: string;
   onSaved: (shelf: ShelfResponse) => void;
 }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving] = useState<ShelfShareMode | "">("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  // Shared first: watching together is the version that goes with more
+  // dedication and satisfaction (Maddox, Rhoades & Markman 2011); a private
+  // save only ever shows up for your partner if they save the same thing.
+  async function save(mode: ShelfShareMode) {
     const clean = content.trim();
     if (!clean || saving) return;
-    setSaving(true);
+    setSaving(mode);
     setError("");
+    setNotice("");
     try {
-      const shelf = await saveShelfItem({ workspaceId, content: clean, title: title.trim() });
+      const shelf = await saveShelfItem({ workspaceId, content: clean, title: title.trim(), mode });
       setTitle("");
       setContent("");
       if (navigator.vibrate) navigator.vibrate([6, 16, 8]);
+      if (shelf.mutual) setNotice(`${partnerName} saved this too. It's on both your Shelves now.`);
+      else if (mode === "private") setNotice(`Saved for you. ${partnerName} only sees it if they save it too.`);
       onSaved(shelf);
     } catch (err) {
       // H8: a failed save used to silently no-op. Keep the draft so the user
       // can retry, and surface the reason inline.
       setError(err instanceof Error ? err.message : "Couldn't save that. Try again.");
     } finally {
-      setSaving(false);
+      setSaving("");
     }
+  }
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    void save("send");
   }
 
   return (
@@ -318,9 +333,18 @@ function ShelfComposer({
           inputMode="url"
         />
       </div>
-      <button type="submit" className="btn-primary shelf-save-btn" disabled={!content.trim() || saving}>
-        {saving ? "Saving" : "Save"}
-      </button>
+      <div className="shelf-mode-actions">
+        <button type="submit" className="btn-primary shelf-save-btn shelf-mode-btn" disabled={!content.trim() || Boolean(saving)}>
+          {saving === "send" ? "Sending" : `Send to ${partnerName}`}
+        </button>
+        <button type="button" className="btn-ghost shelf-mode-btn" onClick={() => void save("together")} disabled={!content.trim() || Boolean(saving)}>
+          {saving === "together" ? "Saving" : "Watch together"}
+        </button>
+        <button type="button" className="shelf-mode-quiet shelf-mode-btn pressable" onClick={() => void save("private")} disabled={!content.trim() || Boolean(saving)}>
+          {saving === "private" ? "Saving" : "Save for me"}
+        </button>
+      </div>
+      {notice && <p className="shelf-mode-notice" role="status">{notice}</p>}
       {error && (
         <p className="mt-2 text-sm" role="alert" style={{ color: "rgb(var(--no-rgb))" }}>{error}</p>
       )}
@@ -368,6 +392,8 @@ function ShelfCard({
   const myReaction = pendingReaction !== undefined ? pendingReaction : propReaction;
   const myDisplayName = "You";
   const isMine = normalizeEmail(item.addedByEmail) === myEmail;
+  // Your own save-for-me: no reactions to send, nobody else sees it.
+  const privateOnly = item.share === "private" && !item.mutual;
   const partnerEntry = Object.entries(item.reactions || {}).find(([email]) => normalizeEmail(email) !== myEmail);
   const partnerReaction = partnerEntry ? catalog.find((option) => option.id === partnerEntry[1]) : null;
   const partnerName = firstName(
@@ -573,9 +599,20 @@ function ShelfCard({
         onHide={() => setRevealed(false)}
       />
       <div className="meta-row">
-        <span className="meta-author">{item.addedByName || "Someone"} · {relativeAge(item.addedAt)}</span>
+        <span className="meta-author">{item.mutual ? "Both of you" : item.addedByName || "Someone"} · {relativeAge(item.addedAt)}</span>
         {item.sourceLabel && <span className="meta-author">{item.sourceLabel}</span>}
       </div>
+      {(item.mutual || item.share === "together" || privateOnly) && (
+        <p className={`shelf-share-note ${item.mutual ? "is-mutual" : privateOnly ? "is-private" : "is-together"}`} data-testid="shelf-share-note">
+          {item.mutual
+            ? "You both saved this"
+            : privateOnly
+              ? `Only you can see this. It shows up for ${partnerName} only if they save it too.`
+              : isMine
+                ? `You want to watch this with ${partnerName}`
+                : `${firstName(item.addedByName) || partnerName} wants to watch this with you`}
+        </p>
+      )}
       {partnerReaction && (
         <div className="partner-strip" role="status">
           <span className="partner-pulse" aria-hidden="true" />
@@ -588,8 +625,10 @@ function ShelfCard({
           </span>
         </div>
       )}
+      {!privateOnly && (
+      <>
       <div className="live-caption" aria-live="polite">
-        {active ? reactionCaption(active, myDisplayName) : `Choose how this lands. ${partnerName} sees it the moment you do.`}
+        {active ? reactionCaption(active, myDisplayName) : `React if you like. ${partnerName} sees it the moment you do.`}
       </div>
       <div className="tray-wrap">
         <div className="tray" role="group" aria-label="React to this Shelf item">
@@ -609,6 +648,8 @@ function ShelfCard({
           ))}
         </div>
       </div>
+      </>
+      )}
       {actionError && (
         <p className="mt-2 text-sm" role="alert" style={{ color: "rgb(var(--no-rgb))" }}>{actionError}</p>
       )}
