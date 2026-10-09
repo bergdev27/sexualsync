@@ -29,6 +29,11 @@ function shouldSweep(key: string): boolean {
   return LEGACY_SWEEP_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
+// Device secrets and salts (`ss:<feature>:dk:v1`, `ss:<feature>:dk-salt:v1`).
+function isKeyMaterial(key: string): boolean {
+  return /:dk(-salt)?:/.test(key);
+}
+
 function sweep(area: "localStorage" | "sessionStorage"): void {
   try {
     const storage = window[area];
@@ -38,6 +43,10 @@ function sweep(area: "localStorage" | "sessionStorage"): void {
       const key = storage.key(i);
       if (key && shouldSweep(key)) keysToRemove.push(key);
     }
+    // Data before the keys that decrypt it: removing a device key first opens
+    // a window where a concurrent save mints a new key and re-encrypts the
+    // blob under it, or a load reads the blob as garbage.
+    keysToRemove.sort((a, b) => Number(isKeyMaterial(a)) - Number(isKeyMaterial(b)));
     keysToRemove.forEach((key) => {
       try { storage.removeItem(key); } catch { /* ignore */ }
     });

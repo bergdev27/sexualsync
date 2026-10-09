@@ -8,7 +8,7 @@ export default function BrandWordmark({
   scale = "default",
 }: BrandWordmarkProps) {
   return (
-    <span className={["brand-bar", `brand-bar-${scale}`, className].filter(Boolean).join(" ")} aria-label="Sexualsync">
+    <span className={["brand-bar", `brand-bar-${scale}`, className].filter(Boolean).join(" ")} role="img" aria-label="Sexualsync">
       <svg className="brand-mark" width="28" height="14" viewBox="0 0 100 50" fill="none" aria-hidden="true">
         <path
           d="M 12,25 C 22,15 38,15 50,25 C 62,35 78,35 88,25"

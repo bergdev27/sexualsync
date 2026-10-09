@@ -15,7 +15,6 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
-import StickyAction from "@/components/StickyAction";
 import Reveal from "@/components/Reveal";
 import {
   ApiUnauthorizedError,
@@ -36,7 +35,7 @@ import {
   isFromPartner,
   rankActive,
 } from "@/lib/workspace";
-import { currentTimingLabel, isApprovedSexActRequest, isApprovedSexActStale, isStalePendingAsk } from "@/lib/request-state";
+import { currentTimingLabel, isApprovedSexActRequest, isApprovedSexActStale, isAwaitingFirstReply, isStalePendingAsk, askStatusLabel } from "@/lib/request-state";
 
 type LoadState =
   | { kind: "loading" }
@@ -94,28 +93,20 @@ export default function TonightPage() {
 
   return (
     <AppShell>
+      {/* A drill-down under Home: chevron + parent, like every other one. No
+          sticky "Ask" here: the tab bar's raised Ask is the one rose action. */}
       <ScreenHeader
-        eyebrow={greeting(state)}
+        back={{ href: "/sexboard", label: "Home" }}
+        showBrand={false}
         title="Tonight"
         subtitle={subtitleFor(state)}
       />
       <Body state={state} onReload={load} />
-      <StickyAction>
-        <Link href="/ask" className="btn-primary w-full">
-          Ask for something
-        </Link>
-      </StickyAction>
     </AppShell>
   );
 }
 
 // ---------- helpers ----------
-
-function greeting(state: LoadState) {
-  if (state.kind !== "ready") return undefined;
-  const name = state.auth.person || "you";
-  return `Hi, ${name}`;
-}
 
 function subtitleFor(state: LoadState) {
   if (state.kind !== "ready") return undefined;
@@ -143,7 +134,7 @@ function Body({ state, onReload }: { state: LoadState; onReload: () => Promise<v
   if (state.kind === "error") {
     return (
       <ErrorState
-        title="Couldn't load your space"
+        title="Couldn't load your room"
         body={state.message || "Something went sideways. Try again."}
         action={<button type="button" className="btn-ghost" onClick={() => { void onReload(); }}>Try again</button>}
       />
@@ -152,8 +143,8 @@ function Body({ state, onReload }: { state: LoadState; onReload: () => Promise<v
   if (state.kind === "no-workspace") {
     return (
       <EmptyState
-        title="Set up your space"
-        body="You're signed in, but you don't have a partner-paired space yet."
+        title="Set up your room"
+        body="You're signed in, but you don't have a partner-paired room yet."
         action={<Link href="/onboarding" className="btn-ghost">Create my room</Link>}
       />
     );
@@ -188,15 +179,15 @@ function TonightBoard({
 
   // Top-rank: pending from partner. The brief calls this out explicitly —
   // it should outrank everything else.
-  const topRank = ranked.filter((r) => r.status === "pending" && isFromPartner(r, state.auth));
-  const remaining = ranked.filter((r) => !(r.status === "pending" && isFromPartner(r, state.auth)));
+  const topRank = ranked.filter((r) => isAwaitingFirstReply(r.status) && isFromPartner(r, state.auth));
+  const remaining = ranked.filter((r) => !(isAwaitingFirstReply(r.status) && isFromPartner(r, state.auth)));
   const grouped = groupByTiming(remaining);
 
   return (
     <div className="space-y-2 pb-4">
       {topRank.length > 0 && (
         <section className="px-5 pt-2">
-          <h2 className="mb-2 text-xs uppercase tracking-[0.14em] text-rose">
+          <h2 className="kicker mb-2 text-rose">
             From {topRank[0].requesterName || topRank[0].requester}
           </h2>
           <div className="space-y-2">
@@ -214,7 +205,7 @@ function TonightBoard({
         if (!items.length) return null;
         return (
           <section key={bucket.key} className="px-5 pt-3">
-            <h2 className="mb-2 text-xs uppercase tracking-[0.14em] text-ink-3">{bucket.label}</h2>
+            <h2 className="kicker mb-2 text-ink-2">{bucket.label}</h2>
             <div className="space-y-2">
               {items.map((req) => (
                 <Reveal key={req.id}>
@@ -254,7 +245,7 @@ function RequestCard({
         <span aria-hidden>·</span>
         <span>{currentTimingLabel(request)}</span>
         <span aria-hidden>·</span>
-        <span className="capitalize">{statusLabel(request.status)}</span>
+        <span>{askStatusLabel(request, { mine: !fromPartner, partnerName: fromPartner ? author : (request.reviewerName || request.reviewer || "your partner") }).label}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {request.categories.length === 0 && (
@@ -285,19 +276,6 @@ function RequestCard({
   );
 }
 
-function statusLabel(status: RequestRecord["status"]): string {
-  switch (status) {
-    case "pending":   return "pending";
-    case "sent":      return "sent";
-    case "reviewed":  return "reviewed";
-    case "on_deck":   return "on deck";
-    case "completed": return "done";
-    case "expired":   return "expired";
-    case "archived":  return "archived";
-    case "draft":     return "draft";
-    default:          return status;
-  }
-}
 
 function formatWhen(iso: string): string {
   if (!iso) return "";

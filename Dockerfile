@@ -22,6 +22,10 @@ RUN npm ci --no-audit --no-fund \
 
 # ---- runtime stage: just Node + the app, no build toolchain -----------------
 FROM node:22-bookworm-slim AS runtime
+LABEL org.opencontainers.image.title="Sexualsync" \
+      org.opencontainers.image.description="Self-host edition of Sexualsync, a private room for two." \
+      org.opencontainers.image.source="https://github.com/bergdev27/sexualsync" \
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 ENV NODE_ENV=production
 WORKDIR /app
 

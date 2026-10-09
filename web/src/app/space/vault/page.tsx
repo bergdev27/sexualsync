@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
-import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
+import { EmptyState, ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import { ApiUnauthorizedError, getProfile, getVault } from "@/lib/api";
 import type {
   AuthInfo,
@@ -17,6 +17,7 @@ import { useLiveRoomReload } from "@/lib/use-live-room";
 import { useQueryParam } from "@/lib/use-query-param";
 import { getCachedResource, setCachedResource, useColdStart } from "@/lib/resource-cache";
 import { VaultComposer } from "./_VaultComposer";
+import "./vault.css";
 
 // Code-split the Vault clip card: it transitively pulls in the E2EE
 // vault-crypto pipeline and both full-screen lightboxes, none of which are
@@ -29,7 +30,7 @@ const VaultCard = dynamic(() => import("./_VaultCard").then((m) => m.VaultCard),
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; error?: unknown }
   | { kind: "unauthorized" }
   | { kind: "no-workspace"; auth: AuthInfo }
   | {
@@ -59,6 +60,20 @@ export default function VaultPage() {
     setState({ kind: "ready", auth: profile.auth, workspace: profile.activeWorkspace, vault });
   }
 
+  async function retry() {
+    try {
+      await reload();
+    } catch (error) {
+      if (error instanceof ApiUnauthorizedError) {
+        setState({ kind: "unauthorized" });
+        return;
+      }
+      setState((current) => (current.kind === "ready"
+        ? current
+        : { kind: "error", message: error instanceof Error ? error.message : "", error }));
+    }
+  }
+
   function applyVaultResponse(vault: VaultResponse) {
     setState((current) => current.kind === "ready" ? { ...current, vault } : current);
   }
@@ -82,7 +97,9 @@ export default function VaultPage() {
           setState({ kind: "unauthorized" });
           return;
         }
-        setState({ kind: "error", message: error instanceof Error ? error.message : "Couldn't load Vault." });
+        setState((current) => (current.kind === "ready"
+          ? current
+          : { kind: "error", message: error instanceof Error ? error.message : "", error }));
       }
     })();
     return () => { cancelled = true; };
@@ -91,15 +108,15 @@ export default function VaultPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow="Space"
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Private Vault"
-        subtitle="Encrypted clips, saved moments, reactions, and comments for this space."
-        trailing={<Link href="/space" className="done-pill pressable">Done</Link>}
+        subtitle="Encrypted clips, saved moments, reactions and comments, just for the two of you."
       />
       <Body
         state={state}
         onReload={reload}
+        onRetry={retry}
         onVaultChange={applyVaultResponse}
         highlightedItemId={highlightedItemId}
         highlightedFromActivity={highlightedFromActivity}
@@ -111,12 +128,14 @@ export default function VaultPage() {
 function Body({
   state,
   onReload,
+  onRetry,
   onVaultChange,
   highlightedItemId,
   highlightedFromActivity,
 }: {
   state: LoadState;
   onReload: () => Promise<void>;
+  onRetry: () => Promise<void>;
   onVaultChange: (vault: VaultResponse) => void;
   highlightedItemId: string;
   highlightedFromActivity: boolean;
@@ -131,13 +150,13 @@ function Body({
       />
     );
   }
-  if (state.kind === "error") return <ErrorState title="Couldn't load Vault" body={state.message} />;
+  if (state.kind === "error") return <LoadErrorState what="your Vault" error={state.error ?? state.message} onRetry={onRetry} />;
   if (state.kind === "no-workspace") {
     return (
       <ErrorState
         title="No partner space yet"
         body="Vault needs an active partner space."
-        action={<Link href="/space" className="btn-primary pressable">Open Space</Link>}
+        action={<Link href="/space" className="btn-primary pressable">Open Us</Link>}
       />
     );
   }

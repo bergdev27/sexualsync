@@ -28,7 +28,10 @@ import {
   verifyEmailSignIn,
 } from "@/lib/api";
 import { hasIntentionalSignOut } from "@/lib/auth-state";
+import { radioGroupKeyDown } from "@/lib/radio-group";
 import "../signin.css";
+
+const LOCAL_MODES = ["login", "register"] as const;
 
 const DEFAULT_RETURN_TO = "/sexboard";
 const DEFAULT_SIGN_IN_URL = signInUrlForReturnTo(DEFAULT_RETURN_TO);
@@ -434,6 +437,8 @@ export default function SignInPage() {
 
   return (
     <main
+      id="app-main"
+      tabIndex={-1}
       className={`signin signin-cl min-h-screen${isStillLoading ? " is-bootstrap-loading" : ""}`}
       data-bootstrap-loading={isStillLoading ? "true" : undefined}
     >
@@ -502,9 +507,20 @@ export default function SignInPage() {
 
         {showLocalPassword && (
           <div className="local-auth">
-            <div className="local-auth-tabs" role="group" aria-label="Local account mode">
+            <div
+              className="local-auth-tabs"
+              role="radiogroup"
+              aria-label="Local account mode"
+              onKeyDown={(event) => radioGroupKeyDown(event, LOCAL_MODES, localMode, (mode) => {
+                setLocalMode(mode);
+                setLocalError("");
+              })}
+            >
               <button
                 type="button"
+                role="radio"
+                aria-checked={localMode === "login"}
+                tabIndex={localMode === "login" ? 0 : -1}
                 className={localMode === "login" ? "is-active" : ""}
                 onClick={() => {
                   setLocalMode("login");
@@ -515,6 +531,9 @@ export default function SignInPage() {
               </button>
               <button
                 type="button"
+                role="radio"
+                aria-checked={localMode === "register"}
+                tabIndex={localMode === "register" ? 0 : -1}
                 className={localMode === "register" ? "is-active" : ""}
                 onClick={() => {
                   setLocalMode("register");
@@ -701,7 +720,7 @@ function InvitePreviewScreen({
   const inviterName = invite.inviterName?.split(" ")[0] || "Someone";
   const roomLabel = invite.workspaceName || "their room";
   return (
-    <main className="surface signin signin-b min-h-screen">
+    <main id="app-main" tabIndex={-1} className="surface signin signin-b min-h-screen">
       <div className="atmosphere" aria-hidden="true">
         <div className="atm-top" />
         <div className="atm-bottom" />
@@ -753,7 +772,7 @@ function InvitePreviewScreen({
 
 function InviteErrorScreen({ message }: { message: string }) {
   return (
-    <main className="surface signin signin-b min-h-screen">
+    <main id="app-main" tabIndex={-1} className="surface signin signin-b min-h-screen">
       <div className="atmosphere" aria-hidden="true">
         <div className="atm-top" />
         <div className="atm-bottom" />

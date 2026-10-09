@@ -1,32 +1,58 @@
+/* The install pill floats in the thumb zone just above the bottom chrome
+   instead of sitting in the flow, so showing or dismissing it never pushes
+   the screen header down. It clears the tab bar, and the sticky action when
+   one is mounted. */
 .pwa-install-pill {
-  position: relative;
-  z-index: 79;
+  position: fixed;
+  bottom: calc(var(--tabbar-height) + var(--safe-area-bottom, 0px) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-pill);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: min(396px, calc(100vw - 28px));
-  min-height: 44px;
-  margin: max(12px, calc(8px + var(--safe-area-top))) auto 0;
-  padding: 7px 8px 7px 13px;
+  min-height: 56px;
+  margin: 0;
+  padding: 6px 6px 6px 16px;
   border: 1px solid transparent;
   border-radius: var(--r-pill);
-  background: rgba(var(--surface-2-rgb), 0.94);
+  background: rgb(var(--surface-2-rgb) / 0.98);
   background-clip: padding-box;
   color: var(--cream);
   box-shadow:
     0 16px 34px rgba(0, 0, 0, 0.30),
     inset 0 0 0 1px var(--hairline-strong),
-    0 0 0 1px rgba(var(--accent-rgb), 0.08);
-  backdrop-filter: blur(16px);
+    0 0 0 1px var(--accent-a08);
+}
+
+html:has(.sticky-action) .pwa-install-pill {
+  bottom: calc(var(--tabbar-height) + var(--safe-area-bottom, 0px) + var(--sticky-action-gap) + var(--sticky-action-height) + 12px);
+}
+html:has(.app-shell-no-tabbar) .pwa-install-pill {
+  bottom: max(18px, calc(var(--safe-area-bottom, 0px) + 12px));
+}
+html:has(.app-shell-no-tabbar):has(.sticky-action) .pwa-install-pill {
+  bottom: calc(max(18px, var(--safe-area-bottom, 0px)) + var(--sticky-action-height) + 12px);
+}
+
+/* While the pill is up, the page reserves its height at the bottom so the
+   last rows (and their actions) can scroll clear of it, and keyboard focus
+   stops above it. 56px pill + 12px gap. */
+html:has(.pwa-install-pill) .app-shell-main {
+  padding-bottom: calc(var(--shell-bottom-room) + 68px);
+}
+html:has(.pwa-install-pill) {
+  scroll-padding-bottom: calc(var(--tabbar-height) + var(--safe-area-bottom, 0px) + 84px);
 }
 
 .pwa-install-pill span {
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;
-  color: color-mix(in srgb, var(--cream) 78%, transparent);
-  font-size: 11px;
-  font-weight: 800;
+  color: var(--cream);
+  font-size: var(--fs-13);
+  font-weight: 600;
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -34,17 +60,18 @@
 
 .pwa-install-pill button {
   flex: 0 0 auto;
-  min-height: 30px;
-  padding: 0 10px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 16px;
   border: 1px solid transparent;
   border-radius: var(--r-pill);
   background: var(--accent-mist);
   background-clip: padding-box;
   box-shadow: var(--ring-accent-fog, inset 0 0 0 1px var(--accent-fog));
-  color: var(--cream);
+  color: var(--accent);
   cursor: pointer;
-  font-size: 11px;
-  font-weight: 850;
+  font-size: var(--fs-13);
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -54,19 +81,20 @@
 }
 
 .pwa-install-pill .pwa-pill-dismiss {
-  max-width: 58px;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  padding: 0;
   border-color: transparent;
   background: transparent;
-  box-shadow: var(--ring-hairline, inset 0 0 0 1px var(--hairline));
+  box-shadow: none;
   color: var(--cream-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .pwa-install-overlay {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: var(--z-dialog);
   display: grid;
   align-items: end;
   padding: 18px 14px max(18px, calc(18px + env(safe-area-inset-bottom)));
@@ -79,9 +107,9 @@
   margin: 0 auto;
   padding: 22px;
   border: 1px solid var(--hairline-strong);
-  border-radius: 20px;
+  border-radius: var(--r-lg);
   background:
-    linear-gradient(180deg, rgba(var(--cream-rgb), 0.07), rgba(var(--cream-rgb), 0.02)),
+    linear-gradient(180deg, var(--cream-a08), var(--cream-a02)),
     rgb(var(--surface-rgb));
   color: var(--cream);
   box-shadow: 0 22px 54px rgba(0, 0, 0, 0.44);
@@ -90,18 +118,16 @@
 .pwa-install-eyebrow {
   margin: 0 0 10px;
   color: var(--gold);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   line-height: 1;
-  text-transform: uppercase;
 }
 
 .pwa-install-sheet h2 {
   margin: 0;
   color: var(--cream);
   font-family: var(--display);
-  font-size: 30px;
+  font-size: var(--fs-30);
   font-style: italic;
   font-weight: 600;
   line-height: 1;
@@ -113,7 +139,7 @@
   margin: 18px 0 0;
   padding-left: 20px;
   color: var(--cream-muted);
-  font-size: 14px;
+  font-size: var(--fs-15);
   line-height: 1.45;
 }
 
@@ -143,7 +169,7 @@
 
 .mobile-access-panel {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   width: min(460px, 100%);
   text-align: center;
 }
@@ -157,10 +183,8 @@
 .mobile-access-eyebrow {
   margin: 0 0 14px;
   color: var(--gold);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.30em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-13);
 }
 
 .mobile-access-panel h1 {
@@ -168,7 +192,7 @@
   max-width: 9em;
   color: var(--cream);
   font-family: var(--display);
-  font-size: 58px;
+  font-size: var(--fs-48);
   font-style: italic;
   font-weight: 600;
   letter-spacing: 0;
@@ -180,19 +204,8 @@
   margin: 16px auto 0;
   max-width: 34ch;
   color: var(--cream-muted);
-  font-size: 15px;
+  font-size: var(--fs-15);
   line-height: 1.55;
-}
-
-.mobile-access-description {
-  margin: 22px auto 0;
-  max-width: 36ch;
-  color: var(--cream);
-  font-family: var(--display);
-  font-size: 20px;
-  font-style: italic;
-  font-weight: 400;
-  line-height: 1.35;
 }
 
 .mobile-access-actions {
@@ -201,20 +214,16 @@
   margin-top: 34px;
 }
 
-.mobile-access-primary,
-.mobile-access-copy {
+.mobile-access-primary {
   width: 100%;
   min-height: 52px;
   border: 1px solid transparent;
   border-radius: var(--r-pill);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--fs-15);
   font-weight: 850;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-}
-
-.mobile-access-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -225,76 +234,6 @@
   box-shadow: 0 14px 34px var(--accent-fog), var(--ring-accent-fog, inset 0 0 0 1px var(--accent-fog));
 }
 
-.mobile-access-copy {
-  background: rgba(var(--cream-rgb), 0.045);
-  background-clip: padding-box;
-  color: var(--cream);
-  box-shadow:
-    var(--ring-hairline-strong, inset 0 0 0 1px var(--hairline-strong)),
-    0 14px 30px rgba(0, 0, 0, 0.24);
-}
-
-/* Self-host line under the body copy. */
-.mobile-access-selfhost {
-  margin: 12px auto 0;
-  max-width: 36ch;
-  font-size: 13px;
-  line-height: 1.55;
-  color: rgba(var(--cream-rgb), 0.6);
-}
-.mobile-access-selfhost strong { color: rgba(var(--cream-rgb), 0.9); }
-
-/* Inline app showcase — a snap-scrolling row of real screens. */
-.mobile-access-shots {
-  width: min(640px, 90vw);
-  margin: 28px auto 6px;
-}
-.mobile-access-shots-track {
-  display: flex;
-  gap: 14px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding: 8px 26px 14px;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
-}
-.mobile-access-shots-track::-webkit-scrollbar { display: none; }
-.mobile-access-shot {
-  flex: 0 0 auto;
-  scroll-snap-align: center;
-  width: 158px;
-  margin: 0;
-  border-radius: 24px;
-  overflow: hidden;
-  border: 1px solid rgba(var(--cream-rgb), 0.16);
-  background: rgba(6, 2, 4, 0.5);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 22px 50px rgba(0, 0, 0, 0.5);
-  animation: mobile-access-shot-rise 0.75s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-.mobile-access-shot:nth-child(2) { animation-delay: 0.07s; }
-.mobile-access-shot:nth-child(3) { animation-delay: 0.14s; }
-.mobile-access-shot:nth-child(4) { animation-delay: 0.21s; }
-.mobile-access-shot:nth-child(5) { animation-delay: 0.28s; }
-.mobile-access-shot img {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 9 / 19.5;
-  object-fit: cover;
-  object-position: top center;
-}
-@keyframes mobile-access-shot-rise {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mobile-access-shot { animation: none; }
-}
-
 /* The self-host route: a proper GitHub button with the mark. */
 .mobile-access-github {
   display: inline-flex;
@@ -303,14 +242,14 @@
   gap: 10px;
   width: 100%;
   min-height: 52px;
-  border: 1px solid rgba(var(--cream-rgb), 0.24);
+  border: 1px solid var(--cream-a22);
   border-radius: var(--r-pill);
   background:
-    radial-gradient(130% 180% at 50% -60%, rgba(var(--cream-rgb), 0.16), transparent 62%),
+    radial-gradient(130% 180% at 50% -60%, var(--cream-a16), transparent 62%),
     linear-gradient(180deg, rgba(30, 13, 20, 0.92), rgba(13, 5, 9, 0.9));
   background-clip: padding-box;
   color: var(--cream);
-  font-size: 14px;
+  font-size: var(--fs-15);
   font-weight: 850;
   text-decoration: none;
   cursor: pointer;
@@ -322,7 +261,7 @@
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .mobile-access-github:hover {
-  border-color: rgba(var(--cream-rgb), 0.42);
+  border-color: rgb(var(--cream-rgb) / 0.42);
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -358,41 +297,30 @@
     align-self: end;
   }
   .mobile-access-lead { grid-area: lead; align-self: start; }
-  .mobile-access-shots {
-    grid-area: shots;
-    width: 100%;
-    margin: 0;
-    align-self: center;
-  }
 
   .mobile-access-eyebrow { margin: 0 0 16px; }
   .mobile-access-panel h1 {
     margin: 0;
     max-width: 12ch;
-    font-size: clamp(60px, 5.4vw, 82px);
+    font-size: var(--fs-72);
   }
-  .mobile-access-description { margin: 22px 0 0; max-width: 30ch; font-size: 22px; }
   .mobile-access-body { margin: 16px 0 0; max-width: 46ch; }
-  .mobile-access-selfhost { margin: 12px 0 0; max-width: 46ch; }
 
   .mobile-access-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     max-width: 460px;
     margin-top: 34px;
   }
-
-  .mobile-access-shots-track { padding: 10px 28px 16px; }
-  .mobile-access-shot { width: 186px; border-radius: 26px; }
 }
 
 @media (max-width: 360px) {
   .mobile-access-panel h1 {
-    font-size: 46px;
+    font-size: var(--fs-48);
   }
 
   .pwa-install-pill {
     align-items: stretch;
-    border-radius: 18px;
+    border-radius: var(--r-lg);
     flex-wrap: wrap;
   }
 

@@ -40,7 +40,7 @@ function ensureStyle(): void {
 }
 .ss-confirm-dialog h2 {
   margin: 0 0 8px;
-  font-family: var(--ss-font-display, "Cormorant Garamond", serif);
+  font-family: var(--ss-font-display, var(--display));
   font-size: 22px;
   line-height: 1.2;
 }
@@ -59,6 +59,7 @@ function ensureStyle(): void {
   border: 1px solid rgba(243, 220, 217, 0.16);
   background: transparent;
   color: #f2e0d8;
+  min-height: 44px;
   padding: 10px 16px;
   border-radius: 999px;
   font: inherit;
@@ -94,15 +95,24 @@ export function confirmAction(options: ConfirmOptions): Promise<boolean> {
     const dialog = document.createElement("dialog");
     dialog.className = "ss-confirm-dialog";
     if (options.destructive) dialog.dataset.destructive = "true";
+    // Name and describe the dialog from its own text; a destructive confirm
+    // is an alertdialog so assistive tech treats it as an interruption.
+    const uid = `${DIALOG_ID}-${Date.now().toString(36)}`;
+    if (options.destructive) dialog.setAttribute("role", "alertdialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", `${uid}-title`);
 
     const title = document.createElement("h2");
+    title.id = `${uid}-title`;
     title.textContent = options.title;
     dialog.appendChild(title);
 
     if (options.body) {
       const body = document.createElement("p");
+      body.id = `${uid}-body`;
       body.textContent = options.body;
       dialog.appendChild(body);
+      dialog.setAttribute("aria-describedby", body.id);
     }
 
     const actions = document.createElement("div");

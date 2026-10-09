@@ -10,6 +10,8 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
     created: "Ask drafted.",
     sent: "New Ask landed.",
     reviewed: "Ask reviewed.",
+    passed: "Your Ask got a pass.",
+    maybe: "Your Ask got a maybe.",
     counter_accepted: "Counter accepted.",
     revoked: "Ask taken back.",
     archive: "Ask archived.",
@@ -17,6 +19,8 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
     on_deck: "Ask moved on deck.",
     completed: "Ask completed.",
     expire: "Ask expired.",
+    planned: "Plan set.",
+    unplanned: "Plan cleared.",
     updated: "Sexboard updated.",
   },
   "fantasy-backlog": {
@@ -59,6 +63,11 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
     archived: "Blind Reveal closed.",
     promoted: "Saved to Inspiration.",
   },
+  // Only the shared match is ever an activity item; "ended" is a live-only
+  // signal with no copy, so it never toasts.
+  mood: {
+    match: "You're both in the mood.",
+  },
 };
 
 export const ACTIVITY_RESOURCE_ROUTES: Record<ActivityResource, string> = {
@@ -68,6 +77,7 @@ export const ACTIVITY_RESOURCE_ROUTES: Record<ActivityResource, string> = {
   vault: "/space/vault",
   pile: "/games/pile",
   "blind-reveals": "/games/blind-reveal",
+  mood: "/sexboard",
 };
 
 export const ACTIVITY_RESOURCE_GLYPHS: Record<ActivityResource, string> = {
@@ -77,16 +87,32 @@ export const ACTIVITY_RESOURCE_GLYPHS: Record<ActivityResource, string> = {
   vault: "V",
   pile: "P",
   "blind-reveals": "B",
+  mood: "M",
 };
 
+// Which bottom tab carries a resource's unread badge (TabBar ids: home, play,
+// ask, chat, us). Inspiration and the Shelf live inside Play, the games are
+// Play, and the Vault is part of Us. This only routes the in-app tab badges;
+// the PWA icon badge is a separate needs-you count (lib/app-badge on the
+// client, functions/api/_attention.js on the server) and never reads this map.
 export const ACTIVITY_RESOURCE_TAB: Record<ActivityResource, string> = {
-  "request-board": "sexboard",
-  "fantasy-backlog": "inspiration",
-  shelf: "inspiration",
-  vault: "space",
-  pile: "games",
-  "blind-reveals": "games",
+  "request-board": "home",
+  "fantasy-backlog": "play",
+  shelf: "play",
+  vault: "us",
+  pile: "play",
+  "blind-reveals": "play",
+  mood: "home",
 };
+
+// The mood match has no actor: it is something both of you did. Rows and
+// toasts for it must never read as "{partner} ...".
+export const MOOD_MATCH_HREF = "/sexboard?mood=match";
+export const MOOD_MATCH_COPY = "You're both in the mood";
+
+export function isMoodActivity(item: Pick<ActivityItem, "resource"> | null | undefined) {
+  return item?.resource === "mood";
+}
 
 export function mutualAskHref(requestId = "", acts: string[] = [], narration = "") {
   const params = new URLSearchParams({ source: "ask" });
@@ -132,11 +158,12 @@ export function lastRequestEventAt(request: {
 }
 
 export function activityHref(item: ActivityItem) {
+  if (item.resource === "mood") return MOOD_MATCH_HREF;
   if ((item.groupedCount || 0) > 1) return ACTIVITY_RESOURCE_ROUTES[item.resource];
   const entityId = encodeURIComponent(item.entityId || "");
   const activityParam = "activity=1";
   const actionParam = item.action ? `&action=${encodeURIComponent(item.action)}` : "";
-  if (item.resource === "request-board" && item.action === "counter_accepted" && item.entityId) {
+  if (item.resource === "request-board" && (item.action === "counter_accepted" || item.action === "planned") && item.entityId) {
     return mutualAskHref(item.entityId);
   }
   if (item.resource === "request-board" && entityId) return `/ask-detail?id=${entityId}&${activityParam}`;
@@ -209,7 +236,12 @@ export function publishActivitySummary(summary: ActivitySummary) {
   } catch {}
 }
 
-export function textForActivityEvent(resource = "", action = "") {
+export function textForActivityEvent(resource = "", action = "", actorName = "") {
+  // A pass or a maybe names who said it, like the activity feed row does.
+  const first = String(actorName || "").trim().split(/\s+/)[0];
+  if (resource === "request-board" && first && (action === "passed" || action === "maybe")) {
+    return action === "passed" ? `${first} passed.` : `${first} said maybe.`;
+  }
   return ACTION_COPY[resource]?.[action] || "";
 }
 

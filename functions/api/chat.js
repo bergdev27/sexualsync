@@ -322,8 +322,9 @@ export async function onRequest(context) {
         if (typeof context?.waitUntil === "function") {
           context.waitUntil(notificationTask);
         } else {
-          // Self-host runtimes do not expose Cloudflare's waitUntil. Await there
-          // so the response cannot end before Web Push has left the process.
+          // Both runtimes pass waitUntil (the self-host server drains it after
+          // responding). A host without it gets an await instead, so the
+          // response cannot end before Web Push has left the process.
           await notificationTask;
         }
       }

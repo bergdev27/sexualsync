@@ -12,6 +12,7 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import { clearReconnectAttemptLog } from "@/lib/api";
+import "./auth-blocked.css";
 
 export default function AuthBlockedPage() {
   useEffect(() => {

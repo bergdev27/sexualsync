@@ -184,6 +184,53 @@ function firstName(value) {
   return String(value || "").trim().split(/\s+/)[0] || "";
 }
 
+// "Plan it" (the match moment): either partner can pin an approved Ask to a
+// concrete time. The plan lives on the Ask record itself (no new store) and
+// only stretches the auto-expiry so a plan for the weekend isn't expired by the
+// Ask's original "Tonight" window. Bounds keep a garbled client from parking an
+// Ask for months or planning it in the past.
+const PLAN_MAX_AHEAD_MS = 60 * 24 * 60 * 60 * 1000;
+const PLAN_PAST_GRACE_MS = 6 * 60 * 60 * 1000;
+
+function cleanPlannedFor(value) {
+  const text = cleanShortText(value, 40);
+  if (!text) return "";
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toISOString();
+}
+
+function plannedForWithinBounds(iso, nowMs = Date.now()) {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return false;
+  return ms >= nowMs - PLAN_PAST_GRACE_MS && ms <= nowMs + PLAN_MAX_AHEAD_MS;
+}
+
+// A reply that countered and is now waiting on the REQUESTER to accept or pass.
+// Mirrors the client's hasPendingRequestCounter (web/src/lib/request-state.ts),
+// and backs the "needs you" badge count for the requester (_attention.js). An
+// encrypted counter is recognised by its "Counter" decision, as accept_counter
+// does.
+export function counterAwaitsRequester(request) {
+  if (!request || !["reviewed", "on_deck"].includes(request.status) || request.counterAcceptedAt) return false;
+  if (counterItemsForRequest(request).length > 0) return true;
+  return Boolean(cleanRoomEncryptedBox(request.encryptedReply, 60000))
+    && cleanDecisions(request.decisions || []).some((item) => item.decision === "Counter");
+}
+
+// Server mirror of the client's isApprovedSexActRequest
+// (web/src/lib/request-state.ts): only an all-agreed Ask with no counter still
+// pending can be planned.
+function isApprovedForPlanning(request) {
+  if (!request) return false;
+  const counterPending = !request.counterAcceptedAt && counterItemsForRequest(request).length > 0;
+  if (counterPending) return false;
+  const hasApprovedAct = cleanDecisions(request.decisions || [])
+    .some((item) => item.decision === "Yes" && item.targetType === "act");
+  if (hasApprovedAct) return request.status === "reviewed" || request.status === "on_deck";
+  return request.status === "on_deck" && cleanCategories(request.categories).length > 0;
+}
+
 function matchNarrationInputForRequest(request, options = {}) {
   const acts = approvedActLabelsForNarration(request, options);
   const you = firstName(request?.requesterName || request?.requester || "");
@@ -443,7 +490,7 @@ function expiryDaysForRequest(request) {
   return days;
 }
 
-function expirationFor(request) {
+function timingExpirationFor(request) {
   const anchor = timingAnchorForRequest(request);
   if (!anchor) return null;
   const days = expiryDaysForRequest(request);
@@ -452,6 +499,24 @@ function expirationFor(request) {
   if (Number.isNaN(base.getTime())) return null;
   const expiryDate = addDaysToDateParts(zonedParts(base), days);
   return zonedMidnightUtc(expiryDate.year, expiryDate.month, expiryDate.day).toISOString();
+}
+
+// A plan keeps the Ask live through the end of the planned day. It only ever
+// EXTENDS the timing window (never shortens it), so planning can't expire an Ask
+// earlier than its timing already would.
+function plannedExpirationFor(request) {
+  const planned = cleanPlannedFor(request?.plannedFor);
+  if (!planned) return null;
+  const dayAfter = addDaysToDateParts(zonedParts(new Date(planned)), 1);
+  return zonedMidnightUtc(dayAfter.year, dayAfter.month, dayAfter.day).toISOString();
+}
+
+function expirationFor(request) {
+  const timingExpiry = timingExpirationFor(request);
+  const plannedExpiry = plannedExpirationFor(request);
+  if (!plannedExpiry) return timingExpiry;
+  if (!timingExpiry) return plannedExpiry;
+  return plannedExpiry > timingExpiry ? plannedExpiry : timingExpiry;
 }
 
 function unansweredStaleAtForRequest(request) {
@@ -820,6 +885,14 @@ function migrate(request, legacyPeople = {}) {
     createdAt: request.createdAt || new Date().toISOString(),
     updatedAt: request.updatedAt || request.createdAt || new Date().toISOString()
   };
+  const plannedFor = cleanPlannedFor(request.plannedFor);
+  if (plannedFor) migrated.plannedFor = plannedFor;
+  else {
+    delete migrated.plannedFor;
+    delete migrated.plannedAt;
+    delete migrated.plannedByEmail;
+    delete migrated.plannedByName;
+  }
   if (encryptedPayload) migrated.encryptedPayload = encryptedPayload;
   else delete migrated.encryptedPayload;
   if (encryptedReply) migrated.encryptedReply = encryptedReply;
@@ -1308,9 +1381,13 @@ export async function onRequest(context) {
         entityId: existing.id,
         metadata: decisionCounts(decisions)
       });
+      // A reply that is a pass on every act says so in the activity feed
+      // ("Jordan passed") instead of a generic "Ask reviewed".
+      const passedEverything = !hasYes && !hasCounter
+        && decisions.every((item) => item.decision === "No");
       broadcastRoomEvent(context, workspace.id, {
         resource: "request-board",
-        action: "reviewed",
+        action: passedEverything ? "passed" : "reviewed",
         entityId: existing.id,
         actorEmail,
         actorName,
@@ -1569,6 +1646,71 @@ export async function onRequest(context) {
       return jsonResponse(200, {
         request: updated,
         emailResult,
+        workspaceId: workspace.id,
+        ...partitionForWorkspace(next, dataWorkspaceIds)
+      });
+    }
+
+    // "Plan it": either participant pins an approved Ask to a time (or clears
+    // the plan with an empty plannedFor). Status is untouched: a plan is a note
+    // on the agreement, not a state transition. One CAS write; the room event
+    // refreshes the partner's Sexboard and records a generic activity row.
+    if (action === "plan") {
+      if (!isRequestParticipant(existing, actorEmail)) {
+        return jsonResponse(403, { error: "Only this Ask's participants can plan it." });
+      }
+      const rawPlannedFor = payload.plannedFor;
+      const clearing = rawPlannedFor === "" || rawPlannedFor === null;
+      const plannedFor = clearing ? "" : cleanPlannedFor(rawPlannedFor);
+      if (!clearing && !plannedFor) {
+        return jsonResponse(400, { error: "Pick a time for the plan." });
+      }
+      if (plannedFor && !plannedForWithinBounds(plannedFor)) {
+        return jsonResponse(400, { error: "Pick a time between now and the next two months." });
+      }
+      const now = new Date().toISOString();
+      let updated = null;
+      let raceConflict = null;
+      const writtenRows = await writeRequestsAtomic(env, existing.workspaceId, (fresh) => {
+        const cur = fresh.find((item) => item.id === existing.id);
+        if (!cur) { raceConflict = { status: 404, error: "This Ask is no longer available." }; return null; }
+        if (!isRequestParticipant(cur, actorEmail)) {
+          raceConflict = { status: 403, error: "Only this Ask's participants can plan it." };
+          return null;
+        }
+        if (!isApprovedForPlanning(cur)) {
+          raceConflict = { status: 409, error: "Only an Ask you both said yes to can be planned." };
+          return null;
+        }
+        const rest = { ...cur };
+        delete rest.plannedFor;
+        delete rest.plannedAt;
+        delete rest.plannedByEmail;
+        delete rest.plannedByName;
+        updated = plannedFor
+          ? { ...rest, plannedFor, plannedAt: now, plannedByEmail: actorEmail, plannedByName: actorName, updatedAt: now }
+          : { ...rest, updatedAt: now };
+        return fresh.map((item) => item.id === cur.id ? updated : item);
+      }, { legacyPeople });
+      if (raceConflict) return jsonResponse(raceConflict.status, { error: raceConflict.error });
+      const next = recombineRequests(allRequests, existing.workspaceId, writtenRows);
+      await appendAudit(env, workspace.id, {
+        type: plannedFor ? "request_planned" : "request_unplanned",
+        actorEmail,
+        actorName,
+        entityType: "request",
+        entityId: existing.id,
+        metadata: { plannedFor }
+      });
+      broadcastRoomEvent(context, workspace.id, {
+        resource: "request-board",
+        action: plannedFor ? "planned" : "unplanned",
+        entityId: existing.id,
+        actorEmail,
+        actorName,
+      });
+      return jsonResponse(200, {
+        request: updated,
         workspaceId: workspace.id,
         ...partitionForWorkspace(next, dataWorkspaceIds)
       });

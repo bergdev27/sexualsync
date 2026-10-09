@@ -1,0 +1,538 @@
+/* Styles only /space/health renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+/* Health */
+
+.health-stage {
+  position: relative;
+  z-index: var(--z-raised-2);
+  display: grid;
+  gap: 16px;
+  padding: 0 22px 34px;
+}
+
+.health-range {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: rgba(23, 10, 16, 0.34);
+  background-clip: padding-box;
+  box-shadow: var(--ring-hairline);
+}
+
+/* The active pill is a single sliding thumb behind the labels, not a per-button
+   background — so switching range glides the rose pill across instead of
+   snapping. Geometry mirrors the 5px padding + 6px gap of the 3-col grid:
+   thumb width = one cell, step = cell + gap. Reduced-motion drops the slide. */
+
+.health-range-thumb {
+  position: absolute;
+  z-index: var(--z-base);
+  top: 5px;
+  bottom: 5px;
+  left: 5px;
+  width: calc((100% - 22px) / 3);
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 8px 22px var(--accent-fog), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  /* width here resolves against the container's padding box; the translate %
+     resolves against the thumb's OWN width (one cell), so a step is 100% + gap. */
+  transform: translateX(calc(var(--active-index, 0) * (100% + 6px)));
+  transition: transform var(--dur-state) var(--ease-settle);
+}
+
+.health-range-button.is-active {
+  color: var(--bg);
+}
+
+.health-summary {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(ellipse at 18% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 56%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 13%, transparent), color-mix(in srgb, var(--surface-3) 36%, transparent) 45%, color-mix(in srgb, var(--bg) 18%, transparent)),
+    var(--surface);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 6%, transparent);
+}
+
+.health-summary-head,
+.health-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.health-summary-head .eyebrow {
+  margin: 0;
+}
+
+.health-rule-pill,
+.health-section-head span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--cream-a04);
+  background-clip: padding-box;
+  box-shadow: var(--ring-hairline);
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+/* All-time summary, redesigned: one hero metric (sex events — what the card is
+   about) over two supporting stats. Full-width hero row + half-width supporting
+   columns mean a caption never wraps inside a cramped third-tile, which is what
+   made the old equal-thirds grid read as misaligned. */
+
+.health-hero-stat {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.health-hero-num {
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-72);
+  font-weight: 600;
+  line-height: 0.8;
+  letter-spacing: -0.01em;
+}
+
+.health-hero-meta {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.health-hero-meta strong {
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.health-hero-meta span {
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.3;
+}
+
+.health-substat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}
+
+.health-substat {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.health-substat + .health-substat {
+  padding-left: 18px;
+  border-left: 1px solid var(--hairline);
+}
+
+.health-substat-num {
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-38);
+  font-weight: 600;
+  line-height: 0.85;
+}
+
+.health-substat p {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.3;
+}
+
+.health-section {
+  display: grid;
+  gap: 10px;
+}
+
+.health-section-head h2 {
+  margin: 0;
+  color: var(--cream);
+  font-size: var(--fs-17);
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.health-rhythm-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.health-bars {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: end;
+  gap: 6px;
+  height: 82px;
+}
+
+/* Hairline the bars sit on, so the chart reads as grounded rather than floating. */
+
+.health-bars::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--hairline) 18%, var(--hairline) 82%, transparent);
+}
+
+.health-bar {
+  min-height: 10px;
+  border-radius: var(--r-pill) var(--r-pill) 5px 5px;
+  background: color-mix(in srgb, var(--cream) 13%, transparent);
+  transform-origin: bottom center;
+  animation: health-bar-grow 640ms var(--ease-bloom, ease) backwards;
+}
+
+.health-bar.has-ask {
+  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 22%, transparent));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* Gold is a signal (Talk first, caution, on deck), never chart paint, so
+   the second series is cream: Asks rose, Pile overlaps cream. */
+.health-bar.has-pile {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cream) 72%, transparent), color-mix(in srgb, var(--cream) 16%, transparent));
+}
+
+.health-bar.has-ask.has-pile {
+  background:
+    linear-gradient(180deg, var(--accent) 0 52%, color-mix(in srgb, var(--cream) 72%, transparent) 52% 100%);
+}
+
+.health-rhythm-card p {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}
+
+.health-act-list,
+.health-event-list {
+  display: grid;
+  overflow: hidden;
+}
+
+.health-act-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.health-act-row:last-child {
+  border-bottom: 0;
+}
+
+.health-act-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.health-act-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cream);
+  font-size: var(--fs-13);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-act-row em {
+  color: var(--cream);
+  font-family: var(--mono);
+  font-size: var(--fs-12);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-meter {
+  position: relative;
+  height: 7px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--cream) 8%, transparent);
+}
+
+.health-meter span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 7px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, transparent), var(--accent));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 32%, transparent);
+  transform-origin: left center;
+  animation: health-meter-fill 900ms var(--ease-bloom, ease) backwards;
+}
+
+.health-balance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.health-balance-card {
+  min-height: 112px;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 13px;
+}
+
+.health-balance-card strong {
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-weight: 600;
+  line-height: 1.02;
+}
+
+.health-balance-card span {
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.35;
+}
+
+.health-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.health-event-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--hairline);
+  color: inherit;
+  text-decoration: none;
+}
+
+.health-event-row:last-child {
+  border-bottom: 0;
+}
+
+.health-event-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--accent-mist);
+  background-clip: padding-box;
+  box-shadow: var(--ring-accent-fog);
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.health-event-type.is-pile {
+  border-color: transparent;
+  background: var(--cream-a08);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
+  color: var(--cream);
+}
+
+.health-event-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.health-event-copy strong {
+  overflow: hidden;
+  color: var(--cream);
+  font-size: var(--fs-13);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.health-event-copy span {
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.3;
+}
+
+.health-event-acts {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.health-act-emoji,
+.health-act-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--cream) 5%, transparent);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cream) 10%, transparent);
+  color: var(--cream);
+  font-size: var(--fs-15);
+  line-height: 1;
+}
+
+.health-act-more {
+  color: var(--cream-muted);
+  font-family: var(--mono);
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 380px) {
+  .health-stage {
+    padding-inline: 18px;
+  }
+}
+
+@media (max-width: 340px) {
+  .health-balance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Supporting stats stack on the narrowest phones; swap the divider side. */
+  .health-substat-grid {
+    grid-template-columns: 1fr;
+  }
+  .health-substat + .health-substat {
+    margin-top: 12px;
+    padding-top: 12px;
+    padding-left: 0;
+    border-top: 1px solid var(--hairline);
+    border-left: 0;
+  }
+}
+
+/* ── Health — motion & polish ──────────────────────────────────────────────
+   The page fades in as one group, the hero numbers tick (RollingNumber), the
+   rhythm bars grow from the baseline, the meters fill, and one light sweep
+   crosses the hero card. Every animation is one-shot on mount (`backwards`)
+   so range switches and re-renders never replay it; only the rolling numbers
+   re-fire, because their value actually changed. The whole block is gated
+   for reduced motion at the end. */
+
+/* The page lands as one group: a single short fade, no cascade. Health is a
+   place you come to read, not a sequence to watch (operate mode). The bars
+   and meters filling are the one authored moment. */
+
+.health-stage {
+  animation: health-stage-in var(--dur-state, 200ms) var(--ease-enter, ease) backwards;
+}
+
+/* One soft light sweep across the hero card when it lands, then rest. It was
+   a 7.5s loop that restyled the card every frame for as long as the page
+   stayed open. Clipped by the card's own overflow:hidden. */
+
+.health-summary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-raised-3);
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    color-mix(in srgb, var(--cream) 8%, transparent) 49%,
+    color-mix(in srgb, var(--cream) 11%, transparent) 50%,
+    transparent 60%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  background-position: -75% 0;
+  animation: health-summary-sheen 1.2s var(--ease-settle, ease) 500ms 1 backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health-stage,
+  .health-summary::after,
+  .health-bar,
+  .health-meter span {
+    animation: none !important;
+  }
+  .health-bar,
+  .health-meter span {
+    transform: none !important;
+  }
+  .health-range-thumb {
+    transition: none !important;
+  }
+}
+
+@keyframes health-stage-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes health-summary-sheen {
+  from { background-position: 175% 0; }
+  to   { background-position: -75% 0; }
+}
+
+@keyframes health-bar-grow {
+  from { transform: scaleY(0.05); opacity: 0; }
+  55%  { opacity: 1; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes health-meter-fill {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+

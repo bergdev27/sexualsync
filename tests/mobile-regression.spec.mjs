@@ -451,6 +451,17 @@ async function mockApi(page, state = {}) {
         vapidPublicKey: "BEl6Ww",
       });
     }
+    if (pathname === "/api/green-lights" && state.greenLightsFull) {
+      return json(state.greenLightsFull);
+    }
+    if (pathname === "/api/sex-quiz" && state.sexQuizFull) {
+      if (method === "POST") {
+        const body = route.request().postDataJSON();
+        state.sexQuizSubmits = [...(state.sexQuizSubmits || []), body];
+        state.sexQuizFull = { ...state.sexQuizFull, myRatings: body.ratings, myTopPicks: body.topPicks || [], mySubmitted: true };
+      }
+      return json(state.sexQuizFull);
+    }
     if (pathname === "/api/profile") {
       if (method === "POST") {
         const body = route.request().postDataJSON();
@@ -527,6 +538,14 @@ async function mockApi(page, state = {}) {
         if (body.action === "reply") {
           state.requestReplyBody = body;
           state.request = { ...boardRequest, status: "reviewed", decisions: body.decisions || [], counters: (body.decisions || []).filter((item) => item.counter) };
+        } else if (body.action === "maybe") {
+          state.request = {
+            ...boardRequest,
+            status: "maybe",
+            maybeAt: "2026-05-23T00:20:00.000Z",
+            maybeByEmail: auth.email,
+            maybeByName: auth.person,
+          };
         } else if (body.action === "accept_counter") {
           state.request = {
             ...boardRequest,
@@ -536,6 +555,18 @@ async function mockApi(page, state = {}) {
             counterAcceptedAt: "2026-05-23T00:25:00.000Z",
             acceptedCounters: boardRequest.counters || [],
           };
+        } else if (body.action === "plan") {
+          state.requestPlanBody = body;
+          const { plannedFor: _plannedFor, plannedAt: _plannedAt, plannedByEmail: _plannedByEmail, plannedByName: _plannedByName, ...unplanned } = boardRequest;
+          state.request = body.plannedFor
+            ? {
+                ...unplanned,
+                plannedFor: body.plannedFor,
+                plannedAt: "2026-05-23T00:40:00.000Z",
+                plannedByEmail: auth.email,
+                plannedByName: auth.person,
+              }
+            : unplanned;
         } else if (body.action === "pass") {
           state.request = {
             ...boardRequest,
@@ -774,6 +805,52 @@ async function mockApi(page, state = {}) {
       }
       return json({ workspaceId: workspace.id, reactionCatalog: [], items: [] });
     }
+    if (pathname === "/api/mood") {
+      // Double-blind mood light, same contract as functions/api/mood.js: the
+      // response carries only my state plus a match when both are on.
+      // state.moodPartner = { until } plays the partner's (hidden) light.
+      const now = state.moodNow ? Date.parse(state.moodNow) : Date.now();
+      const iso = (ms) => new Date(ms).toISOString();
+      const mood = state.mood = state.mood || { on: false, since: null, until: null, cooldownUntil: null, match: null };
+      const partnerUntil = state.moodPartner ? Date.parse(state.moodPartner.until) : 0;
+      // The partner switching on while I'm on forms the match server-side.
+      if (mood.on && !mood.match && partnerUntil > now) {
+        mood.match = { since: iso(now), until: iso(Math.min(Date.parse(mood.until), partnerUntil)) };
+      }
+      const view = () => ({
+        workspaceId: workspace.id,
+        mine: { on: mood.on, since: mood.since, until: mood.until, cooldownUntil: mood.cooldownUntil },
+        match: mood.match,
+        serverNow: iso(now),
+      });
+      if (state.moodFail) return json({ error: "Internal error" }, 500);
+      if (method === "POST") {
+        const body = route.request().postDataJSON();
+        state.moodPosts = [...(state.moodPosts || []), body];
+        if (body.action === "off") {
+          const wasOn = mood.on;
+          Object.assign(mood, { on: false, since: null, until: null, match: null });
+          if (wasOn) mood.cooldownUntil = iso(now + 5 * 60_000);
+        }
+        if (body.action === "on") {
+          if (mood.cooldownUntil && Date.parse(mood.cooldownUntil) > now) {
+            return json({
+              error: "You just switched your mood light off. Give it a few minutes.",
+              code: "mood_cooldown",
+              retryAt: mood.cooldownUntil,
+              ...view(),
+            }, 429);
+          }
+          const until = Math.min(Math.max(Date.parse(body.until), now + 15 * 60_000), now + 24 * 60 * 60_000);
+          if (!mood.on) mood.since = iso(now);
+          Object.assign(mood, { on: true, until: iso(until), cooldownUntil: null });
+          if (partnerUntil > now) {
+            mood.match = { since: mood.match?.since || iso(now), until: iso(Math.min(until, partnerUntil)) };
+          }
+        }
+      }
+      return json(view());
+    }
     return json({ ok: true });
   });
 }
@@ -817,14 +894,53 @@ test("sign-in requires legal acceptance before auth starts", async ({ page }) =>
   await expect(page.getByRole("button", { name: "Send code" })).toBeEnabled();
 });
 
+test("A launch reauth lands on a calm sign-in screen, not a signed-out error", async ({ page }) => {
+  await mockApi(page, {});
+  await page.goto("/signed-out?reason=launch");
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in to open your room." })).toBeVisible();
+  await expect(page.getByText("This device is clear.")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/signin");
+  await page.goto("/signed-out");
+  await expect(page.getByRole("heading", { level: 1, name: "This device is clear." })).toBeVisible();
+});
+
+test("Sign-out warns before it deletes device-only private notes", async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      if (!window.sessionStorage.getItem("seeded-notes")) {
+        window.sessionStorage.setItem("seeded-notes", "1");
+        window.localStorage.setItem("ss:private-notes", JSON.stringify([{ id: "n1", text: "Just for me.", createdAt: "2026-05-23T00:00:00.000Z" }]));
+      }
+    } catch {}
+  });
+  await mockApi(page, {});
+  await page.goto("/space");
+  await page.getByRole("button", { name: "Settings" }).click();
+  const signOut = page.getByRole("dialog", { name: "Settings" }).getByRole("link", { name: /Sign out of this device/i });
+
+  await signOut.click();
+  const confirm = page.getByRole("alertdialog", { name: "Sign out of this device?" });
+  await expect(confirm).toContainText("only on this device");
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(page).toHaveURL(/\/space/);
+  expect(await page.evaluate(() => window.localStorage.getItem("ss:private-notes"))).toBeTruthy();
+
+  await signOut.click();
+  await page.getByRole("alertdialog", { name: "Sign out of this device?" }).getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "This device is clear." })).toBeVisible();
+  expect(await page.evaluate(() => window.localStorage.getItem("ss:private-notes"))).toBeNull();
+});
+
 test("intentional sign-out suppresses standalone PWA auto-reconnect from welcome", async ({ page }) => {
   await emulateStandalonePwa(page);
 
   const state = {};
   await mockApi(page, state);
+  // Sign out lives in the Settings sheet on Us.
   await page.goto("/space");
+  await page.getByRole("button", { name: "Settings" }).click();
 
-  await page.getByRole("link", { name: /Sign out of this device/i }).click();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("link", { name: /Sign out of this device/i }).click();
   await expect(page.getByRole("heading", { name: "This device is clear." })).toBeVisible();
 
   state.bootstrapUnauthorized = true;
@@ -1052,17 +1168,17 @@ test("standalone PWA launch reconnects after an old sign-out marker expires", as
   expect(state.pwaHandoffActions?.[0]?.action).toBe("start");
 });
 
-test("Space omits the redundant paired-space summary card", async ({ page }) => {
+test("Us omits the redundant paired-space summary card", async ({ page }) => {
   const state = {};
   await mockApi(page, state);
   await page.goto("/space");
 
-  await expect(page.getByRole("heading", { name: "You & your space" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Us" })).toBeVisible();
   await expect(page.locator(".settings-id")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Rename space" })).toHaveCount(0);
 });
 
-test("Space reconnects granted notification permission to push subscription storage", async ({ page }) => {
+test("Us reconnects granted notification permission to push subscription storage", async ({ page }) => {
   const state = {};
   await page.addInitScript(() => {
     // A user who already enabled notifications has their per-event prefs saved in
@@ -1132,14 +1248,16 @@ test("Space reconnects granted notification permission to push subscription stor
   await mockApi(page, state);
   await page.goto("/space");
 
-  await expect(page.getByRole("heading", { name: "You & your space" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Us" })).toBeVisible();
   await expect.poll(() => state.pushSubscribeBody?.subscription?.endpoint).toBe("https://push.example.test/alex-phone");
   expect(state.pushSubscribeBody?.workspaceId).toBe(workspace.id);
   expect(state.pushSubscribeBody?.preferences?.["request-sent"]).toBe(true);
   // The reconnect carries the saved opt-out through instead of resetting to
   // all-on — i.e. a deploy never silently changes the user's notification prefs.
   expect(state.pushSubscribeBody?.preferences?.["game-ready"]).toBe(false);
-  await expect(page.getByText("Notifications are on for this device.")).toBeVisible();
+  // Device notification status lives in the Settings sheet on Us.
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" }).getByText("Notifications are on for this device.")).toBeVisible();
 });
 
 test("Sext long-press reply survives small finger movement", async ({ page }) => {
@@ -1178,7 +1296,7 @@ test("Sext long-press reply survives small finger movement", async ({ page }) =>
     cancelable: true,
   });
 
-  await expect(page.getByRole("menu", { name: "Message actions" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Message actions" })).toBeVisible();
   await bubble.dispatchEvent("pointerup", {
     pointerId: 23,
     pointerType: "touch",
@@ -1285,17 +1403,35 @@ test("Health dashboard stays compact and tappable on iPhone", async ({ page }) =
   expect(metrics.emojis).toContain("📹");
 });
 
-test("Reveals index art uses app theme colors on iPhone", async ({ page }) => {
-  await mockApi(page);
+test("Play art uses app theme colors on iPhone", async ({ page }) => {
+  // The Pile and Blind Reveal are both waiting on Alex, so they float up as
+  // full art tiles; the untouched Sex Quiz and Green Lights sit as rows.
+  await mockApi(page, {
+    pile: { ...activePile, mine: [], partnerHasDropped: true },
+    blindReveal: {
+      ...archivedBlindReveal,
+      id: "blind-open-1",
+      status: "open",
+      revealedAt: "",
+      archivedAt: "",
+      submittedCount: 1,
+      mySubmitted: false,
+      partnerSubmitted: true,
+      myEntry: null,
+      entries: [],
+    },
+  });
   await page.goto("/games");
-  await expect(page.getByRole("heading", { name: "Nobody has to go first." })).toBeVisible();
-  // Sex Quiz and Green Lights lead the list; the Pile and Blind Reveal follow.
+  await expect(page.getByRole("heading", { level: 1, name: "Play" })).toBeVisible();
   const tiles = page.locator(".game-tile");
-  await expect(tiles).toHaveCount(4);
-  await expect(tiles.nth(0)).toHaveAttribute("href", "/games/sex-quiz");
-  await expect(tiles.nth(1)).toHaveAttribute("href", "/games/green-lights");
-  await expect(tiles.nth(2)).toHaveAttribute("href", "/games/pile");
-  await expect(tiles.nth(3)).toHaveAttribute("href", "/games/blind-reveal");
+  await expect(tiles).toHaveCount(2);
+  await expect(tiles.nth(0)).toHaveAttribute("href", "/games/pile");
+  await expect(tiles.nth(1)).toHaveAttribute("href", "/games/blind-reveal");
+  const rows = page.locator(".play-row-game");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toHaveAttribute("href", "/games/sex-quiz");
+  await expect(rows.nth(1)).toHaveAttribute("href", "/games/green-lights");
+  await expect(page.getByText("2 waiting on you")).toBeVisible();
   await expect(page.locator(".game-art-pile")).toBeVisible();
   await expect(page.locator(".game-art-reveal")).toBeVisible();
   await expect(page.locator(".pile-card")).toHaveCount(3);
@@ -1390,7 +1526,7 @@ test("Pile page shows Recent piles history on iPhone", async ({ page }) => {
   await expect(page.getByText("Slow kissing")).toBeVisible();
 });
 
-test("Reveals badge clears after viewed Pile and Blind Reveal reveals", async ({ page }) => {
+test("Play badge clears after viewed Pile and Blind Reveal reveals", async ({ page }) => {
   const gameActivity = {
     workspaceId: workspace.id,
     unreadTotal: 2,
@@ -1434,16 +1570,16 @@ test("Reveals badge clears after viewed Pile and Blind Reveal reveals", async ({
     blindReveals: [archivedBlindReveal],
   });
   await page.goto("/sexboard");
-  await expect(page.getByRole("link", { name: /Reveals 2 unread/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Play 2 unread/ })).toBeVisible();
 
   await page.goto("/games/pile");
   await expect(page.getByRole("heading", { name: "In sync." })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Reveals 1 unread/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Play 1 unread/ })).toBeVisible();
 
   await page.goto("/games/blind-reveal?id=blind-closed-1&activity=1");
   await expect(page.getByText("closed reveal")).toBeVisible();
-  await expect(page.getByRole("link", { name: /^Reveals$/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Reveals [1-9] unread/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /^Play$/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Play [1-9] unread/ })).toHaveCount(0);
 });
 
 test("Pile waiting-on-partner pill is centered on iPhone", async ({ page }) => {
@@ -1552,7 +1688,7 @@ test("Sexboard online presence mark breathes green", async ({ page }) => {
   await mockApi(page);
   await page.goto("/sexboard");
   const liveStatus = page.locator(".presence-band-status.is-live");
-  await expect(liveStatus).toContainText("live");
+  await expect(liveStatus).toContainText("Live");
 
   const markStyle = await liveStatus.locator(".presence-live-mark").evaluate((node) => {
     const style = window.getComputedStyle(node);
@@ -1592,6 +1728,117 @@ test("Sexboard hides expired unrevealed Piles", async ({ page }) => {
   });
   await page.goto("/sexboard");
   await expect(page.locator('a.sexboard-handoff-row[href="/games/pile"]')).toHaveCount(0);
+});
+
+test("Green Lights reveal breaks alignment down by topic and names shared worries", async ({ page }) => {
+  const mine = { "am-happy": { value: "agree" }, "am-more": { value: "yes" }, "tk-laugh": { value: "agree" }, "pl-pressure": { value: "agree" } };
+  const partner = { "am-happy": { value: "agree" }, "am-more": { value: "open" }, "tk-laugh": { value: "agree" }, "pl-pressure": { value: "agree" } };
+  await mockApi(page, {
+    greenLightsFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      updatedAt: "", revealedAt: "", myAnswers: mine, partnerAnswers: partner, partnerName: "Jordan",
+    },
+  });
+  await page.goto("/games/green-lights");
+
+  const concerns = page.locator(".gl-shared-concerns");
+  await expect(concerns.getByText("Shared, worth naming")).toBeVisible();
+  await expect(concerns.getByText("I feel pressure to orgasm, or to make you orgasm")).toBeVisible();
+
+  const breakdown = page.locator("details.sync-breakdown");
+  await breakdown.getByText("See it by topic").click();
+  await expect(breakdown.locator("li").filter({ hasText: "Amount & cadence" })).toContainText("1/2");
+  await expect(breakdown.locator("li").filter({ hasText: "Talking about sex" })).toContainText("1/1");
+});
+
+test("Sex Quiz reveal shows where the overlap clusters", async ({ page }) => {
+  await mockApi(page, {
+    sexQuizFull: {
+      workspaceId: "ws-demo", status: "revealed", requiredCount: 2, mySubmitted: true, partnerSubmitted: true,
+      updatedAt: "", revealedAt: "", myRatings: { oral: { interest: "into" } }, myTopPicks: [],
+      matches: [{ cardId: "oral", myRole: "", partnerRole: "", complementary: false }, { cardId: "sixtynine", myRole: "", partnerRole: "", complementary: false }, { cardId: "frombehind", myRole: "", partnerRole: "", complementary: false }],
+      curiousTogether: [{ cardId: "facesitting" }], syncScore: 72, partnerTopPicks: [], partnerName: "Jordan",
+      fullRevealMine: false, fullRevealPartner: false, partnerRatings: null,
+    },
+  });
+  await page.goto("/games/sex-quiz");
+  const breakdown = page.locator("details.sync-breakdown");
+  await breakdown.getByText("Where you overlap most").click();
+  const rows = breakdown.locator("li");
+  await expect(rows.first()).toContainText("Mouths, hands & tits");
+  await expect(rows.first()).toContainText("2 into · 1 curious");
+  await expect(rows.nth(1)).toContainText("Positions & places");
+});
+
+test("Sex Quiz locked-in screen moves to the reveal when the partner finishes", async ({ page }) => {
+  const state = {
+    sexQuizFull: {
+      workspaceId: "ws-demo", status: "open", requiredCount: 2, mySubmitted: true, partnerSubmitted: false,
+      updatedAt: "", revealedAt: "", myRatings: { oral: { interest: "into" } }, myTopPicks: ["oral"],
+      matches: [], curiousTogether: [], syncScore: 0, partnerTopPicks: [], partnerName: "Jordan",
+      fullRevealMine: false, fullRevealPartner: false, partnerRatings: null,
+    },
+  };
+  await mockApi(page, state);
+  let socket = null;
+  await page.routeWebSocket(/\/api\/room\/socket/, (ws) => {
+    socket = ws;
+    ws.send(JSON.stringify({ type: "room.hello", workspaceId: workspace.id, latestSeq: 1, online: [], at: new Date().toISOString() }));
+  });
+  await page.goto("/games/sex-quiz");
+  await expect(page.getByText("Your answers are locked in")).toBeVisible();
+  await expect.poll(() => Boolean(socket)).toBe(true);
+
+  state.sexQuizFull = {
+    ...state.sexQuizFull,
+    status: "revealed", partnerSubmitted: true, revealedAt: new Date().toISOString(), syncScore: 72,
+    matches: [{ cardId: "oral", myRole: "", partnerRole: "", complementary: false }],
+  };
+  socket.send(JSON.stringify({
+    type: "room.event",
+    seq: 2,
+    event: { seq: 2, resource: "sex-quiz", action: "submitted", actorEmail: "jordan@example.test", actorName: "Jordan", passive: true, at: new Date().toISOString() },
+  }));
+  await expect(page.getByText("Your answers are locked in")).toHaveCount(0);
+  await expect(page.locator(".sync-score-reveal")).toBeVisible();
+});
+
+test("Sex Quiz offers only the new cards to someone who answered an older deck", async ({ page }) => {
+  // An answer for every current card except two, plus one retired card.
+  const deckSource = await import("node:fs").then((fs) => fs.readFileSync(new URL("../web/src/lib/quiz-deck.ts", import.meta.url), "utf8"));
+  const ids = [...deckSource.matchAll(/\{ id: "([^"]+)", category:/g)].map((match) => match[1]);
+  const missing = ["wakemeup", "titfuck"];
+  const myRatings = Object.fromEntries(ids.filter((id) => !missing.includes(id)).map((id) => [id, { interest: "curious" }]));
+  myRatings.oral = { interest: "into", role: "give" };
+  myRatings.handedge = { interest: "into" };
+  const state = {
+    sexQuizFull: {
+      workspaceId: "ws-demo", status: "open", requiredCount: 2, mySubmitted: true, partnerSubmitted: false,
+      updatedAt: "", revealedAt: "", myRatings, myTopPicks: ["oral", "handedge"], matches: [], curiousTogether: [],
+      syncScore: null, partnerTopPicks: [], partnerName: "Jordan", fullRevealMine: false, fullRevealPartner: false, partnerRatings: null,
+    },
+  };
+  await mockApi(page, state);
+  await page.goto("/games/sex-quiz");
+
+  await expect(page.getByText("2 new cards to rate")).toBeVisible();
+  await page.getByRole("button", { name: "Rate them" }).click();
+  await page.getByRole("button", { name: "Rate the new cards" }).click();
+  await expect(page.getByText("1 / 2")).toBeVisible();
+  await page.getByRole("button", { name: "Into it" }).click();
+  await page.getByRole("button", { name: "Pass" }).click();
+  await page.getByRole("button", { name: "Reveal to your partner" }).click();
+
+  await expect.poll(() => (state.sexQuizSubmits || []).length).toBe(1);
+  const submitted = state.sexQuizSubmits[0];
+  // Old answers carried forward, both new cards rated, the retired card dropped.
+  expect(Object.keys(submitted.ratings)).toHaveLength(ids.length);
+  expect(submitted.ratings.oral).toEqual({ interest: "into", role: "give" });
+  expect(submitted.ratings.handedge).toBeUndefined();
+  expect(submitted.ratings.wakemeup?.interest).toBe("into");
+  expect(submitted.ratings.titfuck?.interest).toBe("pass");
+  expect(submitted.topPicks).toEqual(["oral"]);
+  await expect(page.getByText("new cards to rate")).toHaveCount(0);
 });
 
 test("Sexboard shows a waiting Sex Quiz handoff once I've submitted", async ({ page }) => {
@@ -1771,6 +2018,135 @@ test("Sexboard approved Ask opens the shared approval splash", async ({ page }) 
   await expect(page).toHaveURL(/\/sexboard$/);
 });
 
+const approvedMatchRequest = {
+  ...counteredRequest,
+  status: "on_deck",
+  categories: ["💆 Sensual massage", "🛁 Shower sex"],
+  timing: "Tonight",
+  feedback: "Bring the oil.",
+  counterAcceptedAt: "2026-05-23T00:25:00.000Z",
+  acceptedCounters: counterDecisions,
+  decisions: [
+    { label: "💆 Sensual massage", decision: "Yes", targetType: "act", note: "" },
+    { label: "🛁 Shower sex", decision: "Yes", targetType: "act", note: "" },
+  ],
+  counters: [],
+};
+
+test("Match moment renders the result before and without its reveal", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  await mockApi(page, { request: approvedMatchRequest });
+  await page.goto("/mutual?source=ask&requestId=req-1");
+
+  // The result is in the DOM from the first render; the reveal only animates it.
+  const heading = page.getByRole("heading", { name: "Both of you said yes." });
+  await expect(heading).toBeVisible();
+  await expect(heading).toBeFocused();
+  await expect(page.locator(".match-moment")).toHaveAttribute("data-reveal", "full");
+  await expect(page.locator(".match-act-name").filter({ hasText: "Sensual massage" })).toHaveCount(1);
+  await expect(page.locator(".match-act-name").filter({ hasText: "Shower sex" })).toHaveCount(1);
+
+  // One tap anywhere skips the reveal: every element is at its final state.
+  await page.locator(".match-scroll").dispatchEvent("pointerdown");
+  await expect(page.locator(".match-moment")).toHaveAttribute("data-reveal", "done");
+  const finalState = await page.evaluate(() => ({
+    // Reveal animations only (the shared atmosphere drift is ambient and separate).
+    running: (document.querySelector(".match-moment")?.getAnimations({ subtree: true }) || [])
+      .filter((animation) => String(animation.animationName || "").startsWith("match-")).length,
+    opacities: [...document.querySelectorAll(".match-act-name, .mutual-title, .match-when, .match-dock > *")]
+      .map((node) => getComputedStyle(node).opacity),
+  }));
+  expect(finalState.running).toBe(0);
+  expect(finalState.opacities.every((value) => value === "1")).toBe(true);
+  await expect(page.getByText("Tonight", { exact: true })).toBeVisible();
+  await expect(page.getByText("Bring the oil.")).toBeVisible();
+
+  // Every control in the dock is at least 44px tall.
+  const heights = await page.locator(".match-dock a, .match-dock button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+  expect(heights.length).toBeGreaterThan(0);
+  expect(Math.min(...heights)).toBeGreaterThanOrEqual(44);
+});
+
+test("Approved Sexboard row morphs into the match hero, and a repeat visit gets the short reveal", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  await page.addInitScript(() => {
+    window.__matchMorphs = 0;
+    const original = document.startViewTransition?.bind(document);
+    if (original) {
+      document.startViewTransition = (callback) => {
+        window.__matchMorphs += 1;
+        return original(callback);
+      };
+    }
+  });
+  await mockApi(page, { request: approvedMatchRequest });
+  await page.goto("/sexboard");
+
+  const row = page.locator(".sexboard-handoff-row").filter({ hasText: "Approved for tonight." });
+  await row.click();
+  await expect(page).toHaveURL(/\/mutual\?/);
+  await expect(page.locator("[data-match-hero][data-ready='1']")).toBeVisible();
+  const morphs = await page.evaluate(() => window.__matchMorphs);
+  const supported = await page.evaluate(() => typeof document.startViewTransition === "function");
+  expect(morphs).toBe(supported ? 1 : 0);
+  if (supported) await expect(page.locator(".match-moment")).toHaveAttribute("data-morph", "1");
+
+  await page.goto("/mutual?source=ask&requestId=req-1");
+  await expect(page.locator(".match-moment")).toHaveAttribute("data-reveal", /brief|done/);
+  await expect(page.getByRole("heading", { name: "Both of you said yes." })).toBeVisible();
+});
+
+test("Match moment with reduced motion lands on the final state instantly", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  await mockApi(page, { request: approvedMatchRequest });
+  await page.goto("/mutual?source=ask&requestId=req-1");
+
+  await expect(page.getByRole("heading", { name: "Both of you said yes." })).toBeVisible();
+  await expect(page.locator(".match-moment")).toHaveAttribute("data-reveal", "done");
+  await expect(page.locator(".match-act-name").first()).toHaveCSS("opacity", "1");
+  const running = await page.evaluate(() => (document.querySelector(".match-moment")?.getAnimations({ subtree: true }) || [])
+    .filter((animation) => String(animation.animationName || "").startsWith("match-")).length);
+  expect(running).toBe(0);
+  await expect(page.getByRole("button", { name: "Plan it" })).toBeVisible();
+});
+
+test("Plan it puts the match on the calendar and the Sexboard shows it as Planned", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = { request: approvedMatchRequest };
+  await mockApi(page, state);
+  await page.goto("/mutual?source=ask&requestId=req-1");
+
+  const planButton = page.getByRole("button", { name: "Plan it" });
+  await expect(planButton).toBeEnabled();
+  await planButton.click();
+  await expect(page.getByRole("group", { name: "When?" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Tonight/ })).toBeChecked();
+  await page.getByRole("radio", { name: /This weekend/ }).check();
+  await expect(page.getByRole("radio", { name: /This weekend/ })).toBeChecked();
+  await page.getByRole("radio", { name: /Pick a time/ }).check();
+  await expect(page.getByLabel("Day and time", { exact: true })).toBeVisible();
+  await page.getByRole("radio", { name: /^Tomorrow/ }).check();
+  await page.getByRole("button", { name: "Save plan" }).click();
+
+  await expect.poll(() => state.requestPlanBody?.action).toBe("plan");
+  const plannedFor = new Date(state.requestPlanBody.plannedFor);
+  expect(Number.isFinite(plannedFor.getTime())).toBe(true);
+  expect(plannedFor.getHours()).toBe(21);
+  await expect(page.getByRole("button", { name: /Planned.*Change/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Planned for/ })).toHaveCount(1);
+
+  await page.getByRole("link", { name: "Back to Sexboard" }).click();
+  await expect(page).toHaveURL(/\/sexboard$/);
+  const plannedSection = page.locator(".sexboard-handoff-section", { has: page.locator(".sexboard-section-head", { hasText: "Planned" }) });
+  await expect(plannedSection).toBeVisible();
+  const plannedRow = plannedSection.locator(".sexboard-handoff-row");
+  await expect(plannedRow).toContainText("Planned for");
+  await expect(plannedRow).toContainText("Sensual massage");
+  await expect(plannedRow).toContainText("You put it on the calendar.");
+  await expect(plannedRow).toHaveAttribute("href", /\/mutual\?source=ask&requestId=req-1/);
+});
+
 test("Pile reveal final state fits the iPhone viewport", async ({ page }) => {
   await mockApi(page, { pile: revealedPile });
   await page.goto("/games/pile");
@@ -1826,7 +2202,7 @@ test("Inspiration source dock is stacked and tappable on iPhone", async ({ page 
   await expect(page.getByRole("link", { name: /Literotica/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /AO3/ })).toBeVisible();
   await expect(page.getByRole("link", { name: /Private Vault/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Open The Shelf/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Open the Shelf/ })).toBeVisible();
   await expect(page.locator(".button-secondary")).toHaveCount(0);
 });
 
@@ -2027,45 +2403,66 @@ test("Activity deep links glow Ask and Kink targets", async ({ page }) => {
   await expect(page.locator(".kd-stage[data-activity-highlight='true']")).toBeVisible();
 });
 
-test("Ask detail lets the assigned reviewer counter with any act and time", async ({ page }) => {
-  const state = {};
-  await mockApi(page, state);
+const replyActs = ["💋 Slow kissing", "🚿 Shower sex"];
+
+test("Ask reply card puts the whole decision on one screen", async ({ page }) => {
+  await mockApi(page, { request: { ...request, categories: replyActs } });
   await page.goto("/ask-detail?id=req-1&activity=1");
 
-  await expect(page.getByText("Requested Acts")).toBeVisible();
-  await expect(page.getByText("Counter with your own Acts")).toBeVisible();
-  await expect(page.getByText("Counter time")).toBeVisible();
+  // Focus starts on the card heading; the Acts are the hero.
+  const heading = page.getByRole("heading", { level: 1, name: "Jordan wants" });
+  await expect(heading).toBeFocused();
+  // The card's heading is the page's one h1 (the shared header drops its title).
+  await expect(page.locator("h1")).toHaveCount(1);
+  await expect(page.getByRole("list", { name: "Requested Acts" }).getByRole("listitem")).toHaveCount(2);
+  await expect(page.getByText("Slow and close.")).toBeVisible();
   await expect(page.getByText("Reply link required")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Archive" })).toHaveCount(0);
+  await expect(page.locator(".tabbar")).toHaveCount(0);
+
   const backToSexboard = page.getByRole("link", { name: "Back to Sexboard" });
   await expect(backToSexboard).toBeVisible();
   await expect(backToSexboard).toHaveAttribute("href", "/sexboard");
   const backMetrics = await backToSexboard.evaluate((node) => {
     const rect = node.getBoundingClientRect();
-    return {
-      height: rect.height,
-      width: rect.width,
-      fontSize: Number.parseFloat(getComputedStyle(node).fontSize),
-    };
+    return { height: rect.height, width: rect.width, fontSize: Number.parseFloat(getComputedStyle(node).fontSize) };
   });
-  expect(backMetrics.height).toBeGreaterThanOrEqual(40);
-  expect(backMetrics.width).toBeGreaterThanOrEqual(132);
+  // Shared drill-down back control: 44px chevron plus the parent's name.
+  expect(backMetrics.height).toBeGreaterThanOrEqual(44);
+  expect(backMetrics.width).toBeGreaterThanOrEqual(44);
   expect(backMetrics.fontSize).toBeGreaterThanOrEqual(13);
 
-  await page.getByRole("button", { name: /Sensual massage/ }).click();
-  await page.getByRole("button", { name: "Tomorrow" }).click();
-  await page.getByLabel("Note").fill("Different vibe.");
-  await page.getByRole("button", { name: "Send reply" }).click();
-
-  await expect.poll(() => state.requestReplyBody?.action).toBe("reply");
-  await expect.poll(() => state.requestReplyBody?.decisions?.find((item) => item.targetType === "act")?.decision).toBe("Counter");
-  await expect.poll(() => state.requestReplyBody?.decisions?.find((item) => item.targetType === "act")?.counter).toContain("Sensual massage");
-  await expect.poll(() => state.requestReplyBody?.decisions?.find((item) => item.targetType === "timing")?.counter).toBe("Tomorrow");
-  await expect.poll(() => state.requestReplyBody?.note).toBe("Different vibe.");
-  await expect(page.getByText("Partner response")).toBeVisible();
+  // Every decision is reachable without scrolling, at thumb-friendly size.
+  const viewport = page.viewportSize();
+  for (const name of ["Pass", "Maybe", "Yes to all", "Counter with something else"]) {
+    const box = await page.getByRole("button", { name }).boundingBox();
+    expect(box, name).not.toBeNull();
+    expect(box.y + box.height, name).toBeLessThanOrEqual(viewport.height);
+    expect(box.height, name).toBeGreaterThanOrEqual(44);
+  }
+  const scrollRoom = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+  expect(scrollRoom).toBeLessThanOrEqual(1);
 });
 
-test("Rowan can pass Avery's Ask from the signed-in reply side", async ({ page }) => {
+test("Ask reply Yes commits in one tap and hands off to the match", async ({ page }) => {
+  const state = { request: { ...request, categories: replyActs } };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+
+  await page.getByRole("button", { name: "Yes to all" }).click();
+  // The short undo window shows first; nothing is sent yet.
+  await expect(page.getByText("Sending your yes", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+  expect(state.requestReplyBody).toBeUndefined();
+
+  // Left alone, it sends by itself.
+  await expect.poll(() => state.requestReplyBody?.decisions?.map((item) => item.decision), { timeout: 8000 }).toEqual(["Yes", "Yes"]);
+  expect(state.requestReplyBody.decisions.map((item) => item.label)).toEqual(replyActs);
+  await expect(page).toHaveURL(/\/mutual\?/);
+  await expect(page.getByRole("heading", { name: "Both of you said yes." })).toBeVisible();
+});
+
+test("Ask reply Pass can be undone, then sends with a calm result", async ({ page }) => {
   const state = {
     request: {
       ...request,
@@ -2083,16 +2480,158 @@ test("Rowan can pass Avery's Ask from the signed-in reply side", async ({ page }
   await mockApi(page, state);
   await page.goto("/ask-detail?id=req-1");
 
-  await expect(page.getByText("Avery to you")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Avery wants" })).toBeVisible();
   await page.getByRole("button", { name: "Pass" }).click();
-  await page.getByLabel("Note").fill("Not tonight, but ask me again later.");
-  await page.getByRole("button", { name: "Send reply" }).click();
+  // Focus follows the swap to the undo bar and back.
+  await expect(page.getByRole("button", { name: "Undo" })).toBeFocused();
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(page.getByRole("button", { name: "Pass" })).toBeFocused();
+  await page.waitForTimeout(4500);
+  expect(state.requestReplyBody).toBeUndefined();
+
+  await page.getByRole("button", { name: "Pass" }).click();
+  await page.getByRole("button", { name: "Send now" }).click();
 
   await expect.poll(() => state.requestReplyBody?.action).toBe("reply");
   await expect.poll(() => state.requestReplyBody?.decisions?.map((item) => item.decision)).toEqual(["No", "No"]);
-  await expect.poll(() => state.requestReplyBody?.note).toBe("Not tonight, but ask me again later.");
-  await expect(page.getByText("Partner response")).toBeVisible();
-  await expect(page.getByText("Counter offer")).toHaveCount(0);
+  const result = page.getByTestId("ask-reply-result");
+  await expect(result.getByRole("heading", { name: "Passed." })).toBeFocused();
+  // The explanation is spoken through the app's one polite announcer.
+  await expect(page.getByTestId("app-announcer")).toHaveText("Avery gets a quiet heads-up. No reason needed.");
+  await expect(result.getByRole("link", { name: "Back to Sexboard" })).toHaveAttribute("href", "/sexboard");
+  await expect(page.getByRole("heading", { name: "Your reply" })).toBeVisible();
+  await expect(page.getByTestId("ask-reply-verdict")).toHaveText("Passed on all of it.");
+  await expect(page.getByTestId("ask-status")).toHaveText("Passed");
+  await expect(page.getByText("Countered with")).toHaveCount(0);
+  await expect(page.getByText("Partner response")).toHaveCount(0);
+});
+
+test("Ask reply Maybe defers in one tap and can be decided later", async ({ page }) => {
+  const state = { request: { ...request, categories: replyActs } };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+
+  await page.getByRole("button", { name: "Maybe" }).click();
+  await expect(page.getByText("Saving your maybe", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Send now" }).click();
+
+  await expect.poll(() => state.requestActionBody?.action).toBe("maybe");
+  expect(state.requestReplyBody).toBeUndefined();
+  const result = page.getByTestId("ask-reply-result");
+  await expect(result.getByRole("heading", { name: "Saved as a maybe." })).toBeVisible();
+  await expect(page.getByTestId("ask-status")).toHaveText("You said maybe");
+
+  // A maybe stays answerable: Decide now brings the card back without Maybe.
+  await result.getByRole("button", { name: "Decide now instead" }).click();
+  await expect(page.getByText("You said maybe earlier.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Maybe" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Yes to all" })).toBeVisible();
+});
+
+test("Ask reply Counter opens a focused sheet with any other act and time", async ({ page }) => {
+  const state = { request: { ...request, categories: replyActs } };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1&activity=1");
+
+  const opener = page.getByRole("button", { name: "Counter with something else" });
+  await opener.click();
+  const sheet = page.getByRole("dialog", { name: "Counter" });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "Back" })).toBeFocused();
+  // Escape closes the sheet and focus returns to the opener.
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+  await expect(opener).toBeFocused();
+
+  await opener.click();
+  await expect(sheet).toBeVisible();
+  // The offer grid never repeats an Act that was already asked for.
+  const offerGrid = sheet.locator(".ask-act-grid");
+  await expect(offerGrid.getByRole("button", { name: /Slow kissing/ })).toHaveCount(0);
+  await expect(offerGrid.getByRole("button", { name: /Shower sex/ })).toHaveCount(0);
+  const keep = sheet.getByRole("button", { name: /Slow kissing/ });
+  await expect(keep).toHaveAttribute("aria-pressed", "false");
+  await expect(sheet.getByRole("button", { name: /^Send counter/ })).toBeDisabled();
+
+  const massage = offerGrid.getByRole("button", { name: /Sensual massage/ });
+  await massage.click();
+  await expect(massage).toHaveAttribute("aria-pressed", "true");
+  await sheet.getByRole("button", { name: "Tomorrow" }).click();
+  await sheet.getByLabel("Note").fill("Different vibe.");
+  await sheet.getByRole("button", { name: /^Send counter/ }).click();
+
+  await expect.poll(() => state.requestReplyBody?.action).toBe("reply");
+  await expect.poll(() => state.requestReplyBody?.decisions?.find((item) => item.targetType === "act")?.decision).toBe("Counter");
+  await expect.poll(() => state.requestReplyBody?.decisions?.find((item) => item.targetType === "act")?.counter).toContain("Sensual massage");
+  await expect.poll(() => state.requestReplyBody?.decisions?.find((item) => item.targetType === "timing")?.counter).toBe("Tomorrow");
+  await expect.poll(() => state.requestReplyBody?.note).toBe("Different vibe.");
+
+  await expect(page.getByTestId("ask-reply-result").getByRole("heading", { name: "Counter sent." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your reply" })).toBeVisible();
+  const counter = page.getByTestId("ask-counter");
+  await expect(counter).toContainText("Countered with");
+  await expect(counter).toContainText("Sensual massage");
+  await expect(counter).toContainText("Tomorrow instead of tonight");
+  await expect(page.getByText(/Counter option/)).toHaveCount(0);
+  await expect(page.getByTestId("ask-status")).toHaveText("Countered");
+});
+
+test("Ask reply Counter can keep some requested acts", async ({ page }) => {
+  const state = { request: { ...request, categories: replyActs } };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+
+  await page.getByRole("button", { name: "Counter with something else" }).click();
+  const sheet = page.getByRole("dialog", { name: "Counter" });
+  await sheet.getByRole("button", { name: /Slow kissing/ }).click();
+  await sheet.locator(".ask-act-grid").getByRole("button", { name: /Sensual massage/ }).click();
+  await sheet.getByRole("button", { name: /^Send counter/ }).click();
+
+  await expect.poll(() => state.requestReplyBody?.decisions?.map((item) => [item.label, item.decision])).toEqual([
+    ["💋 Slow kissing", "Yes"],
+    ["Counter option 1", "Counter"],
+  ]);
+});
+
+test("Answered Ask views label the reply from each side", async ({ page }) => {
+  const state = { request: { ...counteredRequest, feedback: "Different vibe." } };
+  await mockApi(page, state);
+  await page.goto("/ask-detail?id=req-1");
+
+  // Sent by me, countered by Jordan.
+  await expect(page.getByRole("heading", { name: "You asked for" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Jordan's reply" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your reply" })).toHaveCount(0);
+  await expect(page.getByTestId("ask-status")).toHaveText("Countered");
+  await expect(page.getByTestId("ask-counter")).toHaveCount(1);
+  await expect(page.getByText(/Counter option/)).toHaveCount(0);
+  await expect(page.getByText(/Timing: Tonight/)).toHaveCount(0);
+  await expect(page.getByText("Jordan's note")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Accept counter" })).toBeVisible();
+
+  // Jordan's Ask that I already said yes to.
+  state.request = {
+    ...request,
+    status: "reviewed",
+    decisions: [{ label: "Kiss", decision: "Yes", counter: "", counterActId: "", note: "", targetType: "act", actId: "" }],
+    reviewedAt: "2026-05-23T00:20:00.000Z",
+  };
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Jordan wanted" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your reply" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Jordan's reply" })).toHaveCount(0);
+  await expect(page.getByTestId("ask-status")).toHaveText("Yes");
+  await expect(page.getByTestId("ask-reply-verdict")).toHaveText("Yes.");
+  await expect(page.getByText("It’s on")).toBeVisible();
+  await expect(page.getByRole("link", { name: "See the match" })).toBeVisible();
+
+  // My own Ask, still waiting.
+  state.request = { ...request, requesterEmail: auth.email, requesterName: "Alex", requester: "Alex", reviewerEmail: "jordan@example.test", reviewerName: "Jordan", reviewer: "Jordan" };
+  await page.reload();
+  await expect(page.getByTestId("ask-status")).toHaveText("Waiting on Jordan");
+  await expect(page.getByRole("button", { name: "Remind Jordan" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Take back this Ask" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yes" })).toHaveCount(0);
 });
 
 test("Accepting an Ask counter shows the partner note before approval", async ({ page }) => {
@@ -2167,27 +2706,88 @@ test("Counter accepted activity opens the shared approval splash for the partner
   await expect(page.getByText(/Sensual massage/)).toBeVisible();
 });
 
-test("Request reply link exposes all-yes answer controls", async ({ page }) => {
+test("A fresh device ignores replayed room events: no splash, no toast, only live ones act", async ({ page }) => {
+  const state = {
+    request: {
+      ...counteredRequest,
+      status: "on_deck",
+      categories: ["💆 Sensual massage"],
+      timing: "Tomorrow",
+      counterAcceptedAt: "2026-05-23T00:25:00.000Z",
+      acceptedCounters: counterDecisions,
+    },
+  };
+  await mockApi(page, state);
+  let socket = null;
+  let connected = 0;
+  await page.routeWebSocket(/\/api\/room\/socket/, (ws) => {
+    socket = ws;
+    connected += 1;
+    ws.send(JSON.stringify({ type: "room.hello", workspaceId: workspace.id, latestSeq: 3, online: [], at: new Date().toISOString() }));
+    // No stored seq on this device: the room replays its buffer, minutes old.
+    for (const seq of [1, 2, 3]) {
+      ws.send(JSON.stringify({
+        type: "room.event",
+        seq,
+        event: {
+          seq,
+          resource: "request-board",
+          action: "counter_accepted",
+          entityId: "req-1",
+          actorEmail: "jordan@example.test",
+          actorName: "Jordan",
+          at: "2026-05-23T00:25:00.000Z",
+        },
+      }));
+    }
+  });
+  await page.goto("/chat");
+  await expect.poll(() => connected).toBeGreaterThan(0);
+  await page.waitForTimeout(800);
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(page.locator(".live-activity-toast")).toHaveCount(0);
+
+  // Something that happens after the hello still opens the splash.
+  socket.send(JSON.stringify({
+    type: "room.event",
+    seq: 4,
+    event: {
+      seq: 4,
+      resource: "request-board",
+      action: "counter_accepted",
+      entityId: "req-1",
+      actorEmail: "jordan@example.test",
+      actorName: "Jordan",
+      at: new Date().toISOString(),
+    },
+  }));
+  await expect(page).toHaveURL(/\/mutual\?/);
+});
+
+test("Request reply link shares the one-card reply", async ({ page }) => {
   const state = {};
   await mockApi(page, state);
   await page.goto("/review?token=reply-token");
 
-  await expect(page.getByRole("heading", { name: "Reply to Ask" })).toBeVisible();
-  await expect(page.getByText(`${request.requesterName} to you`)).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: `${request.requesterName} wants` })).toBeFocused();
+  await expect(page.locator("h1")).toHaveCount(1);
+  await expect(page.getByRole("link", { name: "Back to Sexboard" })).toHaveAttribute("href", "/sexboard");
+  await expect(page.getByText(`From ${request.requesterName} · private reply link`)).toBeVisible();
   await expect(page.getByRole("button", { name: "Archive" })).toHaveCount(0);
-  await expect(page.getByText("Requested Acts")).toBeVisible();
-  await expect(page.getByText("Counter with your own Acts")).toBeVisible();
-  await expect(page.getByText("Counter time")).toBeVisible();
-  const cadenceMetrics = await page.locator(".review-decision-card", { hasText: "Counter time" }).locator(".cadence-grid").evaluate((grid) => {
+  // The single-use link answers once, so it offers no Maybe.
+  await expect(page.getByRole("button", { name: "Maybe" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Counter with something else" }).click();
+  const sheet = page.getByRole("dialog", { name: "Counter" });
+  await expect(sheet.getByText("Timing", { exact: true })).toBeVisible();
+  const cadenceMetrics = await sheet.locator(".cadence-grid").evaluate((grid) => {
     const gridRect = grid.getBoundingClientRect();
     const buttons = Array.from(grid.querySelectorAll("button")).map((button) => {
       const rect = button.getBoundingClientRect();
       return {
         left: rect.left,
         right: rect.right,
-        top: rect.top,
         height: rect.height,
-        text: button.textContent || "",
         scrollWidth: button.scrollWidth,
         clientWidth: button.clientWidth,
       };
@@ -2200,22 +2800,25 @@ test("Request reply link exposes all-yes answer controls", async ({ page }) => {
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     };
   });
-
   expect(cadenceMetrics.columns).toBe(3);
   expect(cadenceMetrics.horizontalOverflow).toBeLessThanOrEqual(0);
   expect(cadenceMetrics.buttons).toHaveLength(3);
   for (const button of cadenceMetrics.buttons) {
     expect(button.left).toBeGreaterThanOrEqual(cadenceMetrics.gridLeft - 1);
     expect(button.right).toBeLessThanOrEqual(cadenceMetrics.gridRight + 1);
+    expect(button.height).toBeGreaterThanOrEqual(44);
     expect(button.height).toBeLessThanOrEqual(62);
     expect(button.scrollWidth).toBeLessThanOrEqual(button.clientWidth + 1);
   }
+  await sheet.getByRole("button", { name: "Back" }).click();
+  await expect(sheet).toBeHidden();
 
-  await page.getByRole("button", { name: "Yes to all" }).click();
-  await page.getByRole("button", { name: "Send reply" }).click();
+  await page.getByRole("button", { name: "Yes", exact: true }).click();
+  await page.getByRole("button", { name: "Send now" }).click();
 
   await expect.poll(() => state.reviewSubmitBody?.decisions?.[0]?.decision).toBe("Yes");
   await expect(page.getByRole("heading", { name: "Reply sent" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "See the match" })).toBeVisible();
 });
 
 test("Rowan can pass Avery's Ask from a private reply link", async ({ page }) => {
@@ -2235,9 +2838,9 @@ test("Rowan can pass Avery's Ask from a private reply link", async ({ page }) =>
   await mockApi(page, state);
   await page.goto("/review?token=reply-token");
 
-  await expect(page.getByText("Avery to you")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Avery wants" })).toBeVisible();
   await page.getByRole("button", { name: "Pass" }).click();
-  await page.getByRole("button", { name: "Send reply" }).click();
+  await page.getByRole("button", { name: "Send now" }).click();
 
   await expect.poll(() => state.reviewSubmitBody?.decisions?.[0]?.decision).toBe("No");
   await expect(page.getByRole("heading", { name: "Reply sent" })).toBeVisible();
@@ -2248,5 +2851,747 @@ test("Root review links preserve the reply token", async ({ page }) => {
   await page.goto("/?review=reply-token");
 
   await expect(page).toHaveURL(/\/review\?token=reply-token$/);
-  await expect(page.getByRole("heading", { name: "Reply to Ask" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `${request.requesterName} wants` })).toBeVisible();
+});
+
+// Offline simulation: context.setOffline() doesn't combine with route mocks,
+// so tests abort the mocked API themselves and flip navigator.onLine + fire
+// the matching window event, which is what the app listens to.
+async function setNavigatorOnline(page, online) {
+  await page.evaluate((value) => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => value });
+    window.dispatchEvent(new Event(value ? "online" : "offline"));
+  }, online);
+}
+
+test("Sexboard load error is plain-language and recovers with Try again", async ({ page }) => {
+  await mockApi(page, {});
+  let failSexboard = true;
+  await page.route("**/api/sexboard", (route) => (failSexboard
+    ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Internal error" }) })
+    : route.fallback()));
+  await page.goto("/sexboard");
+
+  await expect(page.getByRole("heading", { name: "Couldn't load your Sexboard" })).toBeVisible();
+  await expect(page.getByText("Internal error")).toHaveCount(0);
+  failSexboard = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.locator(".sexboard-handoff-card")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Couldn't load your Sexboard" })).toHaveCount(0);
+});
+
+test("Sext keeps the thread and composer offline, queues a text, and recovers online", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/chat");
+  const thread = page.getByRole("log", { name: "Messages" });
+  await expect(thread.locator(".chat-row").first()).toBeVisible();
+  const seededRows = await thread.locator(".chat-row").count();
+
+  let offline = true;
+  await page.route("**/api/**", (route) => (offline ? route.abort("internetdisconnected") : route.fallback()));
+  await setNavigatorOnline(page, false);
+
+  await expect(page.getByText("You're offline", { exact: true })).toBeVisible();
+  await expect(page.locator(".chat-offline-banner")).toBeVisible();
+  await expect(thread.locator(".chat-row")).toHaveCount(seededRows);
+  await expect(page.getByRole("button", { name: /Send a photo/ })).toBeDisabled();
+
+  await page.getByPlaceholder(/Message Jordan/).fill("Thinking about you.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(thread.getByText("Waiting to send")).toBeVisible();
+  await expect(thread.getByText("Thinking about you.")).toBeVisible();
+  await expect(page.locator(".chat-error")).toHaveCount(0);
+
+  offline = false;
+  await setNavigatorOnline(page, true);
+  await expect.poll(() => state.chatPostBody?.text).toBe("Thinking about you.");
+  await expect(thread.getByText("Waiting to send")).toHaveCount(0);
+  await expect(thread.getByText("Thinking about you.")).toHaveCount(1);
+  await expect(page.locator(".chat-offline-banner")).toHaveCount(0);
+  await expect(page.getByText("You're offline", { exact: true })).toHaveCount(0);
+});
+
+test("Sext settles a queued text the server refuses: bubble goes, draft comes back, reason shown", async ({ page }) => {
+  await mockApi(page, {});
+  await page.goto("/chat");
+  const thread = page.getByRole("log", { name: "Messages" });
+  await expect(thread.locator(".chat-row").first()).toBeVisible();
+
+  let offline = true;
+  await page.route("**/api/**", (route) => (offline ? route.abort("internetdisconnected") : route.fallback()));
+  await setNavigatorOnline(page, false);
+
+  const composer = page.getByPlaceholder(/Message Jordan/);
+  await composer.fill("Thinking about you.");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(thread.getByText("Waiting to send")).toBeVisible();
+
+  // The partner switched on Room Encryption while this text sat in the queue.
+  let refusedPosts = 0;
+  await page.route("**/api/chat", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    refusedPosts += 1;
+    return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ error: "Room Encryption requires encrypted messages." }) });
+  });
+  offline = false;
+  await setNavigatorOnline(page, true);
+
+  await expect(thread.getByText("Waiting to send")).toHaveCount(0);
+  await expect(page.locator(".chat-error")).toContainText("Room Encryption requires encrypted messages.");
+  await expect(composer).toHaveValue("Thinking about you.");
+  await expect(thread.getByText("Thinking about you.")).toHaveCount(0);
+  // Dropped, not retried on the next focus.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.waitForTimeout(300);
+  expect(refusedPosts).toBe(1);
+});
+
+test("Offline Ask shows the queued confirmation, then waits on the Sexboard", async ({ page }) => {
+  const state = { acts: [savedLibraryAct] };
+  await mockApi(page, state);
+  await page.goto("/ask");
+
+  await page.getByRole("button", { name: "Slow undressing" }).click();
+  await page.route("**/api/request-board", (route) => (route.request().method() === "POST"
+    ? route.abort("internetdisconnected")
+    : route.fallback()));
+  await setNavigatorOnline(page, false);
+  await page.getByRole("button", { name: "Send to Jordan" }).click();
+
+  await expect(page.locator(".ss-send-pulse-confirm-headline")).toHaveText("Queued — sends when you're back online.");
+  await expect(page).toHaveURL(/\/sexboard$/);
+  const queued = page.locator(".sexboard-handoff-row--queued");
+  await expect(queued).toContainText("Slow undressing");
+  await expect(queued).toContainText("when you're back online");
+});
+
+// ---------- v2 layout: thumb-zone send, one header system, human statuses ----------
+
+test("Ask pins Send in the thumb zone and highlights picked Acts in place", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/ask");
+  await expect(page.getByRole("heading", { name: "Be specific." })).toBeVisible();
+
+  // Send sits in the sticky bar, on screen above the tab bar, before any scroll.
+  const send = page.locator(".sticky-action").getByRole("button", { name: "Send to Jordan" });
+  await expect(send).toBeVisible();
+  const sendBox = await send.boundingBox();
+  const tabBox = await page.locator(".tabbar-inner").boundingBox();
+  expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(tabBox.y);
+
+  // Unavailable Send stays focusable and explains itself.
+  await expect(send).toHaveAttribute("aria-disabled", "true");
+  await expect(send).toHaveAttribute("aria-describedby", "ask-send-status");
+  await expect(page.getByTestId("ask-send-status")).toHaveText("Choose at least one Act");
+  // Playwright won't click an aria-disabled control, which is the point: use
+  // the keyboard, as a user who tabs to Send would.
+  await send.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("app-announcer")).toHaveText("Choose at least one Act");
+  await expect(page).toHaveURL(/\/ask$/);
+
+  // Picking an Act never reorders the grid.
+  const grid = page.getByRole("group", { name: "Acts" });
+  const namesBefore = await grid.locator(".act-chip-name").allTextContents();
+  const third = grid.locator(".act-chip").nth(2);
+  await third.click();
+  await expect(third).toHaveAttribute("aria-pressed", "true");
+  expect(await grid.locator(".act-chip-name").allTextContents()).toEqual(namesBefore);
+  await expect(page.locator(".selected-act-strip")).toHaveCount(0);
+
+  await expect(send).toHaveAttribute("aria-disabled", "false");
+  await expect(page.getByTestId("ask-send-status")).toHaveText("1 Act selected · Tonight");
+
+  // Timing is one choice: a radiogroup.
+  const timing = page.getByRole("radiogroup", { name: "Timing" });
+  await expect(timing.getByRole("radio", { name: "Tonight" })).toHaveAttribute("aria-checked", "true");
+  await timing.getByRole("radio", { name: "Tomorrow" }).click();
+  await expect(timing.getByRole("radio", { name: "Tomorrow" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("ask-send-status")).toHaveText("1 Act selected · Tomorrow");
+});
+
+test("Drill-down screens get a 44px back control and tab screens get none", async ({ page }) => {
+  await mockApi(page);
+
+  await page.goto("/space/limits");
+  const back = page.getByRole("link", { name: "Back to Us" });
+  await expect(back).toBeVisible();
+  const box = await back.boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.width).toBeGreaterThanOrEqual(44);
+  await expect(page.getByRole("heading", { level: 1, name: "Limits" })).toBeVisible();
+  await back.click();
+  await expect(page).toHaveURL(/\/space$/);
+
+  await page.goto("/games/sex-quiz");
+  await expect(page.getByRole("link", { name: "Back to Play" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Sex Quiz" })).toBeVisible();
+
+  // Sext is a top-level tab: no back control, and a serif h1 like the others.
+  await page.goto("/chat");
+  await expect(page.getByRole("heading", { level: 1, name: "Sext with Jordan" })).toHaveCount(1);
+  await expect(page.getByTestId("screen-back")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Message Jordan" })).toBeVisible();
+
+  // Modal-style flows close with a 44px Done pill and drop the tab bar.
+  await page.goto("/inspiration/shelf");
+  const done = page.getByTestId("screen-done");
+  await expect(done).toBeVisible();
+  expect((await done.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await expect(page.locator(".tabbar")).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 1, name: "The Shelf" })).toBeVisible();
+});
+
+test("Reveals tiles say whose turn it is in plain words", async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("ss:runnerdraft:green-lights:mobile-room", JSON.stringify({
+        answers: { a: { value: "good" }, b: { value: "no" }, c: { value: "depends" } },
+        index: 3,
+        phase: "cards",
+      }));
+    } catch {}
+  });
+  await mockApi(page, {
+    sexQuizFull: { status: "open", mySubmitted: false, partnerSubmitted: true, partnerName: "Jordan", myRatings: {}, myTopPicks: [], matches: [] },
+    greenLightsFull: { status: "open", mySubmitted: false, partnerSubmitted: false, partnerName: "Jordan", myAnswers: {}, partnerAnswers: {} },
+    pile: { ...activePile, mine: ["Kiss"], partnerHasDropped: false },
+  });
+  await page.goto("/games");
+  // Only the Sex Quiz is waiting on Alex: it gets the full tile on top.
+  const tiles = page.locator(".game-tile");
+  await expect(tiles).toHaveCount(1);
+  await expect(tiles.nth(0).locator(".game-status")).toHaveText("Your turn — Jordan finished");
+  // Games under way follow as rows, then the untouched one, which says what
+  // it is instead of "New".
+  const rows = page.locator(".play-row-game");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toHaveAttribute("href", "/games/green-lights");
+  await expect(rows.nth(0).locator(".play-row-sub")).toHaveText(/^In progress · 3 of \d+$/);
+  await expect(rows.nth(0).locator(".play-row-cta")).toContainText("Resume");
+  await expect(rows.nth(1).locator(".play-row-sub")).toHaveText("Waiting on Jordan");
+  await expect(rows.nth(2)).toHaveAttribute("href", "/games/blind-reveal");
+  await expect(rows.nth(2).locator(".play-row-sub")).toHaveText("One question, two answers, opened together.");
+  await expect(page.locator(".game-status", { hasText: "Idle" })).toHaveCount(0);
+});
+
+test("Tab bar has five slots with Ask as the raised centre action", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/games");
+  const nav = page.getByRole("navigation", { name: "Primary" });
+  const links = nav.getByRole("link");
+  await expect(links).toHaveCount(5);
+  expect(await links.locator(".tab-label").allTextContents()).toEqual(["Home", "Play", "Ask", "Sext", "Us"]);
+  await expect(nav.getByRole("link", { name: /^Play/ })).toHaveAttribute("aria-current", "page");
+
+  // Ask is the third (centre) slot, a 48px+ disc set into the bar.
+  const ask = nav.getByRole("link", { name: "Ask" });
+  await expect(ask).toHaveClass(/tab-primary/);
+  const disc = await ask.locator(".tab-icon").boundingBox();
+  const bar = await page.locator(".tabbar-inner").boundingBox();
+  expect(disc.width).toBeGreaterThanOrEqual(48);
+  expect(disc.y).toBeLessThan(bar.y);
+  expect(disc.x + disc.width / 2).toBeCloseTo(bar.x + bar.width / 2, -1);
+  await ask.click();
+  await expect(page).toHaveURL(/\/ask$/);
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Ask" })).toHaveAttribute("aria-current", "page");
+
+  // Inspiration lives in Play: its routes light the Play tab and go back to Play.
+  await page.goto("/inspiration");
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Play/ })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Back to Play" })).toHaveAttribute("href", "/games");
+  await page.goto("/space/limits");
+  await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: /^Us/ })).toHaveAttribute("aria-current", "page");
+});
+
+test("Play links into Inspiration without repeating it", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/games");
+  const inspo = page.getByRole("region", { name: "Inspiration" });
+  await expect(inspo.getByRole("link", { name: /Today's prompt/ })).toHaveAttribute("href", "/inspiration#kink-compose");
+  await expect(inspo.getByRole("link", { name: /Kinks, fantasies & confessions/ })).toHaveAttribute("href", "/inspiration?section=shared-kinks");
+  await expect(inspo.getByRole("link", { name: /The Shelf/ })).toHaveAttribute("href", "/inspiration/shelf");
+  await expect(inspo.getByRole("link", { name: /Watch and read/ })).toHaveAttribute("href", "/inspiration#sources");
+  // The source dock and composer live only on /inspiration.
+  await expect(page.locator(".inspiration-source-dock")).toHaveCount(0);
+  await expect(page.locator(".kink-compose-form")).toHaveCount(0);
+  await inspo.getByRole("link", { name: /The Shelf/ }).click();
+  await expect(page).toHaveURL(/\/inspiration\/shelf$/);
+});
+
+test("Us opens Settings as a focus-trapped sheet that Escape closes", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/space");
+  await expect(page.getByRole("heading", { level: 1, name: "Us" })).toBeVisible();
+  // The version badge stays on Us itself.
+  await expect(page.locator(".settings-footer .chip.settings-version")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+
+  const gear = page.getByRole("button", { name: "Settings" });
+  const gearBox = await gear.boundingBox();
+  expect(gearBox.width).toBeGreaterThanOrEqual(44);
+  expect(gearBox.height).toBeGreaterThanOrEqual(44);
+  await gear.click();
+  const sheet = page.getByRole("dialog", { name: "Settings" });
+  await expect(sheet).toBeVisible();
+  await expect(gear).toHaveAttribute("aria-expanded", "true");
+  const done = sheet.getByRole("button", { name: "Done" });
+  await expect(done).toBeFocused();
+  await expect(sheet.getByRole("switch", { name: /Blur the dirty stuff/ })).toBeVisible();
+  await expect(sheet.getByRole("link", { name: /Sign out of this device/ })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+  await expect(gear).toBeFocused();
+
+  // Deep link straight into the sheet.
+  await page.goto("/space?settings=1");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/space$/);
+});
+
+test("Notification presets write the per-device preference map", async ({ page }) => {
+  const state = {};
+  await page.addInitScript(() => {
+    const subscription = {
+      endpoint: "https://push.example.test/alex-phone",
+      expirationTime: null,
+      keys: { p256dh: "p256", auth: "auth" },
+      toJSON() {
+        return { endpoint: this.endpoint, expirationTime: this.expirationTime, keys: this.keys };
+      },
+    };
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: { permission: "granted", requestPermission: async () => "granted" },
+    });
+    Object.defineProperty(window, "PushManager", { configurable: true, value: function PushManager() {} });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: {
+        controller: null,
+        addEventListener: () => {},
+        register: async () => ({ waiting: null, installing: null, update: async () => {}, addEventListener: () => {} }),
+        ready: Promise.resolve({
+          pushManager: { getSubscription: async () => subscription, subscribe: async () => subscription },
+        }),
+      },
+    });
+  });
+  await mockApi(page, state);
+  await page.goto("/space?settings=1");
+  const sheet = page.getByRole("dialog", { name: "Settings" });
+  const presets = sheet.getByRole("radiogroup", { name: "What to be notified about" });
+  await expect(presets.getByRole("radio")).toHaveCount(3);
+  await expect(presets.getByRole("radio", { name: /Everything/ })).toHaveAttribute("aria-checked", "true");
+
+  await presets.getByRole("radio", { name: /Only what needs me/ }).click();
+  await expect(presets.getByRole("radio", { name: /Only what needs me/ })).toHaveAttribute("aria-checked", "true");
+  await expect.poll(() => state.pushSubscribeBody?.preferences?.["kink-nudge"]).toBe(false);
+  const needsMe = state.pushSubscribeBody.preferences;
+  expect(needsMe).toMatchObject({
+    "chat-message": true,
+    "request-sent": true,
+    "request-reviewed": true,
+    "request-reminder": true,
+    "pile-started": true,
+    "game-ready": true,
+    "mood-match": true,
+    "kink-nudge": false,
+    "pile-reminder": false,
+    "blind-reveal": false,
+  });
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("sexualsync-push-preferences") || "{}"));
+  expect(stored).toMatchObject(needsMe);
+
+  await presets.getByRole("radio", { name: /Quiet/ }).click();
+  await expect.poll(() => state.pushSubscribeBody?.preferences?.["chat-message"]).toBe(false);
+  expect(state.pushSubscribeBody.preferences["request-sent"]).toBe(true);
+  expect(state.pushSubscribeBody.preferences["mood-match"]).toBe(true);
+
+  // Customize reveals every tag, including the mood match, as its own switch.
+  const customize = sheet.getByRole("button", { name: /Customize/ });
+  await expect(customize).toHaveAttribute("aria-expanded", "false");
+  await customize.click();
+  await expect(customize).toHaveAttribute("aria-expanded", "true");
+  await expect(sheet.locator("[data-push-pref]")).toHaveCount(10);
+  const mood = sheet.getByRole("switch", { name: /You're both in the mood/ });
+  await expect(mood).toHaveAttribute("aria-checked", "true");
+  // Flipping one switch leaves no preset matching: a custom mix.
+  await sheet.getByRole("switch", { name: /Sext messages/ }).click();
+  await expect.poll(() => state.pushSubscribeBody?.preferences?.["chat-message"]).toBe(true);
+  await expect(presets.getByRole("radio", { checked: true })).toHaveCount(0);
+  await expect(customize).toContainText("your own mix");
+});
+
+test("Pile setup leads with reveal-time presets and keeps the picker behind Custom", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const state = {};
+  await mockApi(page, state);
+  const starts = [];
+  await page.route("**/api/pile", async (route) => {
+    if (route.request().method() === "POST") starts.push(route.request().postDataJSON());
+    return route.fallback();
+  });
+  await page.goto("/games/pile");
+
+  const presets = page.getByRole("radiogroup", { name: "Reveal" });
+  await expect(presets.getByRole("radio")).toHaveCount(4);
+  await expect(page.getByLabel("Reveal at")).toHaveCount(0);
+
+  await presets.getByRole("radio", { name: "Custom…" }).click();
+  await expect(page.getByLabel("Reveal at")).toBeVisible();
+
+  await presets.getByRole("radio", { name: "In an hour" }).click();
+  await expect(presets.getByRole("radio", { name: "In an hour" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByLabel("Reveal at")).toHaveCount(0);
+  await page.getByRole("button", { name: "Start" }).click();
+  await expect.poll(() => starts.length).toBeGreaterThan(0);
+  const startBody = starts.find((body) => body && body.revealAt);
+  const minutesOut = (Date.parse(startBody.revealAt) - Date.parse("2026-05-23T01:00:00Z")) / 60000;
+  expect(minutesOut).toBeGreaterThanOrEqual(59);
+  expect(minutesOut).toBeLessThanOrEqual(61);
+});
+
+test("Partner's legacy sent Ask lands in Needs you with a human status", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  await mockApi(page);
+  await page.goto("/sexboard");
+  const row = page.locator("a.sexboard-handoff-row", { hasText: "Jordan sent an Ask" }).first();
+  await expect(row).toContainText("Reply");
+  await expect(page.getByText(/\bsent · Tonight\b/)).toHaveCount(0);
+});
+
+test("Home clears its own tab badge: the feed is already on screen", async ({ page }) => {
+  const state = {
+    activity: {
+      ...cloneJson(activityResponse),
+      unreadTotal: 1,
+      unreadByResource: { "request-board": 1 },
+      items: [{
+        id: "reviewed-activity", workspaceId: workspace.id, resource: "request-board", resourceLabel: "Sexboard",
+        action: "reviewed", label: "Ask reviewed", entityId: "req-1", actorEmail: "jordan@example.test",
+        actorName: "Jordan", at: "2026-05-23T00:25:00.000Z", passive: false, unread: true,
+      }],
+    },
+  };
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+  await expect(page.locator(".live-activity-item").first()).toBeVisible();
+  await expect(page.locator('.tab[data-tab="home"]')).not.toHaveClass(/has-unread/);
+  await expect.poll(() => state.activity.unreadByResource?.["request-board"] || 0).toBe(0);
+  await page.locator('.tab[data-tab="games"], .tab[data-tab="play"]').first().click();
+  await expect(page).toHaveURL(/\/games/);
+  await expect(page.locator('.tab[data-tab="home"]')).not.toHaveClass(/has-unread/);
+});
+
+test("A counter on my Ask is in Needs you, not Waiting", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  await mockApi(page, { request: counteredRequest });
+  await page.goto("/sexboard");
+  const needsYou = page.locator(".sexboard-handoff-section", { hasText: "Needs you" }).first();
+  const row = needsYou.locator("a.sexboard-handoff-row", { hasText: "Jordan countered your Ask" });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText("Review");
+  const waiting = page.locator(".sexboard-handoff-section").filter({ hasText: "Waiting on Jordan" });
+  await expect(waiting.locator("a.sexboard-handoff-row")).toHaveCount(0);
+});
+
+test("A pass on my Ask is a reply outcome, not something waiting", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-05-23T01:00:00Z") });
+  const passed = {
+    ...counteredRequest,
+    decisions: [{ label: "Kiss", decision: "No", targetType: "act" }],
+    counters: [],
+  };
+  await mockApi(page, { request: passed });
+  await page.goto("/sexboard");
+  const replies = page.locator(".sexboard-handoff-section", { hasText: "Replies" });
+  await expect(replies.locator("a.sexboard-handoff-row")).toContainText("Jordan passed.");
+  const waiting = page.locator(".sexboard-handoff-section").filter({ hasText: "Waiting on Jordan" });
+  await expect(waiting.locator("a.sexboard-handoff-row")).toHaveCount(0);
+  await expect(page.getByText("Jordan reviewed it.")).toHaveCount(0);
+});
+
+// ---------- Mood light (Home) ----------
+
+function moodOnState(extra = {}) {
+  const now = Date.now();
+  return {
+    mood: {
+      on: true,
+      since: new Date(now - 10 * 60_000).toISOString(),
+      until: new Date(now + 90 * 60_000).toISOString(),
+      cooldownUntil: null,
+      match: null,
+    },
+    ...extra,
+  };
+}
+
+function emitMoodEvent(page, action) {
+  return page.evaluate((value) => {
+    window.dispatchEvent(new CustomEvent("sexualsync:room-event", {
+      detail: { resource: "mood", action: value, entityId: new Date().toISOString() },
+    }));
+  }, action);
+}
+
+test("Mood light switches on from an inline chooser and shows only my own state", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+
+  const mood = page.getByTestId("mood-light");
+  const trigger = mood.getByRole("button", { name: "Mood light" });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(mood).toContainText("Only shows if Jordan's is on too.");
+
+  // Compact when off: "Needs you" stays above the fold on a 390x844 screen.
+  const off = await mood.boundingBox();
+  expect(off.height).toBeLessThanOrEqual(72);
+  const needsYou = page.locator(".sexboard-handoff-section", { hasText: "Needs you" }).first();
+  const needsBox = await needsYou.boundingBox();
+  expect(needsBox.y + 120).toBeLessThan(844);
+
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const chooser = page.getByRole("group", { name: "Keep my light on" });
+  await expect(chooser.getByRole("button")).toHaveCount(3);
+  await expect(chooser.getByRole("button", { name: /For the next hour/ })).toBeVisible();
+  await expect(chooser.getByRole("button", { name: /Until I turn it off/ })).toContainText("24 hours at most");
+  for (const box of await chooser.getByRole("button").evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height))) {
+    expect(box).toBeGreaterThanOrEqual(44);
+  }
+
+  await chooser.getByRole("button", { name: /Tonight/ }).click();
+  await expect(mood).toHaveAttribute("data-phase", "on");
+  await expect(mood).toContainText(/Your light.s on until \d{1,2}:\d{2}/);
+  await expect(mood).not.toContainText(/both|Jordan.s light|Jordan is/i);
+  expect(state.moodPosts).toHaveLength(1);
+  expect(state.moodPosts[0].action).toBe("on");
+  // "Tonight" ends at 04:00 local, at most a day away.
+  const until = new Date(state.moodPosts[0].until);
+  expect(until.getHours()).toBe(4);
+  expect(until.getTime() - Date.now()).toBeLessThanOrEqual(24 * 60 * 60_000);
+  await expect(page.getByTestId("app-announcer")).toContainText(/Your light.s on until/);
+
+  const turnOff = mood.getByRole("button", { name: "Turn off" });
+  const turnOffBox = await turnOff.boundingBox();
+  expect(turnOffBox.height).toBeGreaterThanOrEqual(44);
+});
+
+test("Mood light cooldown says when it can go back on, without error styling", async ({ page }) => {
+  const state = moodOnState();
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+
+  const mood = page.getByTestId("mood-light");
+  await expect(mood).toHaveAttribute("data-phase", "on");
+  await mood.getByRole("button", { name: "Turn off" }).click();
+  await expect(mood).toHaveAttribute("data-phase", "cooldown");
+  await expect(mood).toContainText(/You can switch it back on at \d{1,2}:\d{2}/);
+  await expect(mood.getByRole("button", { name: "Mood light" })).toBeDisabled();
+  await expect(mood.locator("[role=alert]")).toHaveCount(0);
+
+  // A 429 from the server (cooldown the GET didn't know about) lands the same way.
+  const fresh = {};
+  await mockApi(page, fresh);
+  await page.goto("/sexboard");
+  await expect(mood).toHaveAttribute("data-phase", "off");
+  await mood.getByRole("button", { name: "Mood light" }).click();
+  fresh.mood.cooldownUntil = new Date(Date.now() + 4 * 60_000).toISOString();
+  await page.getByRole("button", { name: /For the next hour/ }).click();
+  await expect(mood).toHaveAttribute("data-phase", "cooldown");
+  await expect(mood).toContainText(/You can switch it back on at \d{1,2}:\d{2}/);
+  await expect(page.getByTestId("app-announcer")).toContainText("You can switch it back on at");
+  const hintColor = await mood.locator(".mood-light-hint").evaluate((node) => getComputedStyle(node).color);
+  expect(hintColor).not.toMatch(/rgb\(201, 138, 130/);
+});
+
+test("Mood match forms live with a bloom, an announcement and quick actions", async ({ page }) => {
+  const state = moodOnState();
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+
+  const mood = page.getByTestId("mood-light");
+  await expect(mood).toHaveAttribute("data-phase", "on");
+  state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString() };
+  await emitMoodEvent(page, "match");
+
+  await expect(mood).toHaveAttribute("data-phase", "match");
+  await expect(mood).toHaveAttribute("data-blooming", "true");
+  await expect(mood.getByRole("heading", { name: /both in the mood/ })).toBeVisible();
+  await expect(mood).toContainText(/Until \d{1,2}:\d{2}/);
+  await expect(page.getByTestId("app-announcer")).toHaveText("You're both in the mood.");
+  await expect(mood.getByRole("link", { name: "Ask" })).toHaveAttribute("href", "/ask");
+  await expect(mood.getByRole("link", { name: "Sext" })).toHaveAttribute("href", "/chat");
+  const bloomName = await mood.locator(".mood-light-bloom").evaluate((node) => getComputedStyle(node).animationName);
+  expect(bloomName).toBe("mood-bloom");
+
+  // Switching off mid-match goes back to my own blind state.
+  await mood.getByRole("button", { name: "Turn off" }).click();
+  await expect(mood).toHaveAttribute("data-phase", "cooldown");
+  expect(state.moodPosts.at(-1).action).toBe("off");
+});
+
+test("Mood match deep link focuses the mood light, and its activity row has no actor", async ({ page }) => {
+  const now = Date.now();
+  const state = moodOnState();
+  state.mood.match = { since: new Date(now - 5 * 60_000).toISOString(), until: state.mood.until };
+  state.activity = cloneJson(activityResponse);
+  state.activity.items.unshift({
+    id: "mood:match:1",
+    workspaceId: workspace.id,
+    resource: "mood",
+    resourceLabel: "Mood light",
+    action: "match",
+    label: "You're both in the mood",
+    entityId: state.mood.match.since,
+    at: new Date(now - 5 * 60_000).toISOString(),
+    passive: false,
+    unread: true,
+  });
+  await mockApi(page, state);
+  await page.goto("/sexboard?mood=match");
+
+  const mood = page.getByTestId("mood-light");
+  await expect(mood).toHaveAttribute("data-phase", "match");
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest("[data-testid=mood-light]")))).toBe(true);
+  // A deep link into an existing match doesn't replay the bloom.
+  await expect(mood).not.toHaveAttribute("data-blooming", "true");
+
+  const row = page.locator(".live-activity-item", { hasText: "You're both in the mood" });
+  await expect(row).toHaveAttribute("href", "/sexboard?mood=match");
+  await expect(row).toContainText("Both of you - Mood light");
+  await expect(row).not.toContainText("Jordan");
+  await expect(row.locator(".live-activity-glyph.is-mood svg")).toHaveCount(1);
+});
+
+test("Mood match bloom is static with reduced motion", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const state = moodOnState();
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+
+  const mood = page.getByTestId("mood-light");
+  await expect(mood).toHaveAttribute("data-phase", "on");
+  state.moodPartner = { until: new Date(Date.now() + 60 * 60_000).toISOString() };
+  await emitMoodEvent(page, "match");
+  await expect(mood).toHaveAttribute("data-blooming", "true");
+
+  const motion = await mood.evaluate((node) => ({
+    bloom: getComputedStyle(node.querySelector(".mood-light-bloom")).animationName,
+    title: getComputedStyle(node.querySelector(".mood-light-match-title")).animationName,
+    titleOpacity: getComputedStyle(node.querySelector(".mood-light-match-title")).opacity,
+  }));
+  expect(motion.bloom).toBe("none");
+  expect(motion.title).toBe("none");
+  expect(motion.titleOpacity).toBe("1");
+  await expect(page.getByTestId("app-announcer")).toHaveText("You're both in the mood.");
+});
+
+test("Mood light waits for a connection instead of queueing", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/sexboard");
+  const mood = page.getByTestId("mood-light");
+  await expect(mood).toHaveAttribute("data-phase", "off");
+
+  await setNavigatorOnline(page, false);
+  await expect(mood.getByRole("button", { name: "Mood light" })).toBeDisabled();
+  await expect(mood).toContainText("You're offline. The mood light needs a connection.");
+
+  await setNavigatorOnline(page, true);
+  await expect(mood.getByRole("button", { name: "Mood light" })).toBeEnabled();
+  expect(state.moodPosts || []).toHaveLength(0);
+});
+
+test("Mood match toast away from Home links back to the mood light, once per match", async ({ page }) => {
+  const state = moodOnState();
+  state.mood.match = { since: new Date(Date.now() - 60_000).toISOString(), until: state.mood.until };
+  await mockApi(page, state);
+  await page.goto("/games");
+  await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+
+  await emitMoodEvent(page, "match");
+  const toast = page.locator("a.live-activity-toast--mood");
+  await expect(toast).toHaveText("You're both in the mood.");
+  await expect(toast).toHaveAttribute("href", "/sexboard?mood=match");
+  await expect(toast).not.toContainText("Jordan");
+
+  // A replay of the same match after a reconnect doesn't toast again, and
+  // "ended" never toasts.
+  await expect(toast).toHaveCount(0, { timeout: 8000 });
+  await emitMoodEvent(page, "match");
+  await emitMoodEvent(page, "ended");
+  await page.waitForTimeout(600);
+  await expect(page.locator(".live-activity-toast")).toHaveCount(0);
+});
+
+test("Ambient loops pause while the app is hidden and the atmosphere has no blur or blend", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/sexboard");
+  await expect(page.locator(".presence-band-status.is-live")).toBeVisible();
+
+  const atmosphere = await page.evaluate(() => {
+    const read = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const style = getComputedStyle(el);
+      return { filter: style.filter, blend: style.mixBlendMode };
+    };
+    return { top: read(".atm-top"), bottom: read(".atm-bottom"), grain: read(".grain") };
+  });
+  expect(atmosphere.top?.filter).toBe("none");
+  expect(atmosphere.bottom?.filter).toBe("none");
+  expect(atmosphere.grain?.blend).toBe("normal");
+
+  const runningInfinite = () => page.evaluate(() => document.getAnimations()
+    .filter((animation) => animation.effect?.getTiming?.().iterations === Infinity && animation.playState === "running").length);
+  expect(await runningInfinite()).toBeGreaterThan(0);
+
+  const setHidden = (hidden) => page.evaluate((value) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => value });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (value ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+  await setHidden(true);
+  await expect(page.locator("html")).toHaveAttribute("data-page-hidden", "");
+  await expect.poll(runningInfinite).toBe(0);
+  await setHidden(false);
+  await expect(page.locator("html")).not.toHaveAttribute("data-page-hidden", "");
+  await expect.poll(runningInfinite).toBeGreaterThan(0);
+});
+
+test("Landing screenshots load small WebP renditions with reserved size", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/");
+  const shot = page.locator(".pp-shot img").first();
+  await expect(shot).toHaveAttribute("width", "1170");
+  await expect(shot).toHaveAttribute("height", "2532");
+  await expect(shot).toHaveAttribute("loading", "lazy");
+  await shot.scrollIntoViewIfNeeded();
+  await expect.poll(() => shot.evaluate((img) => img.currentSrc)).toMatch(/\/screens\/03-sexboard-home-320\.webp$/);
+});
+
+test("Sext keeps a half-typed draft across a reload and drops it once sent", async ({ page }) => {
+  const state = {};
+  await mockApi(page, state);
+  await page.goto("/chat");
+  const field = page.getByPlaceholder(/Message Jordan/);
+  await field.fill("Half a thought");
+  // pagehide flushes the debounced save, so an immediate reload keeps it.
+  await page.reload();
+  await expect(page.getByPlaceholder(/Message Jordan/)).toHaveValue("Half a thought");
+
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect.poll(() => state.chatPostBody?.text).toBe("Half a thought");
+  await expect(page.getByPlaceholder(/Message Jordan/)).toHaveValue("");
+  await page.reload();
+  await expect(page.getByPlaceholder(/Message Jordan/)).toHaveValue("");
 });

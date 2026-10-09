@@ -21,6 +21,7 @@ const PUSH_TAGS = new Set([
   "blind-reveal",
   "chat-message",
   "game-ready",
+  "mood-match",
   "push-test"
 ]);
 

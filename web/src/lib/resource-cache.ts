@@ -93,7 +93,9 @@ export function useColdStart<S extends { kind: string }>(
     let cancelled = false;
     void loadColdSnapshot<S>(key).then((snapshot) => {
       if (cancelled || snapshot === undefined) return;
-      setState((current) => (current.kind === "loading" ? snapshot : current));
+      // Also replaces a load error: last-known content beats an error card
+      // (the screen keeps retrying the live load on reconnect).
+      setState((current) => (current.kind === "loading" || current.kind === "error" ? snapshot : current));
     });
     return () => { cancelled = true; };
   }, [key, setState]);

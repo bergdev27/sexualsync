@@ -23,6 +23,7 @@ import {
 } from "./_workspaces.js";
 import { appendAudit } from "./_audit.js";
 import { notifyWorkspaceEvent } from "./_notification_policy.js";
+import { broadcastRoomEvent } from "./_live_room.js";
 
 const STORE_NAME = "sexualsync-green-lights";
 function greenLightsKey(workspaceId) { return `greenLights:${workspaceId}`; }
@@ -253,6 +254,17 @@ export async function onRequest(context) {
       tag: "game-ready",
       url: "/games/green-lights",
     }));
+    // Live hint so the partner's Play hub and "locked in" screen refetch (and
+    // move to the reveal) without a reload. It carries no answers, and the
+    // activity feed ignores this resource, so nothing about the round leaks.
+    broadcastRoomEvent(context, workspace.id, {
+      resource: "green-lights",
+      action: "submitted",
+      entityId: workspace.id,
+      actorEmail,
+      actorName,
+      passive: true,
+    });
     return jsonResponse(200, publicGreenLights(result.next, workspace, actorEmail));
   }
 
@@ -263,6 +275,9 @@ export async function onRequest(context) {
       delete entries[actorEmail];
       const next = { ...record, entries, status: "open", revealedAt: "", updatedAt: now };
       return { value: next, result: { next } };
+    });
+    broadcastRoomEvent(context, workspace.id, {
+      resource: "green-lights", action: "retake", entityId: workspace.id, actorEmail, actorName, passive: true,
     });
     return jsonResponse(200, publicGreenLights(result.next, workspace, actorEmail));
   }

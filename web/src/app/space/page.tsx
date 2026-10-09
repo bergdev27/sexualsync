@@ -1,15 +1,16 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import RoomEncryptionPanel from "@/components/RoomEncryptionPanel";
 import ScreenHeader from "@/components/ScreenHeader";
-import { ErrorState, SkeletonList } from "@/components/States";
+import { ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
 import { APP_RELEASE_VERSION } from "@/lib/app-version";
 import { privateNoteCount } from "@/lib/private-notes";
 import { prepareSignOut } from "@/lib/signout";
+import { partnerOf } from "@/lib/workspace";
 import { getCachedResource, setCachedResource, useColdStart } from "@/lib/resource-cache";
 import { ensurePushSubscription, recordPushSave } from "@/lib/push-subscription";
 import {
@@ -37,10 +38,11 @@ import type {
   ShelfResponse,
   Workspace,
 } from "@/lib/types";
+import "./space.css";
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; error?: unknown }
   | { kind: "unauthorized" }
   | { kind: "no-workspace"; auth: AuthInfo }
   | {
@@ -78,7 +80,55 @@ const PUSH_PREF_LABELS: { id: string; title: string; sub: string }[] = [
   { id: "pile-reminder", title: "Pile reminders", sub: "Halfway, 1 hour, and 10 minutes before reveal." },
   { id: "blind-reveal", title: "Blind Reveal ready", sub: "When both answers are ready." },
   { id: "game-ready", title: "Quiz & Green Lights", sub: "When a reveal is ready, or it's your turn." },
+  { id: "mood-match", title: "You're both in the mood", sub: "When you've both switched the mood light on." },
 ];
+
+// Notification presets. Each one is a complete map over every PUSH_PREF_LABELS
+// tag and is written exactly like a hand-flipped toggle: the same per-device
+// `preferences` object the server already filters on (functions/api/_push.js
+// DEFAULT_PUSH_PREFERENCES). Tags missing from a preset's list are turned off.
+//
+//  - Everything: every tag on (the default for a new device).
+//  - Only what needs me: things addressed to you or waiting on your answer:
+//    Sexts, new Asks, Ask replies and reminders, a Pile your partner started,
+//    your turn / reveal in the Quiz and Green Lights, and a mood match. Off:
+//    Kink nudges, Pile countdown reminders and Blind Reveal ready.
+//  - Quiet: only a new Ask and a mood match.
+type PushPresetId = "everything" | "needs-me" | "quiet";
+const PUSH_PRESETS: { id: PushPresetId; title: string; sub: string; tags: string[] }[] = [
+  {
+    id: "everything",
+    title: "Everything",
+    sub: "Every Sext, Ask, game turn, reminder and nudge.",
+    tags: PUSH_PREF_LABELS.map((pref) => pref.id),
+  },
+  {
+    id: "needs-me",
+    title: "Only what needs me",
+    sub: "Sexts, Asks, your turn in a game, and mood matches. No countdowns or nudges.",
+    tags: ["chat-message", "request-sent", "request-reviewed", "request-reminder", "pile-started", "game-ready", "mood-match"],
+  },
+  {
+    id: "quiet",
+    title: "Quiet",
+    sub: "Just new Asks and mood matches.",
+    tags: ["request-sent", "mood-match"],
+  },
+];
+
+function presetPrefs(presetId: PushPresetId): Record<string, boolean> {
+  const preset = PUSH_PRESETS.find((item) => item.id === presetId) || PUSH_PRESETS[0];
+  return Object.fromEntries(PUSH_PREF_LABELS.map((pref) => [pref.id, preset.tags.includes(pref.id)])) as Record<string, boolean>;
+}
+
+/** The preset the current toggles match exactly, or null for a custom mix. */
+function matchingPreset(prefs: Record<string, boolean>): PushPresetId | null {
+  for (const preset of PUSH_PRESETS) {
+    const wanted = presetPrefs(preset.id);
+    if (PUSH_PREF_LABELS.every((pref) => (prefs[pref.id] !== false) === wanted[pref.id])) return preset.id;
+  }
+  return null;
+}
 
 function defaultPushPrefs() {
   return Object.fromEntries(PUSH_PREF_LABELS.map((pref) => [pref.id, true])) as Record<string, boolean>;
@@ -138,6 +188,8 @@ export default function SpacePage() {
     return () => window.clearTimeout(initTimer);
   }, []);
 
+  // Lets the error card's Try again re-run the mount load below.
+  const loadRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -172,10 +224,13 @@ export default function SpacePage() {
           setState({ kind: "unauthorized" });
           return;
         }
-        setState({ kind: "error", message: error instanceof Error ? error.message : "Couldn't load Space." });
+        setState((current) => (current.kind === "ready"
+          ? current
+          : { kind: "error", message: error instanceof Error ? error.message : "", error }));
       }
     }
 
+    loadRef.current = load;
     void load();
 
     // Re-fetch whenever the tab becomes visible again. Handles the common
@@ -277,7 +332,15 @@ export default function SpacePage() {
   }, [pushPrefs, pushPrefsLoaded, state]);
 
   function updatePushPref(key: string, value: boolean) {
-    const next = { ...pushPrefs, [key]: value };
+    savePushPrefs({ ...pushPrefs, [key]: value });
+  }
+
+  function applyPushPreset(presetId: PushPresetId) {
+    // Keep any tag outside the labelled list (none today) as it was.
+    savePushPrefs({ ...pushPrefs, ...presetPrefs(presetId) });
+  }
+
+  function savePushPrefs(next: Record<string, boolean>) {
     setPushPrefs(next);
     try { localStorage.setItem(PUSH_PREFS_KEY, JSON.stringify(next)); } catch {}
     syncPushSubscription(next).catch((error) => {
@@ -296,28 +359,86 @@ export default function SpacePage() {
     }
   }
 
+  // Settings live in a sheet over Us. `/space?settings=1` (or #settings)
+  // opens it directly, so other screens can link straight to it.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("settings") || window.location.hash === "#settings") {
+      // One-shot deep link read after mount (window is client-only).
+      setSettingsOpen(true);
+    }
+  }, []);
+
+  function closeSettings() {
+    setSettingsOpen(false);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("settings") || url.hash === "#settings") {
+      url.searchParams.delete("settings");
+      url.hash = "";
+      window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}`);
+    }
+    // Focus returns to the gear that opened the sheet.
+    window.requestAnimationFrame(() => settingsTriggerRef.current?.focus());
+  }
+
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow="Space"
         showBrand={false}
-        title="You & your space"
+        title="Us"
         subtitle={subtitleFor(state)}
+        trailing={(
+          <button
+            ref={settingsTriggerRef}
+            type="button"
+            className="us-settings-trigger pressable"
+            aria-label="Settings"
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen}
+            data-testid="us-settings-open"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <IconGear />
+          </button>
+        )}
       />
       <Body
         state={state}
+        onRetry={() => loadRef.current()}
         notesCount={notesCount}
+      />
+      <SettingsSheet
+        open={settingsOpen}
+        onClose={closeSettings}
+        state={state}
         prefs={prefs}
         pushPrefs={pushPrefs}
         pushStatus={pushStatus}
         onPref={updatePref}
         onPushPref={updatePushPref}
+        onPushPreset={applyPushPreset}
         onEnablePush={() => syncPushSubscription().catch((error) => {
           setPushStatus(error instanceof Error ? error.message : "Couldn't enable notifications.");
         })}
         onTestPush={sendTestNotification}
       />
     </AppShell>
+  );
+}
+
+function IconGear() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.1" stroke="currentColor" strokeWidth="1.7" />
+      <path
+        d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.3.9a7.5 7.5 0 0 0-2.6-1.5L14.1 2.5h-4.2l-.4 2.5a7.5 7.5 0 0 0-2.6 1.5l-2.3-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.3-.9a7.5 7.5 0 0 0 2.6 1.5l.4 2.5h4.2l.4-2.5a7.5 7.5 0 0 0 2.6-1.5l2.3.9 2-3.4-2-1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -335,31 +456,19 @@ function emptyBoard(workspaceId: string): RequestBoardResponse {
 
 function Body({
   state,
+  onRetry,
   notesCount,
-  prefs,
-  pushPrefs,
-  pushStatus,
-  onPref,
-  onPushPref,
-  onEnablePush,
-  onTestPush,
 }: {
   state: LoadState;
+  onRetry: () => Promise<void>;
   notesCount: number;
-  prefs: SpacePrefs;
-  pushPrefs: Record<string, boolean>;
-  pushStatus: string;
-  onPref: (key: keyof SpacePrefs, value: boolean) => void;
-  onPushPref: (key: string, value: boolean) => void;
-  onEnablePush: () => void;
-  onTestPush: () => void;
 }) {
   if (state.kind === "loading") return <SkeletonList count={4} />;
   if (state.kind === "unauthorized") {
     return (
       <ErrorState
         title="Couldn't confirm your session"
-        body="Space could not verify your Google session. Reconnect and come right back here."
+        body="We couldn't verify your Google session. Reconnect and come right back here."
         action={
           <span className="settings-actions settings-actions-center">
             <Link href="/space" className="btn-ghost pressable">Try again</Link>
@@ -370,14 +479,14 @@ function Body({
     );
   }
   if (state.kind === "error") {
-    return <ErrorState title="Couldn't load Space" body={state.message} />;
+    return <LoadErrorState what="Us" error={state.error ?? state.message} onRetry={onRetry} />;
   }
   if (state.kind === "no-workspace") {
     return (
       <ErrorState
         title="No partner space yet"
         body="You're signed in, but this device did not receive your partner space."
-        action={<a className="btn-primary pressable" href={SPACE_RECONNECT_URL}>Reconnect Space</a>}
+        action={<a className="btn-primary pressable" href={SPACE_RECONNECT_URL}>Reconnect</a>}
       />
     );
   }
@@ -386,17 +495,19 @@ function Body({
   const careLimits = state.boundaries.length - hardLimits;
 
   return (
-    <div className="settings-stage">
-      <TutorialBanner />
-
+    <div className="settings-stage us-stage">
       {!hasJoinedPartner(state.workspace, state.auth.email) && (
         <InviteSection workspaceId={state.workspace.id} />
       )}
 
-      <section className="settings-section">
-        <p className="eyebrow">Together</p>
+      <section className="settings-section" aria-labelledby="us-together">
+        <h2 id="us-together" className="eyebrow">Together</h2>
         <div className="settings-card">
-          <SettingsLink href="/space/limits" title="Limits" sub={`${hardLimits} hard · ${careLimits} handle with care`} />
+          <SettingsLink
+            href="/space/limits"
+            title="Limits"
+            sub={state.boundaries.length ? `${hardLimits} hard · ${careLimits} handle with care` : "None set yet. Hard No, Talk First, and more."}
+          />
           <SettingsLink href="/space/acts" title="Your acts library" sub={`${state.acts.length} available Acts`} />
           <SettingsLink href="/space/health" title="Health" sub="Approved sex, Pile overlaps, and Act counts" />
           <SettingsLink href="/space/vault" title="Private Vault" sub="Encrypted clips, moments, reactions, and comments" />
@@ -404,103 +515,235 @@ function Body({
         </div>
       </section>
 
-      <section className="settings-section">
-        <p className="eyebrow">Trust</p>
+      <section className="settings-section" aria-labelledby="us-privacy">
+        <h2 id="us-privacy" className="eyebrow">Privacy and help</h2>
         <div className="settings-card">
           <SettingsLink href="/space/privacy" title="Privacy & data" sub="See what is stored, what stays here, and how deletion works" />
-          <SettingRow
-            title="Blur the dirty stuff"
-            sub="Thumbnails open clean. You decide what to reveal."
-            checked={prefs.blur}
-            onChange={(value) => onPref("blur", value)}
-          />
-          <SettingRow
-            title="Show partner name in notifications"
-            sub="Off, it reads as new from your partner."
-            checked={prefs.notifyName}
-            onChange={(value) => onPref("notifyName", value)}
-          />
-          <SettingRow
-            title="Share attention signals"
-            sub="Rare heat signals when a Kink or Shelf save holds your focus."
-            checked={prefs.shareAttentionSignals}
-            onChange={(value) => onPref("shareAttentionSignals", value)}
-          />
-        </div>
-      </section>
-
-      <section className="settings-section settings-room-encryption-section">
-        <p className="eyebrow">Room Encryption</p>
-        <RoomEncryptionPanel />
-      </section>
-
-      <section className="settings-section">
-        <p className="eyebrow">Notifications</p>
-        <div className="settings-card">
-          <div className="settings-row settings-row-stack">
-            <span>
-              <span className="settings-row-title">This device</span>
-              <span className="settings-row-sub">{pushStatus}</span>
-            </span>
-            <span className="settings-actions">
-              <button type="button" className="btn-ghost pressable" onClick={onEnablePush}>Enable</button>
-              <button type="button" className="btn-ghost pressable" onClick={onTestPush}>Test</button>
-            </span>
-          </div>
-          {PUSH_PREF_LABELS.map((pref) => (
-            <SettingRow
-              key={pref.id}
-              title={pref.title}
-              sub={pref.sub}
-              checked={pushPrefs[pref.id] !== false}
-              onChange={(value) => onPushPref(pref.id, value)}
-              dataPushPref={pref.id}
-            />
-          ))}
-        </div>
-      </section>
-
-      <section className="settings-section">
-        <p className="eyebrow">Account</p>
-        <div className="settings-card">
-          <SettingsLink href="/more" title="Account and data" sub={`${state.backlog.ideas.length} Kinks · ${state.shelf.items.length} Shelf items`} arrow="→" />
-          <a className="settings-link pressable" href="/api/auth/logout" onClick={prepareSignOut}>
-            <span>
-              Sign out of this device
-              <span className="settings-link-sub">Clears your Google session here.</span>
-            </span>
-            <span className="settings-link-chev">→</span>
-          </a>
-        </div>
-      </section>
-
-      <FeedbackSection workspaceId={state.workspace.id} />
-
-      <section className="settings-section settings-beta-note">
-        <p className="eyebrow">Beta / early access</p>
-        <div className="settings-card settings-beta-card">
-          <p>
-            Sexualsync is in early access. Core privacy, auth, export, deletion, and safety checks are live, but the product is still young. Please use it with someone you trust and report anything weird.
-          </p>
+          <SettingsLink href="/space/tutorial" title="Quick tour" sub="A short map of Home, Play, Ask, Sext, and Us" />
         </div>
       </section>
 
       <div className="settings-footer">
-        <a
-          className="settings-coffee-link pressable"
-          href="https://ko-fi.com/bergwa"
-          target="_blank"
-          rel="noreferrer"
-        >
-          <span className="settings-coffee-mark" aria-hidden="true">k</span>
-          <span className="settings-coffee-copy">
-            <span>Support Sexualsync on Ko-fi</span>
-            <small>Help keep the room cared for.</small>
-          </span>
-        </a>
         <span className="chip settings-version">{APP_RELEASE_VERSION}</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * Settings, opened from the gear on Us. A native <dialog> sheet: showModal()
+ * traps focus and makes Us inert behind it, Escape and a backdrop tap close
+ * it, and focus returns to the gear (the caller's onClose). The body scrolls
+ * on its own and clears the home indicator.
+ */
+function SettingsSheet({
+  open,
+  onClose,
+  state,
+  prefs,
+  pushPrefs,
+  pushStatus,
+  onPref,
+  onPushPref,
+  onPushPreset,
+  onEnablePush,
+  onTestPush,
+}: {
+  open: boolean;
+  onClose: () => void;
+  state: LoadState;
+  prefs: SpacePrefs;
+  pushPrefs: Record<string, boolean>;
+  pushStatus: string;
+  onPref: (key: keyof SpacePrefs, value: boolean) => void;
+  onPushPref: (key: string, value: boolean) => void;
+  onPushPreset: (presetId: PushPresetId) => void;
+  onEnablePush: () => void;
+  onTestPush: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const [customizing, setCustomizing] = useState(false);
+  const activePreset = matchingPreset(pushPrefs);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      requestAnimationFrame(() => doneRef.current?.focus());
+    } else if (!open && dialog.open) {
+      dialog.close();
+    }
+  }, [open]);
+
+  const ready = state.kind === "ready" ? state : null;
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="us-settings-sheet"
+      aria-labelledby={titleId}
+      data-testid="us-settings-sheet"
+      onClose={() => { if (open) onClose(); }}
+      onCancel={(event) => {
+        // Escape: let state drive the close so focus can return cleanly.
+        event.preventDefault();
+        onClose();
+      }}
+      onClick={(event) => {
+        // A tap on the backdrop (the dialog box itself, outside the panel).
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      {open && (
+        <div className="us-settings-panel">
+          <div className="us-settings-head">
+            <h2 id={titleId} className="us-settings-title">Settings</h2>
+            <button ref={doneRef} type="button" className="done-pill pressable" onClick={onClose}>
+              Done
+            </button>
+          </div>
+          <div className="us-settings-body">
+            <section className="settings-section" aria-labelledby="settings-notifications">
+              <h3 id="settings-notifications" className="eyebrow">Notifications</h3>
+              <div className="settings-card">
+                <div className="settings-row settings-row-stack">
+                  <span>
+                    <span className="settings-row-title">This device</span>
+                    <span className="settings-row-sub" role="status">{pushStatus}</span>
+                  </span>
+                  <span className="settings-actions">
+                    <button type="button" className="btn-ghost pressable" onClick={onEnablePush}>Enable</button>
+                    <button type="button" className="btn-ghost pressable" onClick={onTestPush}>Test</button>
+                  </span>
+                </div>
+              </div>
+              <div className="us-settings-presets" role="radiogroup" aria-label="What to be notified about">
+                {PUSH_PRESETS.map((preset) => {
+                  const checked = activePreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={checked}
+                      data-push-preset={preset.id}
+                      className={`us-preset pressable ${checked ? "is-active" : ""}`}
+                      onClick={() => onPushPreset(preset.id)}
+                    >
+                      <span className="us-preset-dot" aria-hidden="true" />
+                      <span className="us-preset-copy">
+                        <span className="us-preset-title">{preset.title}</span>
+                        <span className="us-preset-sub">{preset.sub}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="us-customize pressable"
+                aria-expanded={customizing}
+                aria-controls="settings-push-tags"
+                onClick={() => setCustomizing((value) => !value)}
+              >
+                <span>{activePreset ? "Customize" : "Customize · your own mix"}</span>
+                <span className="us-customize-chev" aria-hidden="true">{customizing ? "−" : "+"}</span>
+              </button>
+              {customizing && (
+                <div id="settings-push-tags" className="settings-card us-push-tags">
+                  {PUSH_PREF_LABELS.map((pref) => (
+                    <SettingRow
+                      key={pref.id}
+                      title={pref.title}
+                      sub={pref.sub}
+                      checked={pushPrefs[pref.id] !== false}
+                      onChange={(value) => onPushPref(pref.id, value)}
+                      dataPushPref={pref.id}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="settings-section" aria-labelledby="settings-privacy">
+              <h3 id="settings-privacy" className="eyebrow">Privacy</h3>
+              <div className="settings-card">
+                <SettingRow
+                  title="Blur the dirty stuff"
+                  sub="Thumbnails open clean. You decide what to reveal."
+                  checked={prefs.blur}
+                  onChange={(value) => onPref("blur", value)}
+                />
+                <SettingRow
+                  title="Show partner name in notifications"
+                  sub="Off, it reads as new from your partner."
+                  checked={prefs.notifyName}
+                  onChange={(value) => onPref("notifyName", value)}
+                />
+                <SettingRow
+                  title="Share attention signals"
+                  sub="Rare heat signals when a Kink or Shelf save holds your focus."
+                  checked={prefs.shareAttentionSignals}
+                  onChange={(value) => onPref("shareAttentionSignals", value)}
+                />
+              </div>
+            </section>
+
+            <section className="settings-section settings-room-encryption-section" aria-labelledby="settings-encryption">
+              <h3 id="settings-encryption" className="eyebrow">Room encryption</h3>
+              <RoomEncryptionPanel />
+            </section>
+
+            <section className="settings-section" aria-labelledby="settings-account">
+              <h3 id="settings-account" className="eyebrow">Account</h3>
+              <div className="settings-card">
+                <SettingsLink
+                  href="/more"
+                  title="Account and data"
+                  sub={ready ? `Download or delete · ${ready.backlog.ideas.length} Kinks · ${ready.shelf.items.length} Shelf items` : "Download or delete your data"}
+                  arrow="→"
+                />
+                <a className="settings-link pressable" href="/api/auth/logout" onClick={prepareSignOut}>
+                  <span>
+                    Sign out of this device
+                    <span className="settings-link-sub">{ready ? `Signed in as ${ready.auth.email}` : "Clears your Google session here."}</span>
+                  </span>
+                  <span className="settings-link-chev">→</span>
+                </a>
+              </div>
+            </section>
+
+            {ready && <FeedbackSection workspaceId={ready.workspace.id} />}
+
+            <section className="settings-section settings-beta-note" aria-labelledby="settings-beta">
+              <h3 id="settings-beta" className="eyebrow">Early access</h3>
+              <div className="settings-card settings-beta-card">
+                <p>
+                  Sexualsync is in early access. Core privacy, auth, export, deletion, and safety checks are live, but the product is still young. Please use it with someone you trust and report anything weird.
+                </p>
+              </div>
+            </section>
+
+            <a
+              className="settings-coffee-link pressable"
+              href="https://ko-fi.com/bergwa"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="settings-coffee-mark" aria-hidden="true">k</span>
+              <span className="settings-coffee-copy">
+                <span>Support Sexualsync on Ko-fi</span>
+                <small>Help keep the room cared for.</small>
+              </span>
+            </a>
+          </div>
+        </div>
+      )}
+    </dialog>
   );
 }
 
@@ -541,7 +784,7 @@ function FeedbackSection({ workspaceId }: { workspaceId: string }) {
 
   return (
     <section className="settings-section settings-feedback-section">
-      <p className="eyebrow">Feedback</p>
+      <h3 className="eyebrow">Feedback</h3>
       <form className="settings-card settings-feedback" onSubmit={submit}>
         <div className="settings-feedback-head">
           <span className="settings-row-title">What should feel better?</span>
@@ -595,19 +838,6 @@ function FeedbackSection({ workspaceId }: { workspaceId: string }) {
         </div>
       </form>
     </section>
-  );
-}
-
-function TutorialBanner() {
-  return (
-    <Link href="/space/tutorial" className="settings-tutorial-banner pressable" aria-label="Open the quick tour">
-      <span className="settings-tutorial-mark" aria-hidden="true">?</span>
-      <span className="settings-tutorial-copy">
-        <span className="settings-tutorial-title">Need the quick tour?</span>
-        <span className="settings-tutorial-sub">A tiny map for Asks, Inspiration, Reveals, and Space.</span>
-      </span>
-      <span className="settings-tutorial-action">Start</span>
-    </Link>
   );
 }
 
@@ -671,8 +901,10 @@ function SettingRow({
 }
 
 function subtitleFor(state: LoadState) {
-  if (state.kind !== "ready") return "Trust, together settings, and the doors out.";
-  return state.auth.email;
+  if (state.kind !== "ready") return "Your limits, Acts, notes, and Vault, together.";
+  if (!hasJoinedPartner(state.workspace, state.auth.email)) return "Your room. Invite your partner below.";
+  const partnerName = partnerOf(state.workspace, state.auth.email)?.displayName?.split(" ")[0];
+  return partnerName ? `Your room with ${partnerName}.` : "Your room, together.";
 }
 
 function urlBase64ToUint8Array(value: string) {

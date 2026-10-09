@@ -1,0 +1,924 @@
+/* Styles only /games renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.game-progress-section {
+  display: grid;
+  gap: 0;
+}
+
+.game-progress-live-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 13%, transparent);
+  animation: game-progress-live-dot 1.45s ease-in-out infinite;
+}
+
+.game-progress-status-row {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px 7px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 20%, transparent), rgba(23, 10, 16, 0.58));
+  background-clip: padding-box;
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  line-height: 1.2;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent) inset;
+}
+
+.game-progress-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.game-progress-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    rgba(23, 10, 16, 0.44);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent) inset;
+}
+
+.game-progress-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  line-height: 1.2;
+}
+
+.game-progress-topline span:last-child {
+  color: var(--accent);
+  text-align: right;
+}
+
+.game-progress-title {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.game-progress-meta {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+}
+
+.game-progress-cta {
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 600;
+}
+
+.games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.game-tile {
+  display: block;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--hairline));
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 42%),
+    var(--surface);
+  color: inherit;
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 4%, transparent),
+    0 18px 48px rgba(0, 0, 0, 0.22);
+}
+
+.game-art {
+  position: relative;
+  height: 110px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 76% 58% at 50% 64%, color-mix(in srgb, var(--accent) 22%, transparent) 0%, transparent 64%),
+    radial-gradient(circle at 18% 18%, color-mix(in srgb, var(--cream) 7%, transparent) 0%, transparent 34%),
+    linear-gradient(135deg, var(--surface-3) 0%, var(--surface) 48%, var(--bg) 100%);
+}
+
+.game-art-pile::after,
+.game-art-reveal::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg) 18%, transparent) 100%),
+    radial-gradient(ellipse 60% 35% at 50% 100%, var(--accent-fog), transparent 65%);
+}
+
+.pile-card::before,
+.pile-card::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--cream) 24%, transparent);
+}
+
+.pile-card::before {
+  top: 13px;
+  height: 1px;
+}
+
+.pile-card::after {
+  top: 20px;
+  height: 1px;
+  opacity: 0.48;
+}
+
+.game-body { padding: 14px 18px 16px; }
+
+.game-status {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 7px;
+  padding: 3px 9px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  line-height: 1.2;
+}
+
+.game-status.status-active {
+  position: relative;
+  border: 1px solid rgb(var(--accent-rgb) / 0.45);
+  background:
+    linear-gradient(90deg, var(--accent-mist), var(--accent-a22), var(--accent-mist));
+  background-size: 220% 100%;
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-a08), 0 0 20px var(--accent-a16);
+}
+
+/* The live pulse is an opacity breathe on a glow overlay — compositor-only.
+   The old version animated border-color + box-shadow (game-status-pulse) and
+   background-position (game-status-sheen), repainting the pill continuously
+   for as long as a game was active. */
+
+.game-status.status-active::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1px solid rgb(var(--accent-rgb) / 0.7);
+  box-shadow: 0 0 0 1px var(--accent-a12), 0 0 26px var(--accent-a28);
+  opacity: 0;
+  pointer-events: none;
+  animation: game-status-pulse 1.8s ease-in-out infinite;
+}
+
+.game-status.status-active::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 12px rgb(var(--accent-rgb) / 0.62);
+  animation: game-status-dot 1.18s ease-in-out infinite;
+}
+
+.game-status.status-idle {
+  border: 1px solid var(--hairline);
+  background: var(--cream-a04);
+  color: var(--cream-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-status.status-active,
+  .game-status.status-active::before {
+    animation: none;
+  }
+}
+
+/* Games animated graphics overlay */
+
+.game-art-pile { isolation: isolate; }
+
+.pile-glow {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  width: 60%;
+  height: 18px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  /* Gradient falloff does the softening; no filter to re-run per frame. */
+  background: radial-gradient(ellipse at center, var(--accent-fog) 0%, color-mix(in srgb, var(--accent-fog) 45%, transparent) 42%, transparent 74%);
+  animation: pile-glow-breath 5.4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: var(--z-base);
+}
+
+.pile-card {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: 56px;
+  height: 78px;
+  border: 1px solid color-mix(in srgb, var(--cream) 18%, transparent);
+  border-radius: var(--r-xs);
+  background:
+    linear-gradient(155deg, color-mix(in srgb, var(--cream) 10%, transparent), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--surface-3)) 0%, var(--surface) 100%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 10%, transparent),
+    0 10px 22px rgba(0, 0, 0, 0.38),
+    0 0 26px color-mix(in srgb, var(--accent) 10%, transparent);
+  z-index: var(--z-raised);
+  transform-origin: 50% 100%;
+}
+
+.pile-card-1 {
+  opacity: 0.78;
+  --tx: -62%;
+  --rot: -15deg;
+  transform: translateX(var(--tx)) rotate(var(--rot));
+  animation: pile-bob 6.4s ease-in-out infinite;
+  animation-delay: -1.6s;
+}
+
+.pile-card-2 {
+  top: 11px;
+  opacity: 0.96;
+  --tx: -50%;
+  --rot: 2deg;
+  transform: translateX(var(--tx)) rotate(var(--rot));
+  animation: pile-bob 5.8s ease-in-out infinite;
+  animation-delay: -2.4s;
+  z-index: var(--z-raised-2);
+}
+
+.pile-card-3 {
+  opacity: 0.82;
+  --tx: -38%;
+  --rot: 16deg;
+  transform: translateX(var(--tx)) rotate(var(--rot));
+  animation: pile-bob 6.8s ease-in-out infinite;
+  animation-delay: -4s;
+}
+
+.pile-card-pip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-fog), 0 0 3px var(--accent);
+  animation: pile-pip-breath 3.6s ease-in-out infinite;
+}
+
+.game-art-reveal { isolation: isolate; }
+
+.reveal-half-a::before,
+.reveal-half-b::before {
+  content: "";
+  position: absolute;
+  inset: 22px 18px auto;
+  height: 1px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--cream) 24%, transparent);
+  box-shadow: 0 11px 0 color-mix(in srgb, var(--cream) 12%, transparent);
+  display: none;
+}
+
+.reveal-half {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  background:
+    radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 58%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 13%, var(--surface-2)) 0%, color-mix(in srgb, var(--surface) 62%, transparent) 100%);
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.reveal-half-a {
+  left: 0;
+  border-right: 1px solid color-mix(in srgb, var(--cream) 13%, transparent);
+  align-items: flex-start;
+}
+
+.reveal-half-b {
+  right: 0;
+  border-left: 1px solid color-mix(in srgb, var(--cream) 13%, transparent);
+  align-items: flex-end;
+}
+
+.reveal-line {
+  display: block;
+  height: 1.4px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--cream) 38%, transparent);
+  clip-path: inset(0 100% 0 0);
+  animation: reveal-type 6.4s var(--ease-settle, cubic-bezier(0.22, 1, 0.36, 1)) infinite;
+}
+
+.rl-a { width: 78%; animation-delay: 0s; }
+
+.rl-b { width: 62%; animation-delay: 0.5s; }
+
+.rl-c { width: 72%; animation-delay: 1s; }
+
+.rr-a { width: 72%; animation-delay: 0.35s; }
+
+.rr-b { width: 58%; animation-delay: 0.85s; }
+
+.rr-c { width: 66%; animation-delay: 1.35s; }
+
+.reveal-seam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  box-shadow:
+    0 0 14px var(--accent-fog),
+    0 0 32px color-mix(in srgb, var(--accent) 18%, transparent);
+  z-index: var(--z-raised-3);
+  animation: reveal-seam-breath 4.6s ease-in-out infinite;
+}
+
+.reveal-pip,
+.reveal-pip-halo {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  z-index: var(--z-raised-4);
+  pointer-events: none;
+}
+
+.reveal-pip {
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent), 0 0 18px var(--accent-fog);
+  animation: reveal-pip-pulse 2.4s ease-in-out infinite;
+}
+
+.reveal-pip-halo {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 1px solid var(--accent);
+  animation: reveal-pip-ring 2.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pile-card,
+  .pile-glow,
+  .pile-card-pip,
+  .reveal-line,
+  .reveal-seam,
+  .reveal-pip,
+  .reveal-pip-halo {
+    animation: none !important;
+  }
+
+  .reveal-line {
+    clip-path: inset(0);
+    opacity: 0.7;
+  }
+}
+
+/* ── Sex Quiz tile art — a heart that draws itself in with the accent line on a
+   loop, a soft breathing fill behind it, a pulsing core spark, and sparkles
+   twinkling in the negative space. Same stroke + glow language as Pile/Reveal,
+   but its own motif (desire, not cards or split answers). ─────────────────── */
+
+.game-art-quiz { isolation: isolate; }
+
+.game-art-quiz::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg) 18%, transparent) 100%),
+    radial-gradient(ellipse 60% 35% at 50% 100%, var(--accent-fog), transparent 65%);
+}
+
+.quiz-art-svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 110px;
+  overflow: visible;
+  z-index: var(--z-raised-2);
+}
+
+.quiz-grad-a { stop-color: var(--accent); stop-opacity: 0.55; }
+
+.quiz-grad-b { stop-color: var(--accent-deep); stop-opacity: 0.04; }
+
+.quiz-heart-fill {
+  transform-box: fill-box;
+  transform-origin: center;
+  /* SVG-internal transforms re-lay-out the art every frame, so the tile's
+     art plays a short, finite intro and then rests (on the drawn heart). */
+  animation: quiz-breathe 5.6s ease-in-out 1 both;
+}
+
+.quiz-heart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  filter: drop-shadow(0 0 4px var(--accent-fog));
+  animation: quiz-draw-in 2.8s var(--ease-settle, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+.quiz-spark {
+  fill: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  filter: drop-shadow(0 0 5px var(--accent));
+  animation: quiz-spark-pulse 2.4s ease-in-out 3 both;
+}
+
+.quiz-sparkle {
+  fill: color-mix(in srgb, var(--cream) 72%, var(--accent));
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: quiz-twinkle 3.6s ease-in-out 2 both;
+}
+
+.quiz-sparkle.s2 { animation-delay: 0.9s; }
+
+.quiz-sparkle.s3 { animation-delay: 1.8s; }
+
+.quiz-sparkle.s4 { animation-delay: 2.6s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .quiz-heart-fill,
+  .quiz-heart-line,
+  .quiz-spark,
+  .quiz-sparkle { animation: none !important; }
+  .quiz-heart-line { stroke-dashoffset: 0; opacity: 1; }
+  .quiz-heart-fill { opacity: 0.6; }
+  .quiz-sparkle { opacity: 0.7; transform: rotate(45deg); }
+}
+
+/* ── Green Lights tile art — a traffic light with the green bulb lit, glowing and
+   pulsing while red/amber sit dim: the "we're clear" signal. Same glow language
+   as the other tiles, in its own green. ─────────────────────────────────────── */
+
+.game-art-greenlights { isolation: isolate; }
+
+.game-art-greenlights::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--bg) 18%, transparent) 100%),
+    radial-gradient(ellipse 56% 34% at 68% 100%, rgb(95 184 146 / 0.30), transparent 65%);
+}
+
+.gl-art-svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px;
+  height: 110px;
+  overflow: visible;
+  z-index: var(--z-raised-2);
+}
+
+.gl-dot { transform-box: fill-box; transform-origin: center; }
+
+.gl-red { fill: rgb(var(--no-rgb) / 0.32); }
+
+.gl-amber { fill: rgb(var(--gold-rgb) / 0.32); }
+
+.gl-green {
+  fill: #5fb892;
+  filter: drop-shadow(0 0 8px rgb(95 184 146 / 0.7));
+  animation: gl-green-pulse 2.4s ease-in-out infinite;
+}
+
+.gl-halo {
+  fill: none;
+  stroke: #5fb892;
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gl-halo-ring 2.4s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-green, .gl-halo { animation: none !important; }
+  .gl-halo { opacity: 0; }
+}
+
+.game-title {
+  margin: 0 0 6px;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.game-desc {
+  margin: 0 0 12px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}
+
+.game-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.game-meta {
+  min-width: 0;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}
+
+.game-cta {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 600;
+}
+
+/* ── Play hub (/games). Two sections, one reading order: Reveals (games
+   waiting on you as full tiles, the rest as compact rows) then Inspiration
+   (today's prompt and pointers into /inspiration). Rows share one list
+   surface so nothing nests inside a card. ─────────────────────────────── */
+
+.play-stage {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.games-stage.play-stage {
+  padding-bottom: var(--space-2);
+}
+
+.play-inspo {
+  position: relative;
+  z-index: var(--z-raised-2);
+  padding: var(--space-6) 22px calc(var(--tabbar-height) + var(--space-8));
+}
+
+.play-section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.play-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.play-section-title {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-17);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.play-section-note {
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.play-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--cream-a02);
+}
+
+.play-list > li + li,
+.play-list > .play-row + .play-row {
+  border-top: 1px solid var(--hairline);
+}
+
+@media (hover: hover) {
+  .play-row:hover { background: var(--cream-a04); }
+}
+
+.play-row:active { background: var(--cream-a06); }
+
+.play-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  box-shadow: var(--ring-hairline);
+  color: var(--accent-soft);
+}
+
+.play-mark-greenlights { color: var(--ss-yes, #a8c9a0); }
+
+.play-row-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.play-row-title {
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.play-row-sub {
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+}
+
+.play-row-sub.is-live { color: var(--accent); }
+
+.play-row-cta {
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.play-row-chev {
+  color: var(--cream-faint);
+  font-size: var(--fs-20);
+  line-height: 1;
+}
+
+.play-row-skeleton .play-row-copy { gap: var(--space-2); }
+
+.play-row-skeleton .game-skeleton-title,
+.play-row-skeleton .game-skeleton-line { margin: 0; }
+
+/* Today's prompt: the one serif moment in the section, set as a quote you
+   can answer. A tinted panel, not a card in a card. */
+
+.play-prompt {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 90% at 0% 0%, var(--accent-mist) 0%, transparent 62%),
+    var(--surface);
+  box-shadow: var(--ring-hairline);
+  color: var(--cream);
+  text-decoration: none;
+}
+
+.play-prompt-label {
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.play-prompt-text {
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.play-prompt-cta {
+  justify-self: end;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 600;
+}
+
+/* Reveals loading: tile-shaped placeholders matching .game-tile (110px art +
+   status, title, three-line description, meta row). */
+
+.game-tile-skeleton .game-body {
+  min-height: 190px;
+}
+
+.game-skeleton-status {
+  width: 64px;
+  height: 20px;
+  margin-bottom: 9px;
+  border-radius: var(--r-pill);
+}
+
+.game-skeleton-title {
+  width: 46%;
+  height: 22px;
+  margin-bottom: 12px;
+  border-radius: var(--r-xs);
+}
+
+.game-skeleton-line {
+  width: 100%;
+  height: 11px;
+  margin-bottom: 9px;
+  border-radius: var(--r-pill);
+}
+
+.game-skeleton-line.is-short {
+  width: 62%;
+}
+
+.game-skeleton-foot {
+  width: 40%;
+  height: 12px;
+  margin-top: 16px;
+  border-radius: var(--r-pill);
+}
+
+@keyframes game-status-pulse {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+@keyframes game-status-dot {
+  0%, 100% { opacity: 0.6; transform: scale(0.82); }
+  50%      { opacity: 1;   transform: scale(1.06); }
+}
+
+@keyframes pile-bob {
+  0%,
+  100% {
+    transform: translateX(var(--tx)) rotate(var(--rot)) translateY(0);
+  }
+  50% {
+    transform: translateX(var(--tx)) rotate(var(--rot)) translateY(-5px);
+  }
+}
+
+@keyframes pile-glow-breath {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: translateX(-50%) scaleX(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scaleX(1.15);
+  }
+}
+
+@keyframes pile-pip-breath {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes reveal-type {
+  0% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.85;
+  }
+  55%,
+  80% {
+    clip-path: inset(0);
+    opacity: 0.85;
+  }
+  94% {
+    clip-path: inset(0);
+    opacity: 0;
+  }
+  100% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0;
+  }
+}
+
+@keyframes reveal-seam-breath {
+  0%,
+  100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@keyframes reveal-pip-pulse {
+  0%,
+  100% { transform: scale(0.85); }
+  50% { transform: scale(1.15); }
+}
+
+@keyframes reveal-pip-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes quiz-draw-in {
+  0% { stroke-dashoffset: 1; opacity: 0; }
+  18% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+@keyframes quiz-breathe {
+  0%, 100% { opacity: 0.42; transform: scale(0.985); }
+  50% { opacity: 0.78; transform: scale(1.015); }
+}
+
+@keyframes quiz-spark-pulse {
+  0%, 100% { transform: scale(0.8); opacity: 0.7; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+
+@keyframes quiz-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  50% { opacity: 0.9; transform: scale(1) rotate(45deg); }
+}
+
+@keyframes gl-green-pulse {
+  0%, 100% { transform: scale(0.92); opacity: 0.82; }
+  50% { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes gl-halo-ring {
+  0% { transform: scale(0.85); opacity: 0.6; }
+  100% { transform: scale(2.1); opacity: 0; }
+}

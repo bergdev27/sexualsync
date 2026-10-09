@@ -10,16 +10,21 @@
  * thin wrapper around state + reload + AppShell.
  */
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { syncAppBadge } from "@/lib/app-badge";
 import { LiveActivitySection } from "@/components/LiveActivityToast";
-import { ErrorState, SkeletonList } from "@/components/States";
+import { ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import WaitingForPartner from "@/components/WaitingForPartner";
 import PartnerTurnOns from "@/components/PartnerTurnOns";
 import SharedDesires from "@/components/SharedDesires";
 import { acceptInvite, declineInvite } from "@/lib/api";
+import type { QueuedWritePreview } from "@/lib/offline-queue";
+import { ROOM_E2EE_PLACEHOLDER } from "@/lib/room-crypto";
 import { mutualAskHref } from "@/lib/activity";
+import { navigateWithMatchMorph } from "@/lib/match-transition";
+import { planPhrase } from "@/lib/plan-time";
 import { useDayRollover } from "@/lib/use-day-rollover";
 import type {
   AuthInfo,
@@ -49,16 +54,19 @@ import {
   safeDateMs,
   scheduledLabel,
   sharedKinksHref,
-  statusLabel,
   unansweredKinksFor,
 } from "./_sexboard-helpers";
+import { activePlanDate, askStatusLabel, isAwaitingFirstReply, requestedActDecisions } from "@/lib/request-state";
 import { PresenceBand, PulseWaves } from "./_sexboard-presence";
+import { MoodLight } from "./_sexboard-mood";
 import type { HandoffItem, HandoffSummary, LoadState } from "./_sexboard-types";
 
 const DASHBOARD_COPY = "Check here for live reveals, active requests, and anything that needs your response.";
 
 export function Body({
   state,
+  queuedAsks = [],
+  onRetry,
   removingPileSessionId,
   viewedLockedPileSessionIds,
   viewedLockedBlindRevealIds,
@@ -67,6 +75,8 @@ export function Body({
   onViewLockedBlindReveal,
 }: {
   state: LoadState;
+  queuedAsks?: QueuedWritePreview[];
+  onRetry: () => unknown;
   removingPileSessionId: string;
   viewedLockedPileSessionIds: Set<string>;
   viewedLockedBlindRevealIds: Set<string>;
@@ -89,12 +99,7 @@ export function Body({
     );
   }
   if (state.kind === "error") {
-    return (
-      <ErrorState
-        title="Couldn't load Sexboard"
-        body={state.message || "Something went sideways. Try again."}
-      />
-    );
+    return <LoadErrorState what="your Sexboard" error={state.error ?? state.message} onRetry={onRetry} />;
   }
   if (state.kind === "no-workspace") {
     return <NoWorkspaceView pendingInvites={state.pendingInvites} />;
@@ -119,6 +124,7 @@ export function Body({
       )}
       <TonightBoard
         state={state}
+        queuedAsks={queuedAsks}
         dayTick={dayTick}
         removingPileSessionId={removingPileSessionId}
         viewedLockedPileSessionIds={viewedLockedPileSessionIds}
@@ -246,6 +252,7 @@ function BadgeSync({ count }: { count: number }) {
 
 function TonightBoard({
   state,
+  queuedAsks,
   dayTick,
   removingPileSessionId,
   viewedLockedPileSessionIds,
@@ -255,6 +262,7 @@ function TonightBoard({
   onViewLockedBlindReveal,
 }: {
   state: Extract<LoadState, { kind: "ready" }>;
+  queuedAsks: QueuedWritePreview[];
   dayTick: number;
   removingPileSessionId: string;
   viewedLockedPileSessionIds: Set<string>;
@@ -267,6 +275,8 @@ function TonightBoard({
   // click should not rebuild unrelated handoff arrays under live-room churn.
   const summary = useMemo(
     () => handoffSummaryFor(state, viewedLockedPileSessionIds, viewedLockedBlindRevealIds),
+    // dayTick is the recompute trigger: "tonight"/"tomorrow" windows shift at midnight.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, viewedLockedPileSessionIds, viewedLockedBlindRevealIds, dayTick],
   );
   const {
@@ -289,7 +299,9 @@ function TonightBoard({
       ? { pre: "", accent: `${kinksNeedingMe.length} kink${kinksNeedingMe.length === 1 ? "" : "s"}`, post: " need your response." }
       : needsCount === 0
       ? waitingCount === 0
-        ? handoffs.locked.length
+        ? handoffs.planned.length
+          ? { pre: "Something's ", accent: "planned.", post: "" }
+          : handoffs.locked.length
           ? { pre: "Tonight is ", accent: "locked in.", post: "" }
           : { pre: "You're ", accent: "caught up.", post: "" }
         : waitingCount === 1
@@ -298,7 +310,7 @@ function TonightBoard({
       : needsCount === 1
       ? { pre: "", accent: "1 thing", post: " needs a response." }
       : { pre: "", accent: `${needsCount} things`, post: " need a response." }
-  ), [kinksNeedingMe.length, needsCount, waitingCount, handoffs.locked.length, partnerName]);
+  ), [kinksNeedingMe.length, needsCount, waitingCount, handoffs.locked.length, handoffs.planned.length, partnerName]);
   // Stabilize the parent's remove handler so the Locked-in section's React.memo
   // only re-renders when its own items / removing flag actually change.
   const handleRemoveLockedPile = useCallback(
@@ -332,6 +344,7 @@ function TonightBoard({
   return (
     <section className="dashboard-home" data-dashboard-state={dashboardState}>
       <BadgeSync count={handoffs.needsYou.length} />
+      <MoodLight workspaceId={state.workspace.id} partnerName={partnerName} />
       <article className="card pulse-card sexboard-card sexboard-handoff-card" data-pulse-state={pulseState} aria-label="Sexboard">
         <PresenceBand workspace={state.workspace} auth={state.auth} presence={state.presence} />
 
@@ -342,6 +355,8 @@ function TonightBoard({
             <p>{DASHBOARD_COPY}</p>
           </div>
         </section>
+
+        <QueuedAskSection items={queuedAsks} workspaceId={state.workspace.id} partnerName={partnerName} />
 
         {!handoffs.needsYou.length ? lockedSection : null}
 
@@ -356,6 +371,16 @@ function TonightBoard({
 
         {handoffs.needsYou.length ? lockedSection : null}
 
+        {handoffs.planned.length ? (
+          <HandoffSection
+            title="Planned"
+            emptyEyebrow=""
+            emptyTitle=""
+            emptyBody=""
+            items={handoffs.planned}
+          />
+        ) : null}
+
         <HandoffSection
           title={`Waiting on ${partnerName}`}
           emptyEyebrow="Nothing sent"
@@ -363,6 +388,16 @@ function TonightBoard({
           emptyBody={`Asks, Pile lists, and kinks you send to ${partnerName} will show here.`}
           items={handoffs.waiting}
         />
+
+        {handoffs.replies.length ? (
+          <HandoffSection
+            title="Replies"
+            emptyEyebrow=""
+            emptyTitle=""
+            emptyBody=""
+            items={handoffs.replies}
+          />
+        ) : null}
       </article>
 
       <SharedDesires workspaceId={state.workspace.id} />
@@ -377,6 +412,55 @@ function TonightBoard({
         initialActivity={state.activity}
         refreshOnRoomEvent={false}
       />
+    </section>
+  );
+}
+
+function queuedAskTitle(body: unknown): string {
+  const record = (body && typeof body === "object" ? body : {}) as { categories?: unknown; encryptedPayload?: unknown };
+  const categories = Array.isArray(record.categories)
+    ? record.categories.filter((item): item is string => typeof item === "string" && item !== ROOM_E2EE_PLACEHOLDER)
+    : [];
+  if (record.encryptedPayload || !categories.length) return "Your Ask";
+  return categories.length > 2 ? `${categories.slice(0, 2).join(", ")} +${categories.length - 2}` : categories.join(", ");
+}
+
+/**
+ * Asks composed offline. They live in the device's offline queue until the
+ * connection returns, so they aren't on the server board yet; without this
+ * row the Sexboard would look like the Ask vanished.
+ */
+function QueuedAskSection({
+  items,
+  workspaceId,
+  partnerName,
+}: {
+  items: QueuedWritePreview[];
+  workspaceId: string;
+  partnerName: string;
+}) {
+  const mine = items.filter((item) => {
+    const target = (item.body as { workspaceId?: unknown } | null)?.workspaceId;
+    return !target || target === workspaceId;
+  });
+  if (!mine.length) return null;
+  return (
+    <section className="sexboard-handoff-section" aria-label="Waiting to send">
+      <div className="sexboard-section-head">
+        <span>Waiting to send</span>
+      </div>
+      <div className="sexboard-handoff-list">
+        {mine.map((item) => (
+          <div key={item.id} className="sexboard-handoff-row sexboard-handoff-row--queued">
+            <span className="sexboard-handoff-copy">
+              <span className="sexboard-handoff-eyebrow">Queued Ask</span>
+              <strong>{queuedAskTitle(item.body)}</strong>
+              <small>Sends to {partnerName} when you&apos;re back online.</small>
+            </span>
+            <span className="sexboard-handoff-queued-mark" aria-hidden="true" />
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -480,12 +564,22 @@ const HandoffRow = memo(function HandoffRow({
     (item.dismissOnViewSessionId && onViewLockedPile)
       || (item.dismissOnViewRevealId && onViewLockedBlindReveal)
   );
+  const router = useRouter();
   const onViewClick = hasViewDismiss
     ? () => {
         if (item.dismissOnViewSessionId) onViewLockedPile?.(item.dismissOnViewSessionId);
         if (item.dismissOnViewRevealId) onViewLockedBlindReveal?.(item.dismissOnViewRevealId);
       }
     : undefined;
+  // Approved-match rows hand their title to the /mutual hero as a shared
+  // element where View Transitions exist; elsewhere the Link just navigates.
+  const onMorphClick = item.morph
+    ? (event: MouseEvent<HTMLAnchorElement>) => {
+        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const source = event.currentTarget.querySelector<HTMLElement>(".sexboard-handoff-copy strong");
+        if (navigateWithMatchMorph(router.push, item.href, source)) event.preventDefault();
+      }
+    : onViewClick;
 
   if (item.removeSessionId && onRemoveLockedPile) {
     return (
@@ -511,7 +605,7 @@ const HandoffRow = memo(function HandoffRow({
   }
 
   return (
-    <Link href={item.href} className={rowClass} onClick={onViewClick}>
+    <Link href={item.href} className={rowClass} onClick={onMorphClick}>
       {content}
       <span className={actionClass}>
         {item.action}
@@ -614,8 +708,12 @@ function buildHandoffs({
   greenLights: GameRoundStatus | null;
   me: AuthInfo;
   partnerName: string;
-}): { needsYou: HandoffItem[]; waiting: HandoffItem[]; locked: HandoffItem[] } {
+}): HandoffSummary["handoffs"] {
   const needsYou: HandoffItem[] = [];
+  const replies: HandoffItem[] = [];
+  // Approved Asks with a time on them ("Plan it" on the match moment). Never a
+  // needs-you contributor, so the badge parity with the server is unaffected.
+  const planned: { at: number; item: HandoffItem }[] = [];
   const waiting: HandoffItem[] = [];
   const locked: HandoffItem[] = [
     latestPile ? lockedPileHandoff(latestPile, hasApprovedSexActRequest) : null,
@@ -778,7 +876,26 @@ function buildHandoffs({
     const approvedSexAct = isApprovedSexActRequest(request);
     const timingLabel = currentTimingLabel(request);
     const action = approvedSexAct ? "It's on!" : pendingCounter && !fromPartner ? "Review" : "Open";
-    if (fromPartner && request.status === "pending") {
+    const planDate = approvedSexAct ? activePlanDate(request) : null;
+    if (planDate) {
+      const plannedByMe = String(request.plannedByEmail || "").toLowerCase() === String(me.email || "").toLowerCase();
+      const plannerName = String(request.plannedByName || "").trim().split(/\s+/)[0] || partnerName;
+      planned.push({
+        at: planDate.getTime(),
+        item: {
+          id: `planned-${request.id}`,
+          href,
+          eyebrow: `Planned for ${planPhrase(planDate)}`,
+          title,
+          body: plannedByMe ? "You put it on the calendar." : `${plannerName} put it on the calendar.`,
+          action,
+          actionGlow: true,
+          morph: true,
+        },
+      });
+      return;
+    }
+    if (fromPartner && isAwaitingFirstReply(request.status)) {
       needsYou.push({
         id: `request-${request.id}`,
         href,
@@ -821,21 +938,49 @@ function buildHandoffs({
       return;
     }
 
+    // A counter on my Ask: the next move (accept or pass) is mine. Mirrors
+    // counterAwaitsRequester() in request-board.js, which _attention.js counts
+    // for the badge, so the board and the icon agree.
+    if (!fromPartner && pendingCounter && (request.status === "reviewed" || request.status === "on_deck")) {
+      needsYou.push({
+        id: `request-${request.id}`,
+        href,
+        eyebrow: `${partnerName} countered your Ask`,
+        title,
+        body: "Accept the counter or pass.",
+        action: "Review",
+      });
+      return;
+    }
+
+    // A final answer that isn't a yes (a pass, a maybe-for-now, "let's talk")
+    // isn't waiting on anyone: it's an outcome, said in plain words.
+    if (request.status === "reviewed" && !pendingCounter && !approvedSexAct) {
+      replies.push({
+        id: `request-${request.id}`,
+        href,
+        eyebrow: fromPartner ? `${request.requesterName || partnerName} sent an Ask` : "You sent an Ask",
+        title,
+        body: replyOutcomeBody(request, fromPartner ? "You" : partnerName),
+        action: "Open",
+      });
+      return;
+    }
+
     if (!fromPartner) {
       waiting.push({
         id: `request-${request.id}`,
         href,
         eyebrow: "You sent an Ask",
         title,
-        body: request.status === "on_deck"
+        body: request.status === "on_deck" || approvedSexAct
           ? approvedRequestBody(request)
           : request.status === "reviewed"
-          ? pendingCounter
-            ? `${partnerName} countered. Review it.`
-            : `${partnerName} reviewed it.`
+          ? `${partnerName} replied.`
           : `Waiting on ${partnerName}.`,
         action,
         actionGlow: approvedSexAct && request.status === "on_deck",
+        morph: approvedSexAct,
       });
     } else {
       waiting.push({
@@ -847,14 +992,31 @@ function buildHandoffs({
           ? approvedRequestBody(request)
           : request.status === "reviewed" && pendingCounter
           ? "Counter offered."
-          : `${statusLabel(request.status)} · ${timingLabel}.`,
+          : `${askStatusLabel(request, { mine: false, partnerName }).label} · ${timingLabel}`,
         action,
         actionGlow: approvedSexAct && request.status === "on_deck",
+        morph: approvedSexAct,
       });
     }
   });
 
-  return { needsYou, waiting, locked };
+  return {
+    needsYou,
+    waiting,
+    locked,
+    planned: planned.sort((a, b) => a.at - b.at).map((entry) => entry.item),
+    replies,
+  };
+}
+
+// "Jordan passed." / "You said maybe for now." for a final answer with no yes.
+function replyOutcomeBody(request: RequestRecord, who: string): string {
+  const you = who === "You";
+  const answers = requestedActDecisions(request).map((item) => item.decision);
+  if (answers.length && answers.every((answer) => answer === "No")) return `${who} passed.`;
+  if (answers.includes("Maybe")) return `${who} said maybe for now.`;
+  if (answers.includes("Let's chat")) return you ? "You want to talk about it first." : `${who} wants to talk about it first.`;
+  return `${who} replied.`;
 }
 
 function requestHandoffHref(request: RequestRecord) {
@@ -939,7 +1101,7 @@ function sexboardDashboardState(
   latestPile?: PileSession,
   latestBlindReveal?: BlindReveal,
 ): "quiet" | "needs-you" | "active" | "tonight" {
-  if (requests.some((request) => request.status === "pending" && isFromPartner(request, auth))) return "needs-you";
+  if (requests.some((request) => isAwaitingFirstReply(request.status) && isFromPartner(request, auth))) return "needs-you";
   if (pendingKinkResponses > 0) return "needs-you";
   if (
     requests.some((request) => (

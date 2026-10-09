@@ -1,0 +1,174 @@
+/* Styles only /inspiration/shelf renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.shelf-hint {
+  margin: 0 0 16px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}
+
+/* Emphasis inside 13px copy is weight, not the display serif: Cormorant's
+   hairlines vanish below 18px in low light. */
+.shelf-hint em {
+  color: var(--cream);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.shelf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.shelf-card {
+  overflow: hidden;
+  padding: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(180deg, var(--cream-a04) 0%, transparent 36%),
+    var(--surface);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+}
+
+.shelf-title-row {
+  margin-bottom: 14px;
+}
+
+.shelf-title-row .caption {
+  margin-bottom: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shelf-title-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.shelf-title-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.media-art {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.media-art img,
+.media-art video,
+.media-art iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bg);
+}
+
+.media-art img,
+.media-art video {
+  object-fit: cover;
+}
+
+.media.is-revealed .media-art video {
+  background: var(--bg);
+  object-fit: contain;
+}
+
+.media:not(.is-longform) .media-art video::-webkit-media-controls,
+.media:not(.is-longform) .media-art video::-webkit-media-controls-enclosure {
+  display: none !important;
+}
+
+.reveal-btn {
+  appearance: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: var(--z-raised-3);
+  transform: translate(-50%, -50%);
+  min-width: 92px;
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: rgba(12, 5, 8, 0.72);
+  background-clip: padding-box;
+  box-shadow: var(--ring-accent-fog);
+  color: var(--cream);
+  cursor: pointer;
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 700;
+  backdrop-filter: blur(18px) saturate(1.4);
+}
+
+.hide-btn {
+  appearance: none;
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  z-index: var(--z-raised-3);
+  min-width: 64px;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: rgba(12, 5, 8, 0.68);
+  background-clip: padding-box;
+  box-shadow: var(--ring-hairline-strong);
+  color: var(--cream);
+  cursor: pointer;
+  font-size: var(--fs-12);
+  font-weight: 700;
+  backdrop-filter: blur(16px) saturate(1.35);
+}
+
+.media-open-link {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  text-decoration: none;
+}
+
+.media-source-link {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: var(--z-raised-3);
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: rgba(12, 5, 8, 0.68);
+  background-clip: padding-box;
+  box-shadow: var(--ring-hairline-strong);
+  color: var(--cream);
+  font-size: var(--fs-12);
+  font-weight: 700;
+  text-decoration: none;
+  backdrop-filter: blur(16px) saturate(1.35);
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.meta-author {
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}

@@ -19,6 +19,7 @@ import { trustedOrigin } from "./_origin.js";
 import { closeLiveRoomActor, closeLiveRoomWorkspace } from "./_live_room.js";
 import { revokeReviewerTokens, revokeWorkspaceTokens } from "./_tokens.js";
 import { deleteVaultForWorkspace } from "./_vault.js";
+import { MOOD_STORE_NAME, moodKey } from "./mood.js";
 
 const DELETION_GRACE_DAYS = 7;
 
@@ -42,6 +43,7 @@ const DIRECT_WORKSPACE_STORES = [
   { name: "sexualsync-pile", key: (workspaceId) => `pile:${workspaceId}:sessions` },
   { name: "sexualsync-sex-quiz", key: (workspaceId) => `sexQuiz:${workspaceId}` },
   { name: "sexualsync-green-lights", key: (workspaceId) => `greenLights:${workspaceId}` },
+  { name: "sexualsync-mood", key: (workspaceId) => `mood:${workspaceId}` },
   { name: "sexualsync-activity", key: (workspaceId) => `events:${workspaceId}` },
   { name: "sexualsync-activity", key: (workspaceId) => `read:${workspaceId}` },
   { name: "sexualsync-feedback", key: (workspaceId) => `feedback:${workspaceId}` },
@@ -91,6 +93,29 @@ async function purgeAuditForWorkspace(env, workspaceId) {
     await store.delete(`workspace-${workspaceId}`);
   } catch {
     // Best effort.
+  }
+}
+
+// A member who leaves takes their mood light with them: drop their entry from
+// the room's mood record so a stale "on" (or cooldown stamp) never outlives the
+// membership. Best effort, CAS through mutateKey like every mood write.
+async function pruneMoodMember(env, workspaceId, email) {
+  const target = normalizeEmail(email);
+  if (!workspaceId || !target) return;
+  try {
+    await mutateKey(env, MOOD_STORE_NAME, moodKey(workspaceId), (current) => {
+      const byEmail = current && typeof current === "object" && current.byEmail && typeof current.byEmail === "object"
+        ? current.byEmail
+        : null;
+      if (!byEmail) return { write: false };
+      const departing = Object.keys(byEmail).filter((key) => normalizeEmail(key) === target);
+      if (!departing.length) return { write: false };
+      const next = { ...byEmail };
+      for (const key of departing) delete next[key];
+      return { value: { ...current, byEmail: next } };
+    });
+  } catch {
+    // Best effort: the mood handler already ignores non-active members.
   }
 }
 
@@ -288,6 +313,7 @@ export async function onRequest(context) {
   // workspace). Best-effort: a token-store hiccup must not fail the leave — the
   // live membership re-check in review-token.js still blocks a stale token.
   await revokeReviewerTokens(env, r.workspace.id, auth.email).catch(() => {});
+  await pruneMoodMember(env, r.workspace.id, auth.email);
   closeLiveRoomActor(context, r.workspace.id, auth.email, "member_removed");
   await appendAudit(env, r.workspace.id, {
 	    type: "member_removed",

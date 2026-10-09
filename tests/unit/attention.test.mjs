@@ -70,6 +70,23 @@ test("attentionCountFor is 0 for a blank/unknown recipient", async () => {
   assert.equal(await attentionCountFor(env, WS, ""), 0);
 });
 
+test("attentionCountFor counts a counter waiting on me as the requester", async () => {
+  const env = await setup();
+  const counter = { label: "Massage", decision: "Counter", counter: "Slow undressing", targetType: "act" };
+  await seedRequests(env, [
+    // My Ask, partner countered, not accepted yet → my move → counts
+    req("r1", { status: "reviewed", requesterEmail: ME, reviewerEmail: PARTNER, decisions: [counter], counters: [counter] }),
+    // Already accepted → no
+    req("r2", { status: "on_deck", requesterEmail: ME, reviewerEmail: PARTNER, decisions: [counter], counters: [counter], counterAcceptedAt: "2026-01-02T00:00:00.000Z" }),
+    // A plain pass on my Ask → nothing for me to do → no
+    req("r3", { status: "reviewed", requesterEmail: ME, reviewerEmail: PARTNER, decisions: [{ label: "Massage", decision: "No", targetType: "act" }] }),
+    // I countered my partner's Ask → waiting on them → no
+    req("r4", { status: "reviewed", decisions: [counter], counters: [counter] }),
+  ]);
+  assert.equal(await attentionCountFor(env, WS, ME), 1, "only the counter awaiting my accept/pass counts");
+  assert.equal(await attentionCountFor(env, WS, PARTNER), 1, "partner owes the accept on r4");
+});
+
 test("attentionCountFor counts a maybe I deferred — I still owe a final decision", async () => {
   const env = await setup();
   await seedRequests(env, [

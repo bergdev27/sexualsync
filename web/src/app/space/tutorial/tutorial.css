@@ -1,0 +1,84 @@
+/* Styles only /space/tutorial renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.tutorial-intro {
+  padding: 18px;
+  border: 1px solid var(--accent-fog);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, var(--accent-a12), transparent),
+    var(--cream-a02);
+}
+
+.tutorial-intro h2 {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.08;
+}
+
+.tutorial-intro p:not(.eyebrow) {
+  margin: 10px 0 16px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}
+
+.tutorial-step {
+  align-items: flex-start;
+}
+
+.tutorial-step-index {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 50%;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.tutorial-step-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tutorial-step-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+}
+
+.tutorial-step-cta {
+  align-self: center;
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+
+.tutorial-done-bottom {
+  width: 100%;
+  margin-top: -2px;
+}
+
+@media (max-width: 380px) {
+
+  .tutorial-step {
+    flex-wrap: wrap;
+  }
+
+  .tutorial-step-cta {
+    width: 100%;
+    padding-left: 38px;
+  }
+}

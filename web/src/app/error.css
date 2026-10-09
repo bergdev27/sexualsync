@@ -1,0 +1,57 @@
+/* The screen-level error boundary (app/error.tsx, app/global-error.tsx).
+   Loaded only when a screen throws. */
+
+.route-error {
+  display: grid;
+  align-content: center;
+  padding: max(24px, calc(16px + var(--safe-area-top, 0px))) 20px max(24px, calc(16px + var(--safe-area-bottom, 0px)));
+}
+
+.route-error-panel {
+  position: relative;
+  z-index: var(--z-raised-2, 2);
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 28px 20px 24px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg, 20px);
+  background: rgb(var(--surface-rgb) / 0.86);
+  text-align: center;
+  box-shadow: 0 1px 0 rgb(var(--cream-rgb) / 0.04), 0 10px 28px -18px rgb(0 0 0 / 0.42);
+}
+
+.route-error-panel h1 {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-30, 30px);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.route-error-panel p {
+  margin: 0;
+  max-width: 32ch;
+  color: var(--cream-muted);
+  font-size: var(--fs-15, 15px);
+  line-height: 1.5;
+}
+
+.route-error-actions {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.route-error-actions > * {
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+}

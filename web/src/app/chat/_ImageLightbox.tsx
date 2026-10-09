@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getChatImageBlobCached } from "@/lib/api";
+import { useVaultLightbox } from "@/app/space/vault/_VaultClipLightbox";
 import type { ChatMedia } from "@/lib/types";
 
 const MAX_SCALE = 5;
@@ -65,19 +66,15 @@ export default function ImageLightbox({
       })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    // Keyed on the media's identity fields: a re-render passes a fresh
+    // `media` object for the same image, which must not refetch it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId, media.mediaId, media.key, media.iv]);
 
-  // Lock background scroll while open; Escape closes.
-  useEffect(() => {
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
+  // Shared lightbox behaviour (same as the Vault viewers): lock background
+  // scroll, move focus into the dialog, trap Tab, Escape closes, and focus
+  // returns to the image button that opened it.
+  useVaultLightbox(onClose, stageRef);
 
   function apply() {
     const el = imgRef.current;
@@ -198,6 +195,7 @@ export default function ImageLightbox({
       role="dialog"
       aria-modal="true"
       aria-label="Image viewer"
+      tabIndex={-1}
       ref={stageRef}
       onClick={(e) => { if (e.target === stageRef.current) onClose(); }}
     >

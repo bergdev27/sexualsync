@@ -24,20 +24,20 @@
     {
       "name": "Ask",
       "short_name": "Ask",
-      "description": "Open the request builder.",
+      "description": "Send an Ask.",
       "url": "/ask?source=shortcut",
       "icons": [{ "src": "/brand/marks/app-icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "Ideas",
-      "short_name": "Ideas",
-      "description": "Open shared ideas.",
+      "name": "Inspiration",
+      "short_name": "Inspiration",
+      "description": "Open Inspiration.",
       "url": "/inspiration?source=shortcut",
       "icons": [{ "src": "/brand/marks/app-icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "Sexboard",
-      "short_name": "Sexboard",
+      "name": "Home",
+      "short_name": "Home",
       "description": "Open the live dashboard.",
       "url": "/sexboard?source=shortcut",
       "icons": [{ "src": "/brand/marks/app-icon-192.png", "sizes": "192x192", "type": "image/png" }]

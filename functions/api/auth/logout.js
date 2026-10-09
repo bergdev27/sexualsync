@@ -59,7 +59,10 @@ export async function onRequest(context) {
 
   if (method === "GET") {
     headers.delete("content-type");
-    headers.set("Location", "/signed-out");
+    // A launch reauth (the room asks for a fresh sign-in when the app opens)
+    // lands on the calm "sign in to open your room" variant, not "signed out".
+    const launchReauth = new URL(context.request.url).searchParams.get("reason") === "launch";
+    headers.set("Location", launchReauth ? "/signed-out?reason=launch" : "/signed-out");
     return new Response(null, { status: 303, headers });
   }
 

@@ -5,6 +5,7 @@
 // set on the next app open; this push count mirrors that set so the icon
 // matches what the app shows in "Needs you":
 //   - Asks awaiting your reply (you're the reviewer, still pending/sent)
+//   - Counters awaiting your call (you sent the Ask, your partner countered)
 //   - Kinks needing your response (authored by your partner, no reply from you)
 //   - Pile needing you (revealed, or you haven't dropped your acts yet)
 //   - Blind Reveal needing you (open, and you haven't answered yet)
@@ -42,14 +43,22 @@ export async function attentionCountFor(env, workspaceId, recipientEmail) {
 
   // Asks awaiting your reply — you are the reviewer, it's still pending/sent,
   // and you didn't author it.
+  // Plus counters waiting on you: you sent the Ask and your partner countered,
+  // so the next move (accept or pass) is yours.
   try {
-    const { readRequests } = await import("./request-board.js");
+    const { readRequests, counterAwaitsRequester } = await import("./request-board.js");
     const requests = await readRequests(env, workspaceId);
     count += (requests || []).filter((request) =>
       request
       && REPLYABLE_STATUSES.has(request.status)
       && normalizeEmail(request.reviewerEmail) === me
       && normalizeEmail(request.requesterEmail) !== me
+    ).length;
+    count += (requests || []).filter((request) =>
+      request
+      && normalizeEmail(request.requesterEmail) === me
+      && normalizeEmail(request.reviewerEmail) !== me
+      && counterAwaitsRequester(request)
     ).length;
   } catch {
     // Best-effort: a badge miscount must never break notification delivery.

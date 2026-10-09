@@ -38,6 +38,7 @@ html:has(.ps-root) {
     radial-gradient(ellipse 46% 34% at 26% 16%, var(--accent-mist), transparent 62%),
     radial-gradient(ellipse 40% 32% at 82% 78%, rgba(184, 121, 137, 0.10), transparent 60%);
   animation: ps-drift 44s ease-in-out infinite;
+  /* Fixed raster scale for the scale drift. */
   will-change: transform;
 }
 
@@ -72,7 +73,6 @@ html:has(.ps-root) {
     opacity 780ms var(--ease-enter),
     transform 860ms var(--ease-enter);
   transition-delay: var(--d, 0ms);
-  will-change: opacity, transform;
 }
 
 .ps-root [data-reveal].ps-in {
@@ -210,14 +210,16 @@ html:has(.ps-root) {
   margin: 0 auto;
 }
 
+/* The one sanctioned kicker (DESIGN.md, One Kicker Rule): Geist 13px,
+   sentence case, rose, no tracking. Each one names a section the headline
+   alone doesn't (the games, the safety model, the encryption). */
 .ps-eyebrow {
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   color: var(--accent);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--body);
+  font-size: var(--fs-13, 13px);
   font-weight: 500;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 .ps-display {
@@ -256,12 +258,13 @@ html:has(.ps-root) {
   font-weight: 500;
 }
 
+/* Card labels: Geist caption, sentence case (mono stays for numerals). */
 .ps-mono {
   color: var(--cream-faint);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-12, 12px);
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 /* ------------------------------------------------------------------ hero */
@@ -419,6 +422,10 @@ html:has(.ps-root) {
     0 0 0 1px rgba(243, 220, 217, 0.04),
     inset 0 0 0 2px rgba(243, 220, 217, 0.03);
 }
+
+/* ScreenPicture wraps the img in <picture>; let the img size against the
+   phone frame as before. */
+.ps-phone picture { display: contents; }
 
 .ps-phone img {
   display: block;
@@ -1041,6 +1048,8 @@ html:has(.ps-root) {
   min-height: 54px;
 }
 
+/* The nudge ring is a pre-drawn pseudo-element; only its opacity and scale
+   animate, so the button is not repainted every frame. */
 .ps-pile-lock {
   display: inline-flex;
   align-items: center;
@@ -1055,6 +1064,17 @@ html:has(.ps-root) {
   font-weight: 700;
   cursor: pointer;
   transition: transform 220ms var(--ease-settle), box-shadow 220ms ease, background 220ms ease;
+  position: relative;
+}
+.ps-pile-lock::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 7px rgba(233, 168, 179, 0.09);
+  opacity: 0;
+  transform: scale(0.9);
+  pointer-events: none;
   animation: ps-lock-nudge 3.2s ease-in-out infinite;
 }
 
@@ -1065,8 +1085,8 @@ html:has(.ps-root) {
 }
 
 @keyframes ps-lock-nudge {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(233, 168, 179, 0); }
-  50% { box-shadow: 0 0 0 7px rgba(233, 168, 179, 0.09); }
+  0%, 100% { opacity: 0; transform: scale(0.9); }
+  50%      { opacity: 1; transform: scale(1); }
 }
 
 .ps-pile-result {
@@ -1117,7 +1137,7 @@ html:has(.ps-root) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ps-pile-lock {
+  .ps-pile-lock::after {
     animation: none;
   }
 
@@ -1372,7 +1392,6 @@ html:has(.ps-root) {
 
 .ps-privacy-layer .ps-mono {
   color: var(--accent);
-  font-size: 10px;
 }
 
 .ps-privacy-layer p {

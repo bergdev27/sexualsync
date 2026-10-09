@@ -209,6 +209,10 @@ copyDir(path.join(root, "brand", "marks"), path.join(dist, "brand", "marks"));
 copyDir(path.join(root, "brand", "tokens"), path.join(dist, "brand", "tokens"));
 copyDir(path.join(root, "brand", "wordmark"), path.join(dist, "brand", "wordmark"));
 copyPresentationScreenshots();
+// Static files the Next app references by URL (e.g. the landing page's small
+// WebP screenshots from scripts/screen-thumbs.mjs). Next serves web/public in
+// dev; the static export needs them copied beside the pages.
+copyDir(path.join(root, "web", "public"), dist);
 copyNextPreview();
 
 // Code-transparency signing is a Cloudflare-edition step (its generator + signing

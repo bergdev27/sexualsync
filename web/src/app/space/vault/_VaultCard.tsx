@@ -30,6 +30,7 @@ import type {
   VaultResponse,
 } from "@/lib/types";
 import { normalizeEmail } from "@/lib/workspace";
+import { useInView } from "@/lib/use-in-view";
 import { confirmAction } from "@/lib/confirm-dialog";
 import {
   decryptVaultBlobWithKey,
@@ -63,6 +64,25 @@ const VaultMomentLightbox = dynamic(
 export type DecryptedComment = VaultComment & { text: string };
 export type DecryptedMoment = VaultMoment & { titleText: string; noteText: string; frameUrl: string };
 
+// Clips above this size ask for a tap before the download + decrypt starts:
+// decrypting holds the encrypted and the plain copy in memory at once.
+const LARGE_CLIP_BYTES = 40 * 1024 * 1024;
+// Moment frames decrypt when the card comes within this distance of the
+// viewport and are released again once it scrolls past it.
+const FRAME_RANGE_MARGIN = "1500px 0px 1500px 0px";
+
+// Only one decrypted clip lives in memory at a time: unlocking or loading a
+// clip releases the one another card was holding (that card can reload it
+// with a tap; its key stays in memory, so no passphrase again).
+let heldVideo: { owner: object; release: () => void } | null = null;
+function holdVideo(owner: object, release: () => void) {
+  if (heldVideo && heldVideo.owner !== owner) heldVideo.release();
+  heldVideo = { owner, release };
+}
+function dropVideo(owner: object) {
+  if (heldVideo?.owner === owner) heldVideo = null;
+}
+
 export function VaultCard({
   item,
   workspaceId,
@@ -93,6 +113,11 @@ export function VaultCard({
   const [titleDraft, setTitleDraft] = useState("");
   const [comments, setComments] = useState<DecryptedComment[]>([]);
   const [moments, setMoments] = useState<DecryptedMoment[]>([]);
+  // Decrypted frame object URLs by moment id, filled only while the card is
+  // near the viewport.
+  const [frames, setFrames] = useState<Record<string, string>>({});
+  // A large clip waits for an explicit tap before its passphrase step.
+  const [largeClipConfirmed, setLargeClipConfirmed] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [momentTitle, setMomentTitle] = useState("");
   const [editingMomentTitleId, setEditingMomentTitleId] = useState("");
@@ -103,9 +128,13 @@ export function VaultCard({
   const [busy, setBusy] = useState("");
   const [status, setStatus] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const cardRef = useRef<HTMLElement | null>(null);
+  // The card element doubles as the frame-range sentinel: frames decrypt
+  // while it is within FRAME_RANGE_MARGIN of the viewport.
+  const [cardRef, framesInRange] = useInView<HTMLElement>({ once: false, rootMargin: FRAME_RANGE_MARGIN, threshold: 0 });
   const videoUrlRef = useRef("");
   const frameUrlsRef = useRef<string[]>([]);
+  // Identity for the one-clip-in-memory rule.
+  const [videoOwner] = useState(() => ({}));
   // Track the last item.id we seeded the local title from, plus the
   // editing flag without subscribing. Lets us only resync the base title
   // when the clip actually changes — server-driven prop refreshes for
@@ -138,13 +167,16 @@ export function VaultCard({
   }, [pendingReaction, propReaction]);
   const isMine = normalizeEmail(item.addedByEmail) === myEmail;
   const canEditTitle = isMine;
-  const activeMoment = activeMomentId ? moments.find((moment) => moment.id === activeMomentId) || null : null;
+  const activeMomentBase = activeMomentId ? moments.find((moment) => moment.id === activeMomentId) || null : null;
+  const activeMoment = activeMomentBase ? { ...activeMomentBase, frameUrl: frames[activeMomentBase.id] || "" } : null;
+  const clipBytes = item.mediaSize || item.originalSize || 0;
+  const isLargeClip = clipBytes > LARGE_CLIP_BYTES;
 
   useEffect(() => {
     if (!highlighted) return;
     const timer = window.setTimeout(() => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 260);
     return () => window.clearTimeout(timer);
-  }, [highlighted]);
+  }, [highlighted, cardRef]);
 
   useEffect(() => { editingTitleRef.current = editingTitle; }, [editingTitle]);
 
@@ -209,37 +241,9 @@ export function VaultCard({
     // Deliberately tracking granular fields instead of `item` itself: the
     // parent re-renders pass a fresh object reference even when nothing the
     // decrypt depends on changed, and decryption is expensive.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.displayTitle, item.updatedAt, item.comments.length, unlockKey, workspaceId]);
-
-  // Moment frames: one media download + AES decrypt EACH — keyed on the
-  // moment set itself, NOT updatedAt. A partner reaction used to re-download
-  // every frame here (and unlockClip's inline decrypt made unlock pay twice);
-  // lastFramesSigRef records what's already displayed so neither happens.
-  const momentsSig = momentsSigOf(item);
-  useEffect(() => {
-    if (!unlockKey) return;
-    if (lastFramesSigRef.current === momentsSig) return;
-    let cancelled = false;
-    decryptItemMoments(item, unlockKey, workspaceId)
-      .then((decryptedMoments) => {
-        if (cancelled) {
-          // A newer run owns the UI — release this run's object URLs.
-          decryptedMoments.forEach((moment) => URL.revokeObjectURL(moment.frameUrl));
-          return;
-        }
-        lastFramesSigRef.current = momentsSig;
-        replaceFrameUrls(decryptedMoments.map((moment) => moment.frameUrl));
-        setMoments(decryptedMoments);
-        setStatus("");
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("Couldn't decrypt the latest Vault details with this passphrase.");
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => { cancelled = true; };
-  }, [momentsSig, unlockKey, workspaceId]);
 
   useEffect(() => {
     // Reset the active-moment selection when the selected moment disappears
@@ -263,19 +267,108 @@ export function VaultCard({
     return () => {
       if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
       frameUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      dropVideo(videoOwner);
     };
-  }, []);
+  }, [videoOwner]);
 
   function replaceVideoUrl(url: string) {
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     videoUrlRef.current = url;
     setVideoUrl(url);
+    if (url) {
+      holdVideo(videoOwner, () => {
+        // Another card took the memory: drop this clip; it reloads on a tap.
+        setClipLightboxOpen(false);
+        if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+        videoUrlRef.current = "";
+        setVideoUrl("");
+      });
+    } else {
+      dropVideo(videoOwner);
+    }
   }
 
-  function replaceFrameUrls(urls: string[]) {
+  function replaceFrameUrls(next: Record<string, string>) {
     frameUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    frameUrlsRef.current = urls;
+    frameUrlsRef.current = Object.values(next);
+    setFrames(next);
   }
+
+  async function decryptClip(key: CryptoKey) {
+    const encrypted = await getVaultMedia({ workspaceId, id: item.id });
+    const decrypted = await decryptVaultBlobWithKey(
+      encrypted,
+      key,
+      item.encryption.videoIv,
+      item.mediaType || "video/mp4",
+      vaultAad({ workspaceId, itemId: item.id, purpose: "video" }),
+    );
+    replaceVideoUrl(URL.createObjectURL(decrypted));
+  }
+
+  // Reload a clip released to save memory (the key is still held).
+  async function reloadClip() {
+    if (!unlockKey || busy) return;
+    setBusy("load");
+    setStatus("Decrypting on this device.");
+    try {
+      await decryptClip(unlockKey);
+      setStatus("");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Couldn't load this clip.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  // Moment titles/notes: ciphertext already in the vault JSON, no network.
+  // Keyed on the moment set so partner reactions don't redo it.
+  const momentsSig = momentsSigOf(item);
+  useEffect(() => {
+    if (!unlockKey) return;
+    let cancelled = false;
+    decryptItemMomentTexts(item, unlockKey, workspaceId)
+      .then((decryptedMoments) => { if (!cancelled) setMoments(decryptedMoments); })
+      .catch(() => {
+        if (!cancelled) setStatus("Couldn't decrypt the latest Vault details with this passphrase.");
+      });
+    return () => { cancelled = true; };
+    // Keyed on the moment set, not the item object (fresh on every refresh).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [momentsSig, unlockKey, workspaceId]);
+
+  // Moment frames: one media download + AES decrypt EACH, so they wait until
+  // the card is near the viewport (like Sext images) and are keyed on the
+  // moment set itself, NOT updatedAt — a partner reaction used to re-download
+  // every frame. lastFramesSigRef records what's already displayed.
+  useEffect(() => {
+    if (!unlockKey || !framesInRange) return;
+    if (lastFramesSigRef.current === momentsSig) return;
+    let cancelled = false;
+    decryptItemMomentFrames(item, unlockKey, workspaceId)
+      .then((decryptedFrames) => {
+        if (cancelled) {
+          // A newer run owns the UI — release this run's object URLs.
+          Object.values(decryptedFrames).forEach((url) => URL.revokeObjectURL(url));
+          return;
+        }
+        lastFramesSigRef.current = momentsSig;
+        replaceFrameUrls(decryptedFrames);
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("Couldn't decrypt the latest Vault details with this passphrase.");
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [momentsSig, unlockKey, workspaceId, framesInRange]);
+
+  // Scrolled far away: give the decrypted frames back; they decrypt again on
+  // the way back into range.
+  useEffect(() => {
+    if (framesInRange || frameUrlsRef.current.length === 0) return;
+    lastFramesSigRef.current = "";
+    queueMicrotask(() => replaceFrameUrls({}));
+  }, [framesInRange]);
 
   async function unlockClip() {
     const secret = passphrase.trim();
@@ -291,18 +384,11 @@ export function VaultCard({
         item.encryption.salt,
         item.encryption.iterations,
       );
-      const encrypted = await getVaultMedia({ workspaceId, id: item.id });
-      const decrypted = await decryptVaultBlobWithKey(
-        encrypted,
-        derivedKey,
-        item.encryption.videoIv,
-        item.mediaType || "video/mp4",
-        vaultAad({ workspaceId, itemId: item.id, purpose: "video" }),
-      );
-      replaceVideoUrl(URL.createObjectURL(decrypted));
+      // The clip decrypt also proves the passphrase before anything else
+      // is shown.
+      await decryptClip(derivedKey);
       const { titleText, decryptedComments, decryptedMoments } =
         await decryptItemSidecars(item, derivedKey, workspaceId);
-      replaceFrameUrls(decryptedMoments.map((moment) => moment.frameUrl));
       // displayTitle is now always the "Private Clip" placeholder; surface
       // the decrypted title from the encrypted ciphertext whenever we have
       // one. Legacy clips uploaded before the C-9 fix won't have a
@@ -312,10 +398,8 @@ export function VaultCard({
       void rememberVaultTitle(workspaceId, item.id, titleText);
       setComments(decryptedComments);
       setMoments(decryptedMoments);
-      // Frames for this moment set are now on screen — record it BEFORE
-      // setUnlockKey so the frame effect doesn't immediately re-fetch what
-      // this unlock just decrypted (unlock used to pay for every frame twice).
-      lastFramesSigRef.current = momentsSigOf(item);
+      // Frames decrypt from the frame effect once the key is set (the card
+      // is on screen, so that is right away).
       setUnlockKey(derivedKey);
       setPassphrase("");
       setStatus("Unlocked on this device.");
@@ -630,7 +714,23 @@ export function VaultCard({
       </div>
 
       <div className={`vault-player ${videoUrl ? "is-unlocked" : ""}`}>
-        {videoUrl ? (
+        {!videoUrl && unlockKey ? (
+          <div className="vault-locked vault-load-gate">
+            <p className="vault-load-copy">
+              {isLargeClip ? `Large clip · ${sizeLabel(clipBytes)}. ` : ""}Closed to free up memory while another clip played.
+            </p>
+            <button type="button" className="btn-primary pressable" onClick={reloadClip} disabled={busy === "load"}>
+              {busy === "load" ? "Loading" : "Tap to load"}
+            </button>
+          </div>
+        ) : !videoUrl && isLargeClip && !largeClipConfirmed ? (
+          <div className="vault-locked vault-load-gate">
+            <p className="vault-load-copy">Large clip · {sizeLabel(clipBytes)}. It downloads and decrypts on this device when you load it.</p>
+            <button type="button" className="btn-primary pressable" onClick={() => setLargeClipConfirmed(true)}>
+              Tap to load
+            </button>
+          </div>
+        ) : videoUrl ? (
           <div className="vault-video-shell">
             <video
               ref={videoRef}
@@ -768,7 +868,7 @@ export function VaultCard({
                       client-decrypted from E2E-encrypted R2 bytes, so there's
                       no static URL the optimizer could reach. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {moment.frameUrl && <img src={moment.frameUrl} alt="" />}
+                  {frames[moment.id] && <img src={frames[moment.id]} alt="" />}
                 </button>
                 {editingMomentTitleId === moment.id ? (
                   <form className="vault-moment-title-editor" onSubmit={(event) => saveMomentTitle(event, moment)}>
@@ -924,28 +1024,10 @@ async function decryptItemTexts(item: VaultItem, key: CryptoKey, workspaceId: st
   return { titleText, decryptedComments };
 }
 
-// Expensive half: one media fetch + AES decrypt per moment frame. allSettled
-// so a single rejection (wrong passphrase, corrupt record) can't leak the
-// object URLs the fulfilled siblings already created — Promise.all used to
-// abandon them unrevoked.
-async function decryptItemMoments(item: VaultItem, key: CryptoKey, workspaceId: string) {
-  const settled = await Promise.allSettled((item.moments || []).map(async (moment) => {
-    const [frameBlob, titleText, noteText] = await Promise.all([
-      getVaultMedia({ workspaceId, id: item.id, kind: "moment", momentId: moment.id })
-        .then((encrypted) => decryptVaultBlobWithKey(
-          encrypted,
-          key,
-          moment.frameIv,
-          "image/png",
-          vaultAad({ workspaceId, itemId: item.id, purpose: "moment-frame", subId: moment.id }),
-        ))
-        .then(async (blob) => {
-          // Frames were PNG before v1.2.144 and JPEG after; the type isn't
-          // stored per-moment, so sniff the magic bytes and retype.
-          const head = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
-          const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
-          return isJpeg ? new Blob([blob], { type: "image/jpeg" }) : blob;
-        }),
+// Moment titles/notes: ciphertext in the vault JSON, no network.
+async function decryptItemMomentTexts(item: VaultItem, key: CryptoKey, workspaceId: string): Promise<DecryptedMoment[]> {
+  return Promise.all((item.moments || []).map(async (moment) => {
+    const [titleText, noteText] = await Promise.all([
       decryptVaultTextWithKey(
         moment.title,
         key,
@@ -957,22 +1039,42 @@ async function decryptItemMoments(item: VaultItem, key: CryptoKey, workspaceId: 
         vaultAad({ workspaceId, itemId: item.id, purpose: "moment-note", subId: moment.id }),
       ).catch(() => ""),
     ]);
-    return {
-      ...moment,
-      titleText: titleText || noteText,
-      noteText,
-      frameUrl: URL.createObjectURL(frameBlob),
-    };
+    return { ...moment, titleText: titleText || noteText, noteText, frameUrl: "" };
   }));
-  const decrypted = [];
+}
+
+// Expensive half: one media fetch + AES decrypt per moment frame. allSettled
+// so a single rejection (wrong passphrase, corrupt record) can't leak the
+// object URLs the fulfilled siblings already created — Promise.all used to
+// abandon them unrevoked.
+async function decryptItemMomentFrames(item: VaultItem, key: CryptoKey, workspaceId: string): Promise<Record<string, string>> {
+  const settled = await Promise.allSettled((item.moments || []).map(async (moment) => {
+    const frameBlob = await getVaultMedia({ workspaceId, id: item.id, kind: "moment", momentId: moment.id })
+      .then((encrypted) => decryptVaultBlobWithKey(
+        encrypted,
+        key,
+        moment.frameIv,
+        "image/png",
+        vaultAad({ workspaceId, itemId: item.id, purpose: "moment-frame", subId: moment.id }),
+      ))
+      .then(async (blob) => {
+        // Frames were PNG before v1.2.144 and JPEG after; the type isn't
+        // stored per-moment, so sniff the magic bytes and retype.
+        const head = new Uint8Array(await blob.slice(0, 3).arrayBuffer());
+        const isJpeg = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+        return isJpeg ? new Blob([blob], { type: "image/jpeg" }) : blob;
+      });
+    return [moment.id, URL.createObjectURL(frameBlob)] as const;
+  }));
+  const decrypted: Record<string, string> = {};
   let failure: unknown = null;
   let failed = false;
   for (const result of settled) {
-    if (result.status === "fulfilled") decrypted.push(result.value);
+    if (result.status === "fulfilled") decrypted[result.value[0]] = result.value[1];
     else if (!failed) { failed = true; failure = result.reason; }
   }
   if (failed) {
-    for (const moment of decrypted) URL.revokeObjectURL(moment.frameUrl);
+    Object.values(decrypted).forEach((url) => URL.revokeObjectURL(url));
     throw failure instanceof Error ? failure : new Error("Couldn't decrypt a Vault moment.");
   }
   return decrypted;
@@ -981,7 +1083,7 @@ async function decryptItemMoments(item: VaultItem, key: CryptoKey, workspaceId: 
 async function decryptItemSidecars(item: VaultItem, key: CryptoKey, workspaceId: string) {
   const [{ titleText, decryptedComments }, decryptedMoments] = await Promise.all([
     decryptItemTexts(item, key, workspaceId),
-    decryptItemMoments(item, key, workspaceId),
+    decryptItemMomentTexts(item, key, workspaceId),
   ]);
   return { titleText, decryptedComments, decryptedMoments };
 }

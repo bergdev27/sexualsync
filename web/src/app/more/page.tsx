@@ -17,6 +17,7 @@ import type {
   ProfileResponse,
   Workspace,
 } from "@/lib/types";
+import "./more.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -105,9 +106,10 @@ export default function MorePage() {
   }
 
   return (
-    <AppShell hideTabBar>
+    <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/space" className="text-ink-3">‹ Space</Link>}
+        back={{ href: "/space?settings=1", label: "Settings" }}
+        showBrand={false}
         title="Account and data"
         subtitle={state.kind === "ready" ? state.auth.email : undefined}
       />
@@ -167,7 +169,7 @@ function Body({
     return (
       <ErrorState
         title="No partner space yet"
-        body="You're signed in, but no shared space is attached yet."
+        body="You're signed in, but no shared room is attached yet."
         action={<a className="btn-ghost" href="/api/auth/logout" onClick={prepareSignOut}>Sign out</a>}
       />
     );
@@ -184,7 +186,7 @@ function Body({
           <button type="button" className="settings-link pressable" onClick={onDownload} disabled={Boolean(busy)}>
             <span>
               Download my data
-              <span className="settings-link-sub">JSON export for this shared space and private notes</span>
+              <span className="settings-link-sub">JSON export of this shared room and private notes</span>
             </span>
             <span className="settings-link-chev">{busy === "download" ? "..." : "→"}</span>
           </button>
@@ -205,9 +207,9 @@ function Body({
       </section>
 
       <section className="settings-section">
-        <p className="eyebrow">Step away or end the space</p>
+        <p className="eyebrow">Step away or close the room</p>
         <div className="settings-card settings-card-danger">
-          <p className="settings-danger-title">Begin closing this space</p>
+          <p className="settings-danger-title">Begin closing this room</p>
           <p className="settings-danger-body">
             Both partners are notified. You have <strong>7 days</strong> to undo before anything is removed.
           </p>
@@ -216,7 +218,7 @@ function Body({
             value={confirmation}
             onChange={(event) => onConfirmation(event.target.value)}
             placeholder={`Type ${expected}`}
-            aria-label="Type the space name to confirm closing"
+            aria-label="Type the room name to confirm closing"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}

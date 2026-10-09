@@ -1,0 +1,48 @@
+/* Styles only /auth-blocked renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.auth-blocked-card {
+  max-width: 460px;
+  width: 100%;
+  padding: 28px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--hairline, var(--cream-a16));
+  background: var(--surface-card, #25141a);
+  color: var(--cream, #f2e0d8);
+}
+
+.auth-blocked-eyebrow {
+  margin: 0 0 8px;
+  font-size: var(--fs-13);
+  color: var(--ss-rose, #e89ba6);
+}
+
+.auth-blocked-title {
+  margin: 0 0 12px;
+  font-family: var(--ss-font-display, var(--display));
+  font-size: var(--fs-30);
+  line-height: 1.2;
+}
+
+.auth-blocked-body {
+  margin: 0 0 18px;
+  font-size: var(--fs-15);
+  line-height: 1.55;
+  color: var(--cream-muted, #cdb8b2);
+}
+
+.auth-blocked-actions {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 18px;
+  flex-wrap: wrap;
+}
+
+.auth-blocked-foot {
+  margin: 0;
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  color: var(--cream-muted, #cdb8b2);
+  opacity: 0.85;
+}

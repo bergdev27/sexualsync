@@ -92,7 +92,7 @@ export default function WelcomePage() {
   }
 
   return (
-    <AppShell hideTabBar>
+    <AppShell>
       <ScreenHeader
         showBrand
         eyebrow="You're in"
@@ -137,28 +137,28 @@ function Body({
         <li>
           <span className="welcome-num">1</span>
           <div>
-            <p className="welcome-step-title">Drop kinks in <strong>Ideas</strong></p>
+            <p className="welcome-step-title">Drop kinks in <strong>Play</strong></p>
             <p className="welcome-step-sub">Catch the spark before either of you has to commit.</p>
           </div>
         </li>
         <li>
           <span className="welcome-num">2</span>
           <div>
-            <p className="welcome-step-title">Send a request in <strong>Ask</strong></p>
+            <p className="welcome-step-title">Send an Ask with the <strong>+</strong></p>
             <p className="welcome-step-sub">One clear ask. Accept, counter, or pass without the awkward pause.</p>
           </div>
         </li>
         <li>
           <span className="welcome-num">3</span>
           <div>
-            <p className="welcome-step-title">See what&apos;s mutual on <strong>Sexboard</strong></p>
+            <p className="welcome-step-title">See what&apos;s mutual on <strong>Home</strong></p>
             <p className="welcome-step-sub">Active asks, locked answers, and the overlap that&apos;s ready to act on.</p>
           </div>
         </li>
         <li>
           <span className="welcome-num">4</span>
           <div>
-            <p className="welcome-step-title">Set limits in <strong>Space</strong></p>
+            <p className="welcome-step-title">Set limits in <strong>Us</strong></p>
             <p className="welcome-step-sub">Limits, Acts, private notes, account controls.</p>
           </div>
         </li>
@@ -186,7 +186,7 @@ function Body({
       >
         Open the room
       </button>
-      <p className="welcome-foot">Revisit anytime &middot; Space &rsaquo; Tutorial</p>
+      <p className="welcome-foot">Revisit anytime &middot; Us &rsaquo; Quick tour</p>
     </div>
   );
 }

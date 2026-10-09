@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import ScreenHeader from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
@@ -25,6 +26,7 @@ import { useFocusActivity } from "@/lib/use-focus-activity";
 import { useQueryParam } from "@/lib/use-query-param";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { memberByEmail, normalizeEmail, partnerOf } from "@/lib/workspace";
+import "./shelf.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -120,14 +122,14 @@ export default function ShelfPage() {
   }, []);
 
   return (
-    <AppShell hideTabBar>
-      <header className="shelf-header">
-        <div className="header-left">
-          <InfinityMark />
-          <span className="header-title">The Shelf</span>
-        </div>
-        <Link href="/inspiration" className="done-pill pressable">Done</Link>
-      </header>
+    <AppShell>
+      <ScreenHeader
+        variant="bar"
+        barClassName="shelf-header"
+        leading={<InfinityMark />}
+        title="The Shelf"
+        done={{ href: "/inspiration", ariaLabel: "Done, back to Inspiration" }}
+      />
       <Body
         state={state}
         onReload={reload}
@@ -171,9 +173,9 @@ function Body({
   if (state.kind === "no-workspace") {
     return (
       <EmptyState
-        title="Set up your space"
-        body="You're signed in, but you don't have a partner-paired space yet."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        title="Set up your room"
+        body="You're signed in, but you don't have a partner-paired room yet."
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }

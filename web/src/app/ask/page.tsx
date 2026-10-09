@@ -12,11 +12,14 @@
  *  - On submit, POST /api/request-board, then route to /sexboard.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
+import StickyAction from "@/components/StickyAction";
+import { announce } from "@/lib/announce";
+import { radioGroupKeyDown, radioTabIndex } from "@/lib/radio-group";
 import WaitingForPartner from "@/components/WaitingForPartner";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
 import { ErrorState, SkeletonList } from "@/components/States";
@@ -49,6 +52,7 @@ import {
   restoreRoomE2eeSession,
   setRoomE2eeEnabled,
 } from "@/lib/room-crypto";
+import "./ask.css";
 
 const TIMINGS: { value: Timing; label: string }[] = [
   { value: "Tonight",   label: "Tonight" },
@@ -138,7 +142,6 @@ export default function AskPage() {
     return (
       <AppShell>
         <ScreenHeader
-          eyebrow="Ask"
           showBrand={false}
           title="Be specific."
           subtitle="What do you want?"
@@ -151,7 +154,6 @@ export default function AskPage() {
     return (
       <AppShell>
         <ScreenHeader
-          eyebrow="Ask"
           showBrand={false}
           title="Be specific."
           subtitle="Sign in again to send a request."
@@ -168,7 +170,6 @@ export default function AskPage() {
     return (
       <AppShell>
         <ScreenHeader
-          eyebrow="Ask"
           showBrand={false}
           title="Be specific."
           subtitle="You need a paired workspace before you can send an Ask."
@@ -176,7 +177,7 @@ export default function AskPage() {
         <ErrorState
           title="No partner space yet"
           body="You need a paired workspace before you can send an Ask."
-          action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+          action={<Link href="/space" className="btn-ghost">Open Us</Link>}
         />
       </AppShell>
     );
@@ -185,7 +186,6 @@ export default function AskPage() {
     return (
       <AppShell>
         <ScreenHeader
-          eyebrow="Ask"
           showBrand={false}
           title="Be specific."
           subtitle="What do you want?"
@@ -205,7 +205,6 @@ export default function AskPage() {
     return (
       <AppShell>
         <ScreenHeader
-          eyebrow="Ask"
           showBrand={false}
           title="Be specific."
           subtitle="One clear ask, no awkward pause."
@@ -239,6 +238,11 @@ function AskForm({
   const [acts, setActs] = useState<Act[]>(state.acts);
   const [selectedActIds, setSelectedActIds] = useState<string[]>([]);
   const [actsExpanded, setActsExpanded] = useState(false);
+  // Acts picked from the expanded list that sit outside the starter set. They
+  // join the collapsed grid (at the end) only when the list collapses, and
+  // stay put even if un-picked, so nothing moves under the finger.
+  const [keptActIds, setKeptActIds] = useState<string[]>([]);
+  const sendReasonRef = useRef<HTMLParagraphElement | null>(null);
   const [actSearch, setActSearch] = useState("");
   const [actComposerOpen, setActComposerOpen] = useState(false);
   const [timing, setTiming] = useState<Timing>("Tonight");
@@ -250,11 +254,16 @@ function AskForm({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitNotice, setSubmitNotice] = useState<string | null>(null);
 
-  useEffect(() => {
+  // A new acts list from the parent replaces the local one and drops any
+  // selection that no longer exists. Adjusting state during render (instead of
+  // an effect) avoids a second render with stale acts.
+  const [syncedActs, setSyncedActs] = useState(state.acts);
+  if (syncedActs !== state.acts) {
     const availableIds = new Set(state.acts.map((act) => act.id));
+    setSyncedActs(state.acts);
     setActs(state.acts);
     setSelectedActIds((prev) => prev.filter((id) => availableIds.has(id)));
-  }, [state.acts]);
+  }
 
   const selectedActs = useMemo(
     () => acts.filter((act) => selectedActIds.includes(act.id)),
@@ -269,11 +278,14 @@ function AskForm({
 
   const visibleActs = useMemo(() => {
     if (actsExpanded) return filteredActs;
-    const selected = new Set(selectedActIds);
-    const pinned = acts.filter((act) => selected.has(act.id));
-    const starters = acts.filter((act) => !selected.has(act.id)).slice(0, COLLAPSED_ACT_COUNT);
-    return [...pinned, ...starters];
-  }, [acts, actsExpanded, filteredActs, selectedActIds]);
+    const starters = acts.slice(0, COLLAPSED_ACT_COUNT);
+    const starterIds = new Set(starters.map((act) => act.id));
+    const kept = keptActIds
+      .filter((id) => !starterIds.has(id))
+      .map((id) => acts.find((act) => act.id === id))
+      .filter((act): act is Act => Boolean(act));
+    return [...starters, ...kept];
+  }, [acts, actsExpanded, filteredActs, keptActIds]);
 
   const hiddenActCount = Math.max(0, acts.length - visibleActs.length);
 
@@ -298,7 +310,43 @@ function AskForm({
   }, [acts, selectedActIds, state.boundaries]);
 
   const canSubmit = selectedActIds.length > 0 && conflicts.hard.length === 0 && !!partner && !submitting;
+  // Why Send is unavailable, in words — shown in the sticky bar and linked to
+  // the button with aria-describedby.
+  const sendBlockedReason = !partner
+    ? "Your partner hasn't joined yet"
+    : selectedActIds.length === 0
+    ? "Choose at least one Act"
+    : conflicts.hard.length > 0
+    ? "Remove the Act that hits a hard limit"
+    : "";
+  const selectionSummary = selectedActIds.length
+    ? `${selectedActIds.length} Act${selectedActIds.length === 1 ? "" : "s"} selected · ${timing}`
+    : "";
 
+  function collapseActs() {
+    const starterIds = new Set(acts.slice(0, COLLAPSED_ACT_COUNT).map((act) => act.id));
+    setKeptActIds((prev) => {
+      const next = [...prev];
+      for (const id of selectedActIds) {
+        if (!starterIds.has(id) && !next.includes(id)) next.push(id);
+      }
+      return next;
+    });
+    setActsExpanded(false);
+  }
+
+  // Send is aria-disabled rather than disabled, so it stays focusable and a
+  // tap explains itself instead of doing nothing.
+  function explainBlockedSend() {
+    if (!sendBlockedReason) return;
+    announce(sendBlockedReason);
+    const reason = sendReasonRef.current;
+    if (reason) {
+      reason.classList.remove("is-nudged");
+      void reason.offsetWidth;
+      reason.classList.add("is-nudged");
+    }
+  }
   function toggleAct(id: string) {
     setSelectedActIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -317,6 +365,10 @@ function AskForm({
     // pick up to 2
     const shuffled = [...pool].sort(() => Math.random() - 0.5).slice(0, 2);
     setSelectedActIds(shuffled);
+    if (!actsExpanded) {
+      const starterIds = new Set(acts.slice(0, COLLAPSED_ACT_COUNT).map((act) => act.id));
+      setKeptActIds((prev) => [...prev, ...shuffled.filter((id) => !starterIds.has(id) && !prev.includes(id))]);
+    }
   }
 
   async function handleCreateAct(label: string) {
@@ -329,6 +381,9 @@ function AskForm({
     setSelectedActIds((prev) => (
       prev.includes(result.act.id) ? prev : [...prev, result.act.id]
     ));
+    // A new Act joins the end of the grid, picked, so it's visible without
+    // reshuffling anything already on screen.
+    setKeptActIds((prev) => (prev.includes(result.act.id) ? prev : [...prev, result.act.id]));
     setActsExpanded(false);
     setActSearch("");
     setActComposerOpen(false);
@@ -408,9 +463,18 @@ function AskForm({
     } catch (error) {
       // Offline: the write was queued locally and will sync when the network
       // returns. Treat it like a success — neutral confirmation, then move on
-      // to the Sexboard — instead of the red error treatment below.
+      // to the Sexboard — instead of the red error treatment below. Land the
+      // queued confirmation on this composer first (same pulse as a real
+      // send) so it is actually seen; the Sexboard then shows the Ask as
+      // "Waiting to send" until the queue flushes.
       if (error instanceof ApiOfflineQueuedError) {
-        setSubmitNotice("Saved — will send when you're back online.");
+        setSubmitNotice("Queued — sends when you're back online.");
+        await fireSendPulse(originEl, {
+          confirm: {
+            headline: "Queued — sends when you're back online.",
+            sub: `It goes to ${partnerName} as soon as you reconnect`,
+          },
+        });
         router.push("/sexboard");
         return;
       }
@@ -432,7 +496,6 @@ function AskForm({
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow="Ask"
         showBrand={false}
         title="Be specific."
         subtitle={`What do you want to do to ${partnerFirst}? Pick the physical Acts. Your partner can approve, counter, or pass without the awkward pause.`}
@@ -445,6 +508,8 @@ function AskForm({
           if (canSubmit) {
             const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
             submit(submitter ?? e.currentTarget);
+          } else {
+            explainBlockedSend();
           }
         }}
       >
@@ -455,27 +520,13 @@ function AskForm({
         )}
 
         <section className="ask-section">
-          {selectedActs.length > 0 && (
-            <div className="selected-act-strip" aria-label="Selected Acts">
-              {selectedActs.map((act) => (
-                <button
-                  key={act.id}
-                  type="button"
-                  onClick={() => toggleAct(act.id)}
-                  className="selected-act-pill pressable"
-                >
-                  <ActLabel label={act.label} className="selected-act-label" />
-                  <span aria-hidden="true">x</span>
-                </button>
-              ))}
-            </div>
-          )}
-
+          <SectionLabel id="ask-acts-heading" title="Acts" hint={selectedActs.length ? `${selectedActs.length} picked` : "Pick one or more"} />
           {actsExpanded && (
             <input
               value={actSearch}
               onChange={(event) => setActSearch(event.target.value)}
               placeholder="Search Acts"
+              aria-label="Search Acts"
               className="input mb-3"
               autoCapitalize="none"
               autoCorrect="off"
@@ -495,7 +546,7 @@ function AskForm({
               </p>
             </button>
           ) : (
-            <div className="ask-act-grid">
+            <div className="ask-act-grid" role="group" aria-labelledby="ask-acts-heading">
               {visibleActs.map((act) => (
                 <ActButton
                   key={act.id}
@@ -512,7 +563,8 @@ function AskForm({
               <button
                 type="button"
                 onClick={() => {
-                  setActsExpanded((value) => !value);
+                  if (actsExpanded) collapseActs();
+                  else setActsExpanded(true);
                   setActSearch("");
                 }}
                 className="btn-ghost ask-act-action"
@@ -555,7 +607,7 @@ function AskForm({
         {/* Conflict banners */}
         {conflicts.hard.length > 0 && (
           <div className="card border-no/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "rgb(var(--no-rgb))" }}>
+            <p className="kicker" style={{ color: "rgb(var(--no-rgb))" }}>
               Hits a hard limit
             </p>
             <ul className="mt-2 space-y-1 text-sm" style={{ color: "rgb(var(--no-rgb))" }}>
@@ -570,7 +622,7 @@ function AskForm({
         )}
         {conflicts.warn.length > 0 && (
           <div className="card p-4" style={{ borderColor: "rgb(var(--gold-rgb) / 0.4)" }}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gold">Worth a heads-up</p>
+            <p className="kicker text-gold">Worth a heads-up</p>
             <ul className="mt-2 space-y-1 text-sm text-ink-2">
               {conflicts.warn.map((b) => (
                 <li key={b.id}>{b.text} <span className="text-ink-3">— {b.type}</span></li>
@@ -583,11 +635,12 @@ function AskForm({
         )}
 
         <section className="ask-section">
-          <SectionLabel title="Cadence" />
+          <SectionLabel id="ask-timing-heading" title="Timing" />
           <RadioRow
             options={TIMINGS}
             value={timing}
             onChange={(v) => setTiming(v as Timing)}
+            labelledBy="ask-timing-heading"
           />
           <button
             type="button"
@@ -601,8 +654,9 @@ function AskForm({
         </section>
 
         <section className="ask-section">
-          <SectionLabel title="Note" hint="Optional" />
+          <SectionLabel id="ask-note-heading" title="Note" hint="Optional" />
           <textarea
+            aria-labelledby="ask-note-heading"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="One line for your partner - vibe, timing, or a dare."
@@ -623,19 +677,34 @@ function AskForm({
           <p className="text-sm" role="alert" aria-live="assertive" style={{ color: "rgb(var(--no-rgb))" }}>{submitError}</p>
         )}
 
-        <div className="ask-submit-panel">
-          <span className="ask-submit-hint">
-            {selectedActIds.length ? `${selectedActIds.length} Act${selectedActIds.length === 1 ? "" : "s"} selected` : "Choose at least one Act"}
-          </span>
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="btn-primary ask-submit-button"
-            data-testid="ask-submit"
-          >
-            {submitting ? "Sending..." : "Send to " + (partner?.displayName?.split(" ")[0] || "partner")}
-          </button>
-        </div>
+        <StickyAction>
+          <div className="ask-submit-panel">
+            <p
+              ref={sendReasonRef}
+              id="ask-send-status"
+              className={`ask-submit-hint${sendBlockedReason ? " is-blocked" : ""}`}
+              data-testid="ask-send-status"
+            >
+              {sendBlockedReason || selectionSummary}
+            </p>
+            <button
+              type="submit"
+              aria-disabled={!canSubmit}
+              aria-describedby="ask-send-status"
+              className="btn-primary ask-submit-button"
+              data-testid="ask-submit"
+              onClick={(event) => {
+                if (submitting) { event.preventDefault(); return; }
+                if (!canSubmit) {
+                  event.preventDefault();
+                  explainBlockedSend();
+                }
+              }}
+            >
+              {submitting ? "Sending…" : "Send to " + (partner?.displayName?.split(" ")[0] || "partner")}
+            </button>
+          </div>
+        </StickyAction>
       </form>
       </div>
     </AppShell>
@@ -645,17 +714,19 @@ function AskForm({
 // ---------- pieces ----------
 
 function SectionLabel({
+  id,
   title,
   hint,
   action,
 }: {
+  id?: string;
   title: string;
   hint?: string;
   action?: React.ReactNode;
 }) {
   return (
     <div className="mb-2 flex items-baseline justify-between">
-      <h2 className="font-display text-base text-ink">{title}</h2>
+      <h2 id={id} className="font-display text-title text-ink">{title}</h2>
       <div className="flex items-baseline gap-3">
         {hint && <span className="text-xs text-ink-3">{hint}</span>}
         {action}
@@ -664,23 +735,31 @@ function SectionLabel({
   );
 }
 
+// A single choice: a radiogroup with roving focus (arrow keys move and pick,
+// Tab enters on the picked option).
 function RadioRow<T extends string>({
   options,
   value,
   onChange,
+  labelledBy,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
+  labelledBy?: string;
 }) {
+  const values = options.map((opt) => opt.value);
   return (
-    <div className="cadence-grid">
+    <div className="cadence-grid" role="radiogroup" aria-labelledby={labelledBy} onKeyDown={(event) => radioGroupKeyDown(event, values, value, onChange)}>
       {options.map((opt) => {
         const active = opt.value === value;
         return (
           <button
             key={opt.value}
             type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={radioTabIndex(values, value, opt.value)}
             onClick={() => onChange(opt.value)}
             className={[
               "cadence-chip pressable",
@@ -756,7 +835,7 @@ function ActComposer({
 
   return (
     <div className="act-composer card p-4">
-      <p className="font-display text-base text-ink">Add an Act</p>
+      <p className="font-display text-title text-ink">Add an Act</p>
       <p className="mt-1 text-sm leading-relaxed text-ink-2">
         Acts are physical things you do. Kinks stay in Inspiration.
       </p>
@@ -771,7 +850,7 @@ function ActComposer({
         spellCheck
         inputMode="text"
       />
-      {error && <p className="mt-2 text-sm" style={{ color: "rgb(var(--no-rgb))" }}>{error}</p>}
+      {error && <p className="mt-2 text-sm" role="alert" style={{ color: "rgb(var(--no-rgb))" }}>{error}</p>}
       <div className="mt-3 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="btn-ghost text-sm" disabled={busy}>
           Cancel

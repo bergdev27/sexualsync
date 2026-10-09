@@ -4,7 +4,7 @@ import { FormEvent, memo, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
-import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
+import { EmptyState, ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
   createKink,
@@ -28,10 +28,12 @@ import type {
 import { normalizeEmail, partnerOf } from "@/lib/workspace";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { fireSendPulse } from "@/lib/send-pulse";
+import { fallbackPromptForToday } from "@/lib/inspiration-prompts";
+import "./inspiration.css";
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; error?: unknown }
   | { kind: "unauthorized" }
   | { kind: "no-workspace"; auth: AuthInfo }
   | {
@@ -85,7 +87,7 @@ export default function InspirationPage() {
     // immediately, then upgrade the prompt asynchronously so the LLM cold
     // start (which can run 10-20s on a fresh workspace) never blocks paint.
     const backlog = await loadBacklog(activeWorkspaceId);
-    const fallbackPrompt = FALLBACK_PROMPTS[Math.floor(Math.random() * FALLBACK_PROMPTS.length)];
+    const fallbackPrompt = fallbackPromptForToday();
     const ready: LoadState = {
       kind: "ready",
       auth: profile.auth,
@@ -131,7 +133,7 @@ export default function InspirationPage() {
         // wasted work). Paired workspaces upgrade silently after first paint.
         const backlog = await loadBacklog(profile.activeWorkspace.id, controller.signal);
         if (cancelled) return;
-        const fallbackPrompt = FALLBACK_PROMPTS[Math.floor(Math.random() * FALLBACK_PROMPTS.length)];
+        const fallbackPrompt = fallbackPromptForToday();
         setState({
           kind: "ready",
           auth: profile.auth,
@@ -148,7 +150,9 @@ export default function InspirationPage() {
           setState({ kind: "unauthorized" });
           return;
         }
-        setState({ kind: "error", message: error instanceof Error ? error.message : "Something went sideways." });
+        setState((current) => (current.kind === "ready"
+          ? current
+          : { kind: "error", message: error instanceof Error ? error.message : "", error }));
       }
     })();
     return () => {
@@ -160,8 +164,8 @@ export default function InspirationPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow="Inspiration"
         showBrand={false}
+        back={{ href: "/games", label: "Play" }}
         title={(
           <>
             Find the spark.
@@ -172,7 +176,23 @@ export default function InspirationPage() {
         subtitle="Where ideas live before they become acts. Get inspired below with porn, erotica, your own clips, then share kinks/fantasies, and see what lands with your partner."
       />
       <div className="insp-stage">
-        <Body state={state} onReload={() => reload(state.kind === "ready" ? state.workspace.id : undefined)} />
+        <Body
+          state={state}
+          onReload={() => reload(state.kind === "ready" ? state.workspace.id : undefined)}
+          onRetry={async () => {
+            try {
+              await reload();
+            } catch (error) {
+              if (error instanceof ApiUnauthorizedError) {
+                setState({ kind: "unauthorized" });
+                return;
+              }
+              setState((current) => (current.kind === "ready"
+                ? current
+                : { kind: "error", message: error instanceof Error ? error.message : "", error }));
+            }
+          }}
+        />
       </div>
     </AppShell>
   );
@@ -212,19 +232,13 @@ function emptyBacklog(workspaceId: string): FantasyBacklogResponse {
 async function loadPrompt(workspaceId: string) {
   try {
     const result = await getPrompt({ workspaceId, kind: "curiosity" });
-    return result.text || FALLBACK_PROMPTS[Math.floor(Math.random() * FALLBACK_PROMPTS.length)];
+    return result.text || fallbackPromptForToday();
   } catch {
-    return FALLBACK_PROMPTS[Math.floor(Math.random() * FALLBACK_PROMPTS.length)];
+    return fallbackPromptForToday();
   }
 }
 
-const FALLBACK_PROMPTS = [
-  "Name the fantasy that would feel easier if they admitted one too.",
-  "What want have you been editing in your head instead of saying plainly?",
-  "Write the version of it that would make you feel relieved to be known.",
-];
-
-function Body({ state, onReload }: { state: LoadState; onReload: () => Promise<void> }) {
+function Body({ state, onReload, onRetry }: { state: LoadState; onReload: () => Promise<void>; onRetry: () => Promise<void> }) {
   if (state.kind === "loading") return <SkeletonList count={4} />;
   if (state.kind === "unauthorized") {
     return (
@@ -236,20 +250,14 @@ function Body({ state, onReload }: { state: LoadState; onReload: () => Promise<v
     );
   }
   if (state.kind === "error") {
-    return (
-      <ErrorState
-        title="Couldn't load Inspiration"
-        body={state.message}
-        action={<button className="btn-ghost" onClick={() => { onReload().catch(() => {}); }}>Try again</button>}
-      />
-    );
+    return <LoadErrorState what="Inspiration" error={state.error ?? state.message} onRetry={onRetry} />;
   }
   if (state.kind === "no-workspace") {
     return (
       <EmptyState
-        title="Set up your space"
-        body="You're signed in, but you don't have a partner-paired space yet."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        title="Set up your room"
+        body="You're signed in, but you don't have a partner-paired room yet."
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -279,6 +287,18 @@ function InspirationReady({
     }
 
     syncSharedKinkTarget();
+    // Play links straight to the composer (#kink-compose) or the source links
+    // (#sources). The content mounts after the data load, so the browser's own
+    // hash jump can miss; land on the target once it exists.
+    const target = window.location.hash === "#kink-compose" || window.location.hash === "#sources"
+      ? document.getElementById(window.location.hash.slice(1))
+      : null;
+    if (target) {
+      window.requestAnimationFrame(() => {
+        const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        target.scrollIntoView({ block: "start", behavior: prefersReducedMotion ? "auto" : "smooth" });
+      });
+    }
     window.addEventListener("hashchange", syncSharedKinkTarget);
     window.addEventListener("popstate", syncSharedKinkTarget);
     return () => {
@@ -555,10 +575,7 @@ function InspirationLinks() {
   ];
 
   return (
-    <section className="inspiration-card inspiration-source-dock" aria-label="Inspiration links">
-      <div className="inspiration-copy">
-        <span className="eyebrow">Inspiration</span>
-      </div>
+    <section id="sources" className="inspiration-card inspiration-source-dock" aria-label="Inspiration links">
       <div className="inspiration-actions-grid">
         {groups.map((group) => (
           <div className="inspiration-row" key={group.label}>
@@ -586,7 +603,7 @@ function InspirationLinks() {
         ))}
       </div>
       <Link href="/inspiration/shelf" className="btn-primary shelf-entry-link--block inspiration-shelf-link pressable">
-        <span>Open The Shelf</span>
+        <span>Open the Shelf</span>
         <span aria-hidden="true">→</span>
       </Link>
     </section>
@@ -605,6 +622,27 @@ function SourceCardContent({ source }: { source: InspirationSource }) {
   );
 }
 
+const STARTER_LINES = [
+  "I keep thinking about ",
+  "I want to try ",
+  "What if we ",
+  "I want you to ",
+  "Fuck me like ",
+  "I've never told you ",
+  "Next time, ",
+  "It turns me on when ",
+  "Tie me up and ",
+];
+
+function pickStarterLines(count: number): string[] {
+  const pool = [...STARTER_LINES];
+  const picked: string[] = [];
+  while (picked.length < count && pool.length) {
+    picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return picked;
+}
+
 function KinkComposer({
   workspaceId,
   partnerName,
@@ -618,7 +656,9 @@ function KinkComposer({
   const skipNextDraftWrite = useRef(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const templates = ["I keep thinking about ", "I want to try ", "What if we "];
+  // Three short stems (the row is a fixed three-column grid), picked fresh per
+  // visit so the prompt to confess something doesn't go stale.
+  const [templates] = useState(() => pickStarterLines(3));
 
   useEffect(() => {
     // Gate the write-effect's mount run synchronously (as before), then load the
@@ -675,7 +715,7 @@ function KinkComposer({
   }
 
   return (
-    <form className="kink-compose-form kink-compose-obvious" onSubmit={submit}>
+    <form id="kink-compose" className="kink-compose-form kink-compose-obvious" onSubmit={submit}>
       <div className="kink-compose-obvious-head">
         <span className="kink-compose-kicker">Share with {partnerName}</span>
         <h2 className="kink-compose-title">Add a kink, fantasy, or confession</h2>

@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Cormorant_Garamond, Geist, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
+import AmbientMotion from "@/components/AmbientMotion";
+import LiveRoomProvider from "@/components/LiveRoomProvider";
 import MobileAccessGate from "@/components/MobileAccessGate";
 import PushReconnect from "@/components/PushReconnect";
 import PwaBridge from "@/components/PwaBridge";
@@ -9,29 +11,42 @@ import "./globals.css";
 import "./polish-shared.css";
 import "./pwa-access.css";
 
-// Self-host the brand webfonts via next/font so the editorial identity actually
-// renders (the app previously named these families but never loaded them) and
-// no request leaks to Google at runtime — important for this product.
-const display = Cormorant_Garamond({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  style: ["normal", "italic"],
+// The brand webfonts are committed under ./fonts (latin subset, OFL licences
+// alongside) and loaded with next/font/local, so neither the build nor the
+// browser ever fetches from Google: the build works offline and no request
+// leaks to a third party at runtime — important for this product.
+//
+// Cormorant and Geist are variable fonts, loaded as one variable face per
+// style (the full weight range, no faux-bold for the odd 650). Cormorant keeps
+// both styles: italic sets most display text, upright serif still sets the
+// numeric titles. Mono only dresses small meta text, so it is not preloaded;
+// it swaps in when it arrives.
+const display = localFont({
+  src: [
+    { path: "./fonts/cormorant-garamond-latin.woff2", weight: "300 700", style: "normal" },
+    { path: "./fonts/cormorant-garamond-latin-italic.woff2", weight: "300 700", style: "italic" },
+  ],
   variable: "--font-display",
   display: "swap",
+  fallback: ["Times New Roman", "serif"],
+  adjustFontFallback: "Times New Roman",
 });
 
-const sans = Geist({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
+const sans = localFont({
+  src: [{ path: "./fonts/geist-latin.woff2", weight: "100 900", style: "normal" }],
   variable: "--font-sans",
   display: "swap",
+  fallback: ["Arial", "sans-serif"],
+  adjustFontFallback: "Arial",
 });
 
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
+const mono = localFont({
+  src: [{ path: "./fonts/jetbrains-mono-latin.woff2", weight: "400 500", style: "normal" }],
   variable: "--font-mono",
   display: "swap",
+  preload: false,
+  fallback: ["ui-monospace", "Menlo", "monospace"],
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {
@@ -57,6 +72,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: "#170a10",
+  // Dark only: renders <meta name="color-scheme" content="dark"> so native
+  // form controls, scrollbars and autofill match the wine surfaces.
+  colorScheme: "dark",
   viewportFit: "cover",
 };
 
@@ -74,15 +92,18 @@ export default function RootLayout({
       <body className="min-h-screen antialiased">
         <a
           href="#app-main"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[1000] focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:text-ink focus:outline focus:outline-2 focus:outline-ink"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-skip-link focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:text-ink focus:outline focus:outline-2 focus:outline-ink"
         >
           Skip to content
         </a>
         <RouteAnnouncer />
+        <AmbientMotion />
         <MobileAccessGate>
           <PwaBridge />
           <PushReconnect />
-          <RoomEncryptionGate>{children}</RoomEncryptionGate>
+          <LiveRoomProvider>
+            <RoomEncryptionGate>{children}</RoomEncryptionGate>
+          </LiveRoomProvider>
         </MobileAccessGate>
       </body>
     </html>

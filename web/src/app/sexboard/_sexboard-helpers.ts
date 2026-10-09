@@ -163,21 +163,6 @@ export function compactScheduledLabel(label: string) {
   return label.replace(/^in\s+/i, "");
 }
 
-export function statusLabel(status: RequestRecord["status"]): string {
-  switch (status) {
-    case "pending":   return "pending";
-    case "sent":      return "sent";
-    case "maybe":     return "maybe";
-    case "reviewed":  return "reviewed";
-    case "on_deck":   return "on deck";
-    case "completed": return "done";
-    case "expired":   return "expired";
-    case "archived":  return "archived";
-    case "draft":     return "draft";
-    default:          return status;
-  }
-}
-
 export function requestTitle(request: RequestRecord): string {
   if (request.categories.length === 0) return "Ask";
   if (request.categories.length === 1) return request.categories[0];

@@ -1,0 +1,75 @@
+name: docker image
+
+# Builds the self-host image for amd64 + arm64 and publishes it to GHCR so
+# operators can `docker compose up -d` without cloning. Runs only in the public
+# self-host repo (public repos get hosted runners at no cost); it is a no-op in
+# any private copy of this workflow.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,format=short
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Boot the freshly published amd64 image and wait for its HEALTHCHECK.
+      - name: smoke the published image
+        run: |
+          image="ghcr.io/${{ github.repository }}:sha-${GITHUB_SHA::7}"
+          docker run -d --name ss "$image"
+          for i in $(seq 1 60); do
+            health="$(docker inspect -f '{{.State.Health.Status}}' ss 2>/dev/null || echo starting)"
+            case "$health" in
+              healthy)   echo "healthy after ~$((i * 2))s"; docker rm -f ss >/dev/null; exit 0 ;;
+              unhealthy) docker logs ss; exit 1 ;;
+            esac
+            sleep 2
+          done
+          docker logs ss
+          exit 1

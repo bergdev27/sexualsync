@@ -51,7 +51,7 @@ export default function PrivacyProofActions() {
         <Link href="/more" className="settings-link pressable">
           <span>
             How deletion works
-            <span className="settings-link-sub">Closing the space gives both partners seven days to undo before room data is purged.</span>
+            <span className="settings-link-sub">Closing the room gives both partners seven days to undo before room data is purged.</span>
           </span>
           <span className="settings-link-chev">›</span>
         </Link>

@@ -12,9 +12,10 @@
  * app layer; Room-E2EE for the ratings is a planned follow-up.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import AppShell from "@/components/AppShell";
+import AppShell, { useFocusedRun } from "@/components/AppShell";
+import ScreenHeader from "@/components/ScreenHeader";
 import DesireStyles from "@/components/DesireStyles";
 import SyncScoreReveal from "@/components/SyncScoreReveal";
 import { ErrorState, SkeletonList } from "@/components/States";
@@ -30,9 +31,13 @@ import {
 } from "@/lib/api";
 import { getProfileCached } from "@/lib/profile-cache";
 import { clearRunnerDraft, loadRunnerDraft, saveRunnerDraft } from "@/lib/runner-draft";
+import { useLiveRoomReload } from "@/lib/use-live-room";
 import {
   QUIZ_CARD_BY_ID,
   QUIZ_DECK,
+  activeQuizRatings,
+  quizOverlapByCategory,
+  unratedQuizCards,
   categoryTitle,
   proposeHref,
   type QuizCard,
@@ -40,6 +45,7 @@ import {
   type QuizRole,
 } from "@/lib/quiz-deck";
 import type { AuthInfo, ProfileResponse, SexQuizRating, SexQuizResponse, Workspace } from "@/lib/types";
+import "./sex-quiz.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -47,13 +53,6 @@ type LoadState =
   | { kind: "unauthorized" }
   | { kind: "no-workspace" }
   | { kind: "ready"; auth: AuthInfo; workspace: Workspace; quiz: SexQuizResponse };
-
-const ACCENT_BTN: CSSProperties = {
-  background: "linear-gradient(158deg, var(--accent), var(--accent-deep))",
-  color: "var(--ink)",
-  fontWeight: 600,
-  boxShadow: "0 4px 16px rgb(var(--accent-rgb) / 0.3)",
-};
 
 export default function SexQuizPage() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
@@ -83,30 +82,42 @@ export default function SexQuizPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // When the partner submits, the "locked in" screen moves to the reveal on its
+  // own. A runner in progress keeps its local answers; only `quiz` refreshes.
+  const workspaceId = state.kind === "ready" ? state.workspace.id : "";
+  useLiveRoomReload({
+    workspaceId,
+    actorEmail: state.kind === "ready" ? state.auth.email : "",
+    resources: ["sex-quiz"],
+    onReload: async () => {
+      if (!workspaceId) return;
+      const quiz = await getSexQuiz(workspaceId);
+      setState((current) => (current.kind === "ready" ? { ...current, quiz } : current));
+    },
+  });
+
   return (
     <AppShell>
-      <header className="sheet-header">
-        <Link href="/games" className="fd-back pressable" aria-label="Back to Reveals">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </Link>
-        <span className="sheet-title">Sex Quiz</span>
-        <span style={{ width: 22 }} aria-hidden="true" />
-      </header>
+      <ScreenHeader
+        variant="bar"
+        back={{ href: "/games", label: "Play" }}
+        title="Sex Quiz"
+      />
       <Body state={state} setState={setState} />
     </AppShell>
   );
 }
 
 function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) => void }) {
+  // Rating only the cards added since this person last submitted.
+  const [topUp, setTopUp] = useState(false);
   if (state.kind === "loading") return <SkeletonList count={4} />;
   if (state.kind === "unauthorized") {
     return <ErrorState title="Session expired" body="Sign in again to take the Sex Quiz." action={<Link href="/" className="btn-ghost">Back to sign-in</Link>} />;
   }
   if (state.kind === "error") return <ErrorState title="Couldn't load the Sex Quiz" body={state.message} />;
   if (state.kind === "no-workspace") {
-    return <ErrorState title="No partner space yet" body="The Sex Quiz needs a paired room." action={<Link href="/space" className="btn-ghost">Open Space</Link>} />;
+    return <ErrorState title="No partner space yet" body="The Sex Quiz needs a paired room." action={<Link href="/space" className="btn-ghost">Open Us</Link>} />;
   }
 
   const { workspace, quiz } = state;
@@ -115,33 +126,63 @@ function Body({ state, setState }: { state: LoadState; setState: (s: LoadState) 
   if (!quiz.mySubmitted) {
     return <QuizRunner workspace={workspace} onSubmitted={onUpdate} />;
   }
-  if (quiz.status !== "revealed") {
-    return <Waiting workspace={workspace} quiz={quiz} onUpdate={onUpdate} />;
+  if (topUp) {
+    return (
+      <QuizRunner
+        workspace={workspace}
+        baseline={{ ratings: quiz.myRatings, topPicks: quiz.myTopPicks }}
+        onSubmitted={(next) => { setTopUp(false); onUpdate(next); }}
+        onCancel={() => setTopUp(false)}
+      />
+    );
   }
-  return <Reveal workspace={workspace} quiz={quiz} onUpdate={onUpdate} />;
+  const startTopUp = () => setTopUp(true);
+  if (quiz.status !== "revealed") {
+    return <Waiting workspace={workspace} quiz={quiz} onUpdate={onUpdate} onRateNew={startTopUp} />;
+  }
+  return <Reveal workspace={workspace} quiz={quiz} onUpdate={onUpdate} onRateNew={startTopUp} />;
 }
 
 // ---------- Taking the quiz ----------
 
-function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmitted: (next: SexQuizResponse) => void }) {
-  const deck = QUIZ_DECK;
+function QuizRunner({
+  workspace,
+  onSubmitted,
+  baseline,
+  onCancel,
+}: {
+  workspace: Workspace;
+  onSubmitted: (next: SexQuizResponse) => void;
+  // Present when topping up: the answers already submitted. Only the cards
+  // missing from them are dealt, and the rest are carried into the submit.
+  baseline?: { ratings: Record<string, SexQuizRating>; topPicks: string[] };
+  onCancel?: () => void;
+}) {
+  const baselineRatings = baseline?.ratings;
+  const deck = useMemo(() => (baselineRatings ? unratedQuizCards(baselineRatings) : QUIZ_DECK), [baselineRatings]);
+  const draftKey = baseline ? "sex-quiz-new-cards" : "sex-quiz";
   const [phase, setPhase] = useState<"intro" | "cards" | "picks">("intro");
+  // Once the cards are dealt this is a focused run: the tab bar steps away.
+  useFocusedRun(phase !== "intro");
   const [index, setIndex] = useState(0);
   const [ratings, setRatings] = useState<Record<string, SexQuizRating>>({});
   const [role, setRole] = useState<QuizRole | "">("");
-  const [topPicks, setTopPicks] = useState<string[]>([]);
+  const [topPicks, setTopPicks] = useState<string[]>(() => (baseline?.topPicks || []).filter((id) => QUIZ_CARD_BY_ID[id]));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const initialDraft = useRef(loadRunnerDraft<{ ratings: Record<string, SexQuizRating>; topPicks: string[]; index: number; phase: "cards" | "picks" }>("sex-quiz", workspace.id));
+  // The saved draft is read once at mount and held in state, so render never
+  // reads a ref. Starting fresh clears it.
+  const [savedDraft, setSavedDraft] = useState(() => loadRunnerDraft<{ ratings: Record<string, SexQuizRating>; topPicks: string[]; index: number; phase: "cards" | "picks" }>(draftKey, workspace.id));
+  const savedDraftCount = Object.keys(savedDraft?.ratings || {}).length;
 
   // Autosave (same-device, localStorage) so a long sit can be picked back up.
   useEffect(() => {
     if (phase === "intro") return;
-    saveRunnerDraft("sex-quiz", workspace.id, { ratings, topPicks, index, phase });
-  }, [ratings, topPicks, index, phase, workspace.id]);
+    saveRunnerDraft(draftKey, workspace.id, { ratings, topPicks, index, phase });
+  }, [ratings, topPicks, index, phase, workspace.id, draftKey]);
 
   function resumeDraft() {
-    const d = initialDraft.current;
+    const d = savedDraft;
     if (!d) return;
     const restored = d.ratings || {};
     setRatings(restored);
@@ -152,10 +193,10 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
     setPhase(d.phase === "picks" ? "picks" : "cards");
   }
   function startFresh() {
-    clearRunnerDraft("sex-quiz", workspace.id);
-    initialDraft.current = null;
+    clearRunnerDraft(draftKey, workspace.id);
+    setSavedDraft(null);
     setRatings({});
-    setTopPicks([]);
+    setTopPicks((baseline?.topPicks || []).filter((id) => QUIZ_CARD_BY_ID[id]));
     setIndex(0);
     setRole("");
     setPhase("cards");
@@ -172,7 +213,11 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
   const flinging = useRef(false);
 
   const card = deck[index];
-  const intoCards = useMemo(() => deck.filter((c) => ratings[c.id]?.interest === "into"), [deck, ratings]);
+  const mergedRatings = useMemo(
+    () => ({ ...activeQuizRatings(baselineRatings), ...ratings }),
+    [baselineRatings, ratings],
+  );
+  const intoCards = useMemo(() => QUIZ_DECK.filter((c) => mergedRatings[c.id]?.interest === "into"), [mergedRatings]);
 
   function fling(interest: QuizInterest, target: { x: number; y: number }) {
     flinging.current = true;
@@ -263,8 +308,10 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
     setSubmitting(true);
     setError("");
     try {
-      const next = await submitSexQuiz({ workspaceId: workspace.id, ratings, topPicks });
-      clearRunnerDraft("sex-quiz", workspace.id);
+      const finalRatings = baseline ? mergedRatings : ratings;
+      const finalPicks = topPicks.filter((id) => finalRatings[id]?.interest === "into");
+      const next = await submitSexQuiz({ workspaceId: workspace.id, ratings: finalRatings, topPicks: finalPicks });
+      clearRunnerDraft(draftKey, workspace.id);
       onSubmitted(next);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't submit. Try again.");
@@ -272,32 +319,51 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
     }
   }
 
+  if (phase === "intro" && baseline) {
+
+    return (
+      <div className="rg-pane">
+        <p className="eyebrow">New cards</p>
+        <p className="rg-lead">
+          <strong>{deck.length}</strong> new {deck.length === 1 ? "card" : "cards"} since you last played. Rate just these; your other answers and top turn-ons stay as they are.
+        </p>
+        <p className="rg-hint">
+          🔒 Same rules: your passes stay private, and only what you both want shows up as a match.
+        </p>
+        <button type="button" className="rg-btn pressable" onClick={savedDraftCount > 0 ? resumeDraft : startFresh}>
+          {savedDraftCount > 0 ? `Resume — ${savedDraftCount} rated` : "Rate the new cards"}
+        </button>
+        {onCancel && <button type="button" className="btn-ghost" onClick={onCancel}>Not now</button>}
+      </div>
+    );
+  }
+
   if (phase === "intro") {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "10px 22px" }}>
+      <div className="rg-pane">
         <p className="eyebrow">Build your desire map</p>
-        <p style={{ color: "var(--cream)", fontSize: 16, lineHeight: 1.55 }}>
+        <p className="rg-lead">
           {deck.length} cards, softest first — the full map of what turns you on. Mark each <strong>Pass</strong>, <strong>Curious</strong>, or <strong>Into it</strong>, and call who gives or receives where it fits.
         </p>
-        <p style={{ color: "var(--cream)", fontSize: 16, lineHeight: 1.55 }}>
+        <p className="rg-lead">
           Then pick your <strong>top 5 most-wanted</strong> — the highlights your partner sees first.
         </p>
-        <p style={{ color: "rgb(var(--cream-rgb) / 0.55)", fontSize: 14, lineHeight: 1.55 }}>
-          🔒 It's double-blind: nothing you pick shows to {workspace.members?.length ? "your partner" : "them"} until you've <em>both</em> finished. Passes stay private.
+        <p className="rg-hint">
+          🔒 It&apos;s double-blind: nothing you pick shows to {workspace.members?.length ? "your partner" : "them"} until you&apos;ve <em>both</em> finished. Passes stay private.
         </p>
-        <p style={{ color: "rgb(var(--cream-rgb) / 0.55)", fontSize: 14, lineHeight: 1.55 }}>
+        <p className="rg-hint">
           No wrong answers — nothing&apos;s too much or too tame. Let the slut out; your passes never show, so be greedy.
         </p>
         <DesireStyles />
-        {(initialDraft.current && Object.keys(initialDraft.current.ratings || {}).length > 0) ? (
+        {savedDraftCount > 0 ? (
           <>
-            <button type="button" className="pressable" style={{ ...ACCENT_BTN, padding: 15, borderRadius: 16, border: "none", fontSize: 15 }} onClick={resumeDraft}>
-              Resume — {Object.keys(initialDraft.current.ratings || {}).length} rated
+            <button type="button" className="rg-btn pressable" onClick={resumeDraft}>
+              Resume — {savedDraftCount} rated
             </button>
             <button type="button" className="btn-ghost" onClick={startFresh}>Start over</button>
           </>
         ) : (
-          <button type="button" className="pressable" style={{ ...ACCENT_BTN, padding: 15, borderRadius: 16, border: "none", fontSize: 15 }} onClick={startFresh}>
+          <button type="button" className="rg-btn pressable" onClick={startFresh}>
             Start
           </button>
         )}
@@ -307,17 +373,17 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
 
   if (phase === "picks") {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14, padding: "10px 22px" }}>
+      <div className="rg-pane is-tight">
         <p className="eyebrow">Your top turn-ons</p>
-        <p style={{ color: "var(--cream)", fontSize: 16, lineHeight: 1.5 }}>
+        <p className="rg-lead">
           Tap your <strong>5 most-wanted</strong> in order — first tap is your #1. These are the highlights your partner sees first.
         </p>
         {intoCards.length === 0 ? (
-          <p style={{ color: "rgb(var(--cream-rgb) / 0.55)", fontSize: 14 }}>
-            You didn't mark anything "Into it" — that's okay. You can still reveal and compare.
+          <p className="rg-hint">
+            You didn&apos;t mark anything &quot;Into it&quot; — that&apos;s okay. You can still reveal and compare.
           </p>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <div className="rg-chips">
             {intoCards.map((c) => {
               const rank = topPicks.indexOf(c.id);
               const on = rank >= 0;
@@ -327,22 +393,19 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
                   type="button"
                   onClick={() => togglePick(c.id)}
                   aria-pressed={on}
-                  style={{
-                    padding: "8px 13px", borderRadius: 999, border: "none", fontSize: 14, cursor: "pointer",
-                    ...(on ? ACCENT_BTN : { background: "rgb(var(--cream-rgb) / 0.08)", color: "var(--cream)", boxShadow: "var(--ring-hairline)" }),
-                  }}
+                  className="rg-chip"
                 >
-                  {on ? <strong style={{ marginRight: 5 }}>{rank + 1}.</strong> : null}{c.emoji} {c.label}
+                  {on ? <strong className="rg-chip-rank">{rank + 1}.</strong> : null}{c.emoji} {c.label}
                 </button>
               );
             })}
           </div>
         )}
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "rgb(var(--cream-rgb) / 0.45)" }}>{topPicks.length} / 5 pinned</div>
-        {error && <p style={{ color: "rgb(var(--no-rgb))", fontSize: 13 }}>{error}</p>}
-        <div style={{ display: "flex", gap: 10 }}>
+        <div className="rg-count">{topPicks.length} / 5 pinned</div>
+        {error && <p className="rg-error">{error}</p>}
+        <div className="rg-actions">
           <button type="button" className="btn-ghost" onClick={() => setPhase("cards")} disabled={submitting}>Back</button>
-          <button type="button" className="pressable" style={{ ...ACCENT_BTN, flex: 1, padding: 14, borderRadius: 16, border: "none", fontSize: 15 }} disabled={submitting} onClick={submit}>
+          <button type="button" className="rg-btn is-grow pressable" disabled={submitting} onClick={submit}>
             {submitting ? "Revealing…" : "Reveal to your partner"}
           </button>
         </div>
@@ -353,55 +416,52 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
   // phase === "cards"
   const pct = Math.round(((index + 1) / deck.length) * 100);
   const swipeHint = drag.x > 50 ? { label: "Into it", color: "var(--accent)" }
-    : drag.x < -50 ? { label: "Pass", color: "rgb(var(--cream-rgb) / 0.65)" }
+    : drag.x < -50 ? { label: "Pass", color: "var(--cream-muted)" }
     : drag.y < -45 ? { label: "Curious", color: "var(--cream)" }
     : null;
   const swipeOpacity = Math.min(1, Math.max(Math.abs(drag.x) / 90, drag.y < 0 ? -drag.y / 80 : 0));
   const savedInterest = ratings[card.id]?.interest;
   const nextDisabled = index + 1 >= deck.length || !savedInterest;
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 0, gap: 14, padding: "8px 22px 4px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button type="button" onClick={back} aria-label="Previous card" disabled={index === 0}
-          style={{ background: "none", border: "none", color: "rgb(var(--cream-rgb) / 0.6)", fontSize: 20, cursor: index === 0 ? "default" : "pointer", opacity: index === 0 ? 0.3 : 1, padding: 0 }}>‹</button>
-        <div style={{ flex: 1, height: 5, borderRadius: 999, background: "rgb(var(--cream-rgb) / 0.1)", overflow: "hidden" }}>
+    <div className="rg-runner">
+      <div className="rg-progress">
+        <button type="button" className="rg-step" onClick={back} aria-label="Previous card" disabled={index === 0}>‹</button>
+        <div className="rg-track">
           {/* scaleX, not width — a width transition re-runs layout every frame. */}
-          <div style={{ width: "100%", height: "100%", background: "linear-gradient(90deg, var(--accent), var(--accent-deep))", borderRadius: 999, transform: `scaleX(${pct / 100})`, transformOrigin: "left", transition: "transform 240ms ease" }} />
+          <div className="rg-track-fill" style={{ transform: `scaleX(${pct / 100})` }} />
         </div>
-        <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "rgb(var(--cream-rgb) / 0.5)" }}>{index + 1} / {deck.length}</div>
-        <button type="button" onClick={next} aria-label="Next card" disabled={nextDisabled}
-          style={{ background: "none", border: "none", color: "rgb(var(--cream-rgb) / 0.6)", fontSize: 20, cursor: nextDisabled ? "default" : "pointer", opacity: nextDisabled ? 0.3 : 1, padding: 0 }}>›</button>
+        <div className="rg-count">{index + 1} / {deck.length}</div>
+        <button type="button" className="rg-step" onClick={next} aria-label="Next card" disabled={nextDisabled}>›</button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
+      <div className="rg-stage">
         <div
           onPointerDown={onCardPointerDown}
           onPointerMove={onCardPointerMove}
           onPointerUp={onCardPointerEnd}
           onPointerCancel={onCardPointerEnd}
-          style={{ position: "relative", width: "100%", background: "var(--surface-2)", borderRadius: 24, boxShadow: "var(--ring-hairline-strong)", padding: "28px 22px", textAlign: "center", touchAction: "none", userSelect: "none", cursor: dragging ? "grabbing" : "grab", transform: `translate(${drag.x}px, ${drag.y}px) rotate(${drag.x * 0.04}deg)`, transition: dragging ? "none" : "transform 200ms var(--ease-settle, ease)", willChange: dragging ? "transform" : undefined }}
+          className={`rg-card is-swipe${dragging ? " is-dragging" : ""}`}
+          style={{ transform: `translate(${drag.x}px, ${drag.y}px) rotate(${drag.x * 0.04}deg)` }}
         >
           {swipeHint && (
-            <div aria-hidden="true" style={{ position: "absolute", top: -13, left: "50%", transform: "translateX(-50%)", opacity: swipeOpacity, padding: "5px 14px", borderRadius: 999, background: "var(--surface-3)", color: swipeHint.color, fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600, boxShadow: "var(--ring-hairline-strong)", whiteSpace: "nowrap", pointerEvents: "none" }}>
+            <div aria-hidden="true" className="rg-swipe-hint" style={{ opacity: swipeOpacity, color: swipeHint.color }}>
               {swipeHint.label}
             </div>
           )}
-          <div style={{ fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgb(var(--cream-rgb) / 0.4)" }}>
-            {categoryTitle(card.category)}{card.edge ? " · talk first" : ""}
+          <div className="rg-card-kicker">
+            {categoryTitle(card.category)}{card.edge ? " · Talk first" : ""}
           </div>
-          <div style={{ fontSize: 44, lineHeight: 1, marginTop: 14 }}>{card.emoji}</div>
-          <div style={{ fontSize: 22, color: "var(--cream)", fontWeight: 600, marginTop: 12 }}>{card.label}</div>
-          <div style={{ fontSize: 14, color: "rgb(var(--cream-rgb) / 0.6)", lineHeight: 1.5, marginTop: 6, maxWidth: "30ch", marginInline: "auto" }}>{card.desc}</div>
+          <div className="rg-card-emoji">{card.emoji}</div>
+          <div className="rg-card-title">{card.label}</div>
+          <div className="rg-card-desc">{card.desc}</div>
           {card.role && (
             <>
-              <div style={{ marginTop: 20, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgb(var(--cream-rgb) / 0.45)" }}>I want to</div>
-              <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 8 }}>
+              <div className="rg-card-label">I want to</div>
+              <div className="rg-roles">
                 {(["give", "receive", "both"] as QuizRole[]).map((r) => {
                   const on = role === r;
                   return (
-                    <button key={r} type="button" onClick={() => setRole(on ? "" : r)} aria-pressed={on}
-                      style={{ padding: "7px 16px", borderRadius: 999, border: "none", fontSize: 13, cursor: "pointer", textTransform: "capitalize",
-                        ...(on ? ACCENT_BTN : { background: "rgb(var(--cream-rgb) / 0.08)", color: "var(--cream)", boxShadow: "var(--ring-hairline)" }) }}>
+                    <button key={r} type="button" className="rg-chip is-small rg-role" onClick={() => setRole(on ? "" : r)} aria-pressed={on}>
                       {r}
                     </button>
                   );
@@ -412,16 +472,13 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
         </div>
       </div>
 
-      <p style={{ textAlign: "center", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgb(var(--cream-rgb) / 0.35)" }}>
+      <p className="rg-tip">
         Swipe ← pass · ↑ curious · into → — or tap
       </p>
-      <div style={{ display: "flex", gap: 10 }}>
-        <button type="button" className="pressable" aria-pressed={savedInterest === "pass"} onClick={() => rate("pass")}
-          style={{ flex: 1, padding: 15, borderRadius: 18, border: "none", background: "rgb(var(--cream-rgb) / 0.07)", color: "rgb(var(--cream-rgb) / 0.7)", fontSize: 14, fontWeight: 500, boxShadow: savedInterest === "pass" ? "inset 0 0 0 2px var(--cream)" : "var(--ring-hairline)", opacity: savedInterest && savedInterest !== "pass" ? 0.5 : 1 }}>Pass</button>
-        <button type="button" className="pressable" aria-pressed={savedInterest === "curious"} onClick={() => rate("curious")}
-          style={{ flex: 1, padding: 15, borderRadius: 18, border: "none", background: "rgb(var(--cream-rgb) / 0.07)", color: "var(--cream)", fontSize: 14, fontWeight: 500, boxShadow: savedInterest === "curious" ? "inset 0 0 0 2px var(--cream)" : "var(--ring-hairline)", opacity: savedInterest && savedInterest !== "curious" ? 0.5 : 1 }}>Curious</button>
-        <button type="button" className="pressable" aria-pressed={savedInterest === "into"} onClick={() => rate("into")}
-          style={{ flex: 1.3, padding: 15, borderRadius: 18, border: "none", ...ACCENT_BTN, fontSize: 14, boxShadow: savedInterest === "into" ? "inset 0 0 0 2px var(--cream)" : ACCENT_BTN.boxShadow, opacity: savedInterest && savedInterest !== "into" ? 0.5 : 1 }}>Into it</button>
+      <div className="rg-answers">
+        <button type="button" className={`rg-answer is-pass pressable${savedInterest && savedInterest !== "pass" ? " is-dim" : ""}`} aria-pressed={savedInterest === "pass"} onClick={() => rate("pass")}>Pass</button>
+        <button type="button" className={`rg-answer pressable${savedInterest && savedInterest !== "curious" ? " is-dim" : ""}`} aria-pressed={savedInterest === "curious"} onClick={() => rate("curious")}>Curious</button>
+        <button type="button" className={`rg-answer is-into pressable${savedInterest && savedInterest !== "into" ? " is-dim" : ""}`} aria-pressed={savedInterest === "into"} onClick={() => rate("into")}>Into it</button>
       </div>
     </div>
   );
@@ -429,17 +486,35 @@ function QuizRunner({ workspace, onSubmitted }: { workspace: Workspace; onSubmit
 
 // ---------- Waiting for partner ----------
 
-function Waiting({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void }) {
+// Shown once someone has submitted but the deck has grown since.
+function NewCardsPrompt({ quiz, onRateNew }: { quiz: SexQuizResponse; onRateNew: () => void }) {
+  const count = useMemo(() => unratedQuizCards(quiz.myRatings).length, [quiz.myRatings]);
+  if (count === 0) return null;
+  return (
+    <div className="quiz-new-cards rg-panel is-row">
+      <div className="rg-panel-main">
+        <p className="rg-panel-title">{count} new {count === 1 ? "card" : "cards"} to rate</p>
+        <p className="rg-panel-body">The deck grew since you played. Your other answers stay.</p>
+      </div>
+      <button type="button" className="rg-btn is-compact pressable" onClick={onRateNew}>
+        Rate them
+      </button>
+    </div>
+  );
+}
+
+function Waiting({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void; onRateNew: () => void }) {
   const [showMine, setShowMine] = useState(false);
   const hasPicks = (quiz.myTopPicks?.length || 0) > 0;
   // Open the pinner by default when nothing's pinned yet — this is the step
   // people miss at the end of the quiz, so make it the first thing waiting here.
   const [editPicks, setEditPicks] = useState(!hasPicks);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "10px 22px", textAlign: "center", alignItems: "center", marginTop: 24 }}>
-      <div style={{ fontSize: 40 }}>🔒</div>
-      <p style={{ color: "var(--cream)", fontSize: 18, fontWeight: 600 }}>Your answers are locked in</p>
-      <p style={{ color: "rgb(var(--cream-rgb) / 0.6)", fontSize: 15, lineHeight: 1.55, maxWidth: "32ch" }}>
+    <div className="rg-pane is-centered">
+      <div className="rg-done-emoji">🔒</div>
+      <p className="rg-done-title">Your answers are locked in</p>
+      <NewCardsPrompt quiz={quiz} onRateNew={onRateNew} />
+      <p className="rg-done-body">
         {quiz.partnerName || "Your partner"}&apos;s answers stay hidden until they finish too — but you can always look back at your own.
       </p>
       <button type="button" className="btn-ghost" onClick={() => setEditPicks((v) => !v)} aria-expanded={editPicks}>
@@ -451,7 +526,7 @@ function Waiting({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: Se
       </button>
       {showMine && <MyAnswers quiz={quiz} />}
       <EdgePassToLimits workspace={workspace} quiz={quiz} />
-      <button type="button" className="btn-ghost" style={{ marginTop: 8 }} onClick={() => { retakeSexQuiz(workspace.id).then(onUpdate).catch(() => {}); }}>
+      <button type="button" className="btn-ghost mt-2" onClick={() => { retakeSexQuiz(workspace.id).then(onUpdate).catch(() => {}); }}>
         Redo my answers
       </button>
     </div>
@@ -490,34 +565,31 @@ function TopPicksEditor({ workspace, quiz, onUpdate }: { workspace: Workspace; q
 
   if (intoCards.length === 0) {
     return (
-      <p style={{ color: "rgb(var(--cream-rgb) / 0.55)", fontSize: 14, lineHeight: 1.5, maxWidth: "34ch" }}>
+      <p className="rg-hint max-w-[34ch]">
         You didn&apos;t mark anything &quot;Into it&quot; yet — redo the quiz to add some, then pin your favorites here.
       </p>
     );
   }
   return (
-    <div style={{ width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 10, background: "var(--surface-2)", borderRadius: 18, boxShadow: "var(--ring-hairline-strong)", padding: "14px 16px" }}>
+    <div className="rg-panel">
       <p className="eyebrow">Your top turn-ons</p>
-      <p style={{ color: "rgb(var(--cream-rgb) / 0.6)", fontSize: 14, lineHeight: 1.5 }}>
+      <p className="rg-hint">
         Tap up to 5 in order — first tap is your #1. The highlights {quiz.partnerName || "your partner"} sees first.
       </p>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div className="rg-chips">
         {intoCards.map((c) => {
           const rank = picks.indexOf(c.id);
           const on = rank >= 0;
           return (
-            <button key={c.id} type="button" onClick={() => toggle(c.id)} aria-pressed={on}
-              style={{ padding: "8px 13px", borderRadius: 999, border: "none", fontSize: 14, cursor: "pointer",
-                ...(on ? ACCENT_BTN : { background: "rgb(var(--cream-rgb) / 0.08)", color: "var(--cream)", boxShadow: "var(--ring-hairline)" }) }}>
-              {on ? <strong style={{ marginRight: 5 }}>{rank + 1}.</strong> : null}{c.emoji} {c.label}
+            <button key={c.id} type="button" className="rg-chip" onClick={() => toggle(c.id)} aria-pressed={on}>
+              {on ? <strong className="rg-chip-rank">{rank + 1}.</strong> : null}{c.emoji} {c.label}
             </button>
           );
         })}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "rgb(var(--cream-rgb) / 0.45)" }}>{picks.length} / 5 pinned</span>
-        <button type="button" className="pressable" disabled={saving || !dirty} onClick={save}
-          style={{ ...ACCENT_BTN, padding: "9px 18px", borderRadius: 14, border: "none", fontSize: 14, marginLeft: "auto", opacity: saving || !dirty ? 0.5 : 1 }}>
+      <div className="rg-panel-foot">
+        <span className="rg-count">{picks.length} / 5 pinned</span>
+        <button type="button" className="rg-btn is-compact pressable" disabled={saving || !dirty} onClick={save}>
           {saving ? "Saving…" : saved && !dirty ? "Saved ✓" : "Save"}
         </button>
       </div>
@@ -532,20 +604,20 @@ function MyAnswers({ quiz }: { quiz: SexQuizResponse }) {
   const rows = fullAnswerRows(quiz.myRatings);
   if (rows.length === 0) {
     return (
-      <p style={{ color: "rgb(var(--cream-rgb) / 0.55)", fontSize: 14 }}>You didn&apos;t rate any cards.</p>
+      <p className="rg-hint">You didn&apos;t rate any cards.</p>
     );
   }
   return (
-    <div style={{ width: "100%", textAlign: "left", display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="rg-stack">
       <TopTurnOns name="Your" cardIds={quiz.myTopPicks} ranked />
       <section>
-        <p className="eyebrow" style={{ color: "rgb(var(--cream-rgb) / 0.5)" }}>Your answers</p>
-        <div style={{ marginTop: 6, background: "var(--surface-2)", borderRadius: 18, boxShadow: "var(--ring-hairline-strong)", padding: "4px 16px" }}>
+        <p className="eyebrow">Your answers</p>
+        <div className="rg-list">
           {rows.map(({ card, rating }) => (
-            <div key={card.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--hairline)" }}>
-              <span style={{ fontSize: 20, width: 24, textAlign: "center" }}>{card.emoji}</span>
-              <span style={{ flex: 1, color: "var(--cream)", fontSize: 14 }}>{card.label}</span>
-              <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: interestColor(rating.interest) }}>
+            <div key={card.id} className="rg-list-row">
+              <span className="rg-list-emoji">{card.emoji}</span>
+              <span className="rg-list-label">{card.label}</span>
+              <span className="rg-list-meta" style={{ color: interestColor(rating.interest) }}>
                 {interestLabel(rating.interest)}{rating.role ? ` · ${rating.role}` : ""}
               </span>
             </div>
@@ -558,42 +630,63 @@ function MyAnswers({ quiz }: { quiz: SexQuizResponse }) {
 
 // ---------- Reveal ----------
 
-function Reveal({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void }) {
+function Reveal({ workspace, quiz, onUpdate, onRateNew }: { workspace: Workspace; quiz: SexQuizResponse; onUpdate: (next: SexQuizResponse) => void; onRateNew: () => void }) {
   const fits = quiz.matches.filter((m) => m.complementary).length;
+  const overlapByCategory = useMemo(
+    () => quizOverlapByCategory(quiz.matches, quiz.curiousTogether),
+    [quiz.matches, quiz.curiousTogether],
+  );
+  const maxOverlap = overlapByCategory.reduce((max, c) => Math.max(max, c.matches + c.curious), 0);
   const partnerName = quiz.partnerName || "your partner";
   const [editPicks, setEditPicks] = useState(false);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, padding: "8px 22px 4px" }}>
+    <div className="rg-reveal">
+      <NewCardsPrompt quiz={quiz} onRateNew={onRateNew} />
       <div>
         <p className="eyebrow">Revealed</p>
         {quiz.syncScore !== null ? (
           <SyncScoreReveal score={quiz.syncScore} label="In sync" />
         ) : (
-          <p style={{ fontSize: 24, color: "var(--cream)", fontWeight: 600, marginTop: 2 }}>You&apos;re in sync 🔥</p>
+          <p className="rg-reveal-title">You&apos;re in sync 🔥</p>
         )}
-        <p style={{ fontSize: 15, color: "rgb(var(--cream-rgb) / 0.62)", lineHeight: 1.5, marginTop: 10 }}>
-          You both lit up on <strong style={{ color: "var(--cream)" }}>{quiz.matches.length}</strong> of the same desires{fits > 0 ? <> — and <strong style={{ color: "var(--cream)" }}>{fits}</strong> are a perfect give/receive fit.</> : "."}
+        <p className="rg-reveal-body">
+          You both lit up on <strong>{quiz.matches.length}</strong> of the same desires{fits > 0 ? <> — and <strong>{fits}</strong> are a perfect give/receive fit.</> : "."}
         </p>
       </div>
+
+      {overlapByCategory.length > 1 && (
+        <details className="sync-breakdown">
+          <summary>Where you overlap most</summary>
+          <ul>
+            {overlapByCategory.map((c) => (
+              <li key={c.category}>
+                <span className="sync-breakdown-title">{c.title}</span>
+                <span className="sync-breakdown-bar" aria-hidden="true"><span style={{ transform: `scaleX(${(c.matches + c.curious) / maxOverlap})` }} /></span>
+                <span className="sync-breakdown-value">{c.matches} into{c.curious ? ` · ${c.curious} curious` : ""}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       <TopTurnOns name={partnerName} cardIds={quiz.partnerTopPicks} ranked caption={`What ${partnerName} craves most — with you.`} />
 
       {quiz.matches.length > 0 && (
         <section>
-          <p className="eyebrow" style={{ color: "rgb(var(--cream-rgb) / 0.5)" }}>Matches · both into it · tap to propose</p>
-          <div style={{ marginTop: 6, background: "var(--surface-2)", borderRadius: 18, boxShadow: "var(--ring-hairline-strong)", padding: "4px 16px" }}>
+          <p className="eyebrow">Matches · both into it · tap to propose</p>
+          <div className="rg-list">
             {quiz.matches.map((m) => {
               const card = QUIZ_CARD_BY_ID[m.cardId];
               if (!card) return null;
               return (
-                <Link key={m.cardId} href={proposeHref(card.label)} className="pressable" style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: "1px solid var(--hairline)", textDecoration: "none" }}>
-                  <span style={{ fontSize: 22, width: 26, textAlign: "center" }}>{card.emoji}</span>
-                  <span style={{ flex: 1, color: "var(--cream)", fontSize: 15 }}>{card.label}</span>
-                  <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: m.complementary ? "var(--accent)" : "rgb(var(--cream-rgb) / 0.45)", textAlign: "right" }}>
+                <Link key={m.cardId} href={proposeHref(card.label)} className="rg-list-row pressable">
+                  <span className="rg-list-emoji">{card.emoji}</span>
+                  <span className="rg-list-label">{card.label}</span>
+                  <span className="rg-list-meta" style={{ color: m.complementary ? "var(--accent)" : "var(--cream-faint)" }}>
                     {roleTag(m)}
                   </span>
-                  <span aria-hidden="true" style={{ color: "rgb(var(--accent-rgb) / 0.8)", fontSize: 18, lineHeight: 1, marginLeft: 2 }}>›</span>
+                  <span aria-hidden="true" className="rg-list-chevron">›</span>
                 </Link>
               );
             })}
@@ -603,24 +696,24 @@ function Reveal({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: Sex
 
       {quiz.curiousTogether.length > 0 && (
         <section>
-          <p className="eyebrow" style={{ color: "rgb(var(--cream-rgb) / 0.5)" }}>Curious together · tap to propose</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+          <p className="eyebrow">Curious together · tap to propose</p>
+          <div className="rg-chips mt-2">
             {quiz.curiousTogether.map(({ cardId }) => {
               const card = QUIZ_CARD_BY_ID[cardId];
               if (!card) return null;
-              return <Link key={cardId} href={proposeHref(card.label)} className="pressable" style={{ padding: "7px 13px", borderRadius: 999, fontSize: 13, background: "rgb(var(--cream-rgb) / 0.07)", color: "var(--cream)", boxShadow: "var(--ring-hairline)", textDecoration: "none" }}>{card.emoji} {card.label}</Link>;
+              return <Link key={cardId} href={proposeHref(card.label)} className="rg-chip is-small pressable">{card.emoji} {card.label}</Link>;
             })}
           </div>
         </section>
       )}
 
-      <p style={{ fontSize: 12, color: "rgb(var(--cream-rgb) / 0.45)", lineHeight: 1.5 }}>
-        🔒 Passes & limits stay private — never shown to {partnerName} as a "no".
+      <p className="rg-note">
+        🔒 Passes &amp; limits stay private — never shown to {partnerName} as a &quot;no&quot;.
       </p>
 
       {quiz.matches.length > 0 && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Link href={`/ask?note=${encodeURIComponent(askNote(quiz))}`} className="pressable" style={{ ...ACCENT_BTN, flex: 1, padding: 14, borderRadius: 16, textAlign: "center", textDecoration: "none", fontSize: 14, minWidth: 180 }}>
+        <div className="rg-actions is-wrap">
+          <Link href={`/ask?note=${encodeURIComponent(askNote(quiz))}`} className="rg-btn is-grow pressable min-w-[180px]">
             Turn a match into an Ask
           </Link>
         </div>
@@ -628,13 +721,13 @@ function Reveal({ workspace, quiz, onUpdate }: { workspace: Workspace; quiz: Sex
 
       {quiz.partnerRatings && (
         <section>
-          <p className="eyebrow" style={{ color: "rgb(var(--cream-rgb) / 0.5)" }}>{partnerName}'s full answers</p>
-          <div style={{ marginTop: 6, background: "var(--surface-2)", borderRadius: 18, boxShadow: "var(--ring-hairline-strong)", padding: "4px 16px" }}>
+          <p className="eyebrow">{partnerName}&apos;s full answers</p>
+          <div className="rg-list">
             {fullAnswerRows(quiz.partnerRatings).map(({ card, rating }) => (
-              <div key={card.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid var(--hairline)" }}>
-                <span style={{ fontSize: 20, width: 24, textAlign: "center" }}>{card.emoji}</span>
-                <span style={{ flex: 1, color: "var(--cream)", fontSize: 14 }}>{card.label}</span>
-                <span style={{ fontSize: 11, fontFamily: "var(--mono)", color: interestColor(rating.interest) }}>
+              <div key={card.id} className="rg-list-row">
+                <span className="rg-list-emoji">{card.emoji}</span>
+                <span className="rg-list-label">{card.label}</span>
+                <span className="rg-list-meta" style={{ color: interestColor(rating.interest) }}>
                   {interestLabel(rating.interest)}{rating.role ? ` · ${rating.role}` : ""}
                 </span>
               </div>
@@ -667,15 +760,13 @@ function FullRevealToggle({ workspace, quiz, onUpdate }: { workspace: Workspace;
   }
   const both = quiz.fullRevealMine && quiz.fullRevealPartner;
   return (
-    <div style={{ background: "var(--surface-2)", borderRadius: 16, boxShadow: "var(--ring-hairline)", padding: 14 }}>
-      <p style={{ color: "var(--cream)", fontSize: 14, fontWeight: 500 }}>Open the full deck to each other?</p>
-      <p style={{ color: "rgb(var(--cream-rgb) / 0.55)", fontSize: 13, lineHeight: 1.5, marginTop: 4 }}>
+    <div className="rg-panel is-quiet">
+      <p className="rg-panel-title">Open the full deck to each other?</p>
+      <p className="rg-panel-body">
         {both ? "You're both open — every answer is visible above." : quiz.fullRevealMine ? `Waiting for ${quiz.partnerName || "your partner"} to opt in too.` : "Only if you both choose to — then you'll each see every rating, not just the matches."}
       </p>
       {!both && (
-        <button type="button" className="pressable" disabled={busy} onClick={toggle}
-          style={{ marginTop: 10, padding: "9px 14px", borderRadius: 999, border: "none", fontSize: 13,
-            ...(quiz.fullRevealMine ? { background: "rgb(var(--cream-rgb) / 0.1)", color: "var(--cream)" } : ACCENT_BTN) }}>
+        <button type="button" className={`${quiz.fullRevealMine ? "rg-chip is-small" : "rg-btn is-compact"} mt-2.5 self-start pressable`} disabled={busy} onClick={toggle}>
           {quiz.fullRevealMine ? "You're in — undo" : "I'm open to it"}
         </button>
       )}
@@ -711,12 +802,11 @@ function EdgePassToLimits({ workspace, quiz }: { workspace: Workspace; quiz: Sex
     }
   }
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "center" }}>
-      <button type="button" className="pressable" disabled={busy} onClick={fileThem}
-        style={{ marginTop: 4, padding: "10px 16px", borderRadius: 999, border: "none", background: "rgb(var(--cream-rgb) / 0.08)", color: "var(--cream)", fontSize: 13, boxShadow: "var(--ring-hairline)" }}>
+    <div className="rg-edge">
+      <button type="button" className="rg-chip is-small mt-1 pressable" disabled={busy} onClick={fileThem}>
         {busy ? "Saving…" : `File ${edgePasses.length} hard-pass${edgePasses.length === 1 ? "" : "es"} as Limits`}
       </button>
-      {error && <span style={{ color: "rgb(var(--no-rgb))", fontSize: 12, maxWidth: "32ch", textAlign: "center", lineHeight: 1.4 }}>{error}</span>}
+      {error && <span className="rg-error">{error}</span>}
     </div>
   );
 }
@@ -753,6 +843,6 @@ function interestLabel(interest: string): string {
 
 function interestColor(interest: string): string {
   if (interest === "into") return "var(--accent)";
-  if (interest === "curious") return "rgb(var(--cream-rgb) / 0.6)";
-  return "rgb(var(--cream-rgb) / 0.35)";
+  if (interest === "curious") return "var(--cream-muted)";
+  return "var(--cream-faint)";
 }

@@ -4,10 +4,18 @@
 # filesystem-backed storage on a persistent volume. This file is for self-host
 # operators only; it has nothing to do with the Cloudflare production deploy.
 #
-# First run (zero config):
+# First run (zero config) - no git clone needed:
+#   mkdir sexualsync && cd sexualsync
+#   curl -fsSLO https://raw.githubusercontent.com/bergdev27/sexualsync/main/docker-compose.yml
 #   docker compose version   # requires Docker Compose v2.24+
-#   docker compose up --build
-#   # → boots, auto-generates a strong secret on the data volume, encrypts at rest
+#   docker compose up -d
+#   # → pulls the published image, auto-generates a strong secret on the data
+#   #   volume, encrypts at rest
+#
+# Update:  docker compose pull && docker compose up -d
+# Pin a release instead of latest: SEXUALSYNC_VERSION=2.0.0 docker compose up -d
+# Build from source instead (in a clone of this repo):
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
 #
 # Health check: http://localhost:8788/api/health
 # Local email/password sign-in works with zero config. Copy
@@ -16,10 +24,8 @@
 
 services:
   sexualsync:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: sexualsync-selfhost
+    # Multi-arch (amd64 + arm64) image published from this repo's release tags.
+    image: ghcr.io/bergdev27/sexualsync:${SEXUALSYNC_VERSION:-latest}
     container_name: sexualsync-selfhost
     ports:
       # Localhost-only by default. Put Caddy/nginx/Traefik on the same host in

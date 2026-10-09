@@ -311,6 +311,7 @@ const DEFAULT_PUSH_PREFERENCES = {
   "pile-started": true,
   "pile-reminder": true,
   "game-ready": true,
+  "mood-match": true,
   "push-test": true
 };
 

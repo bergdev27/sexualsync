@@ -4,62 +4,8 @@
    ─────────────────────────────────────────────────────────────── */
 
 .surface {
-  /* palette */
-  --bg:           #170a10;
-  --bg-tilt:      #1c0c14;
-  --surface:      #23111a;
-  --surface-2:    #2c1622;
-  --surface-3:    #341a28;
-  --hairline:        rgba(243, 220, 217, 0.08);
-  /* Values match brand-tokens.css (canonical source of truth). */
-  --hairline-strong: rgba(243, 220, 217, 0.14);
-  --cream:        #f3dcd9;
-  --cream-muted:  rgba(243, 220, 217, 0.65);
-  /* Small-text token (eyebrows, faint labels). Raised from 0.32 (~2.4:1,
-     fails WCAG AA) to 0.6 -> >=5.2:1 on every dark surface. Keep in sync
-     with globals.css :root. */
-  --cream-faint:  rgba(243, 220, 217, 0.6);
-  --cream-ghost:  rgba(243, 220, 217, 0.18);
-  --ink:          #170a10;
-
-  /* v1 accent ramp: wine-dark surfaces with rose as the emotional color. */
-  --accent-cool:  #f3dcd9;
-  --accent:       #e9a8b3;
-  --accent-warm:  #d39ba9;
-  --accent-fog:   rgba(233, 168, 179, 0.28);
-  --accent-mist:  rgba(233, 168, 179, 0.12);
-  --accent-deep:  #b87989;
-
-  /* a single "gold" accent for the Blind Reveal — restraint */
-  --gold:         #d9a441;
-
-  /* easing tokens */
-  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-press:  cubic-bezier(0.34, 1.56, 0.64, 1);
-  --ease-bloom:  cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-exit:   cubic-bezier(0.4, 0, 1, 1);
-
-  /* duration tokens */
-  --dur-tap:     120ms;
-  --dur-release: 320ms;
-  --dur-state:   320ms;
-  --dur-route:   520ms;
-  --dur-bloom:   720ms;
-  --dur-breath:  4800ms;
-
-  /* radius scale */
-  --r-xs:   8px;
-  --r-sm:   12px;
-  --r-md:   16px;
-  --r-lg:   20px;
-  --r-xl:   20px;
-  --r-pill: 999px;
-
-  /* type */
-  --display: var(--font-display), 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
-  --body:    var(--font-sans), 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
-  --mono:    var(--font-mono), 'JetBrains Mono', ui-monospace, monospace;
-
+  /* Tokens (palette, motion, radius, type, z-index) live on :root in
+     globals.css so they reach portals and pages outside .surface too. */
   width: 100%; height: 100%;
   background: var(--bg);
   color: var(--cream);
@@ -71,44 +17,61 @@
 }
 .surface *, .surface *::before, .surface *::after { box-sizing: border-box; }
 
-/* ───── atmosphere ─────────────────────────────────────────────── */
+/* ───── atmosphere ─────────────────────────────────────────────
+   DESIGN.md "The Background Stays Behind Rule": the candlelit blooms are
+   plain radial gradients (their long falloff is the softness, no filter),
+   they drift once on launch and then rest, and the grain is a small
+   pre-rendered tile painted at low alpha with no blend mode. Nothing here
+   repaints per frame once the drift settles. */
 .atmosphere {
-  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  position: absolute; inset: 0; pointer-events: none; z-index: var(--z-base);
   overflow: hidden;
-}
-.atm-top {
-  position: absolute; top: -20%; left: -20%; right: -20%; height: 60%;
-  background: radial-gradient(ellipse at 50% 0%,
-    rgba(212, 130, 138, 0.22) 0%,
-    rgba(184, 121, 137, 0.08) 32%,
-    transparent 65%);
-  filter: blur(8px);
-}
-.atm-bottom {
-  position: absolute; bottom: -20%; left: -20%; right: -20%; height: 50%;
-  background: radial-gradient(ellipse at 50% 100%,
-    rgba(140, 60, 80, 0.18) 0%,
-    transparent 60%);
-  filter: blur(10px);
 }
 .grain {
   position: absolute; inset: 0;
-  opacity: 0.05;
-  mix-blend-mode: overlay;
-  background-image:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  background-image: url("data:image/png;base64,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");
+  background-size: 192px 192px;
 }
 
-/* Living atmosphere — the warm blooms drift on a long, slow cycle so the
-   wine-black is never dead air on any screen (the sign-in candle breathes;
-   this carries that life app-wide). Both blooms are oversized and clipped by
-   .atmosphere{overflow:hidden}, so the drift never reveals an edge.
-   Transform-only → compositor-cheap. */
+/* One slow drift after launch, then the blooms rest where it ends (their
+   resting transform). AmbientMotion sets html[data-atm-rest] after ~20s of
+   visible time, so screens opened later paint the resting state instead of
+   restarting the drift; html[data-page-hidden] pauses it in the background.
+   Transform-only, and reduced motion keeps it still. Both blooms are
+   oversized and clipped by .atmosphere{overflow:hidden}, so the drift never
+   reveals an edge. */
 .atm-top {
-  animation: atm-drift-top 28s ease-in-out infinite alternate;
+  position: absolute;
+  top: -20%;
+  left: -20%;
+  right: -20%;
+  height: 60%;
+  background: radial-gradient(ellipse at 50% 0%,
+    rgba(212, 130, 138, 0.22) 0%,
+    rgba(196, 126, 138, 0.14) 17%,
+    rgba(184, 121, 137, 0.08) 33%,
+    rgba(184, 121, 137, 0.03) 50%,
+    transparent 68%);
+  transform: translate3d(3%, 1.6%, 0) scale(1.08);
 }
 .atm-bottom {
-  animation: atm-drift-bottom 34s ease-in-out infinite alternate;
+  position: absolute;
+  bottom: -20%;
+  left: -20%;
+  right: -20%;
+  height: 50%;
+  background: radial-gradient(ellipse at 50% 100%,
+    rgba(140, 60, 80, 0.18) 0%,
+    rgba(140, 60, 80, 0.09) 28%,
+    rgba(140, 60, 80, 0.03) 48%,
+    transparent 63%);
+  transform: translate3d(-3%, -1.2%, 0) scale(1);
+}
+html:not([data-atm-rest]) .atm-top {
+  animation: atm-drift-top 20s var(--ease-settle, ease-out) both;
+}
+html:not([data-atm-rest]) .atm-bottom {
+  animation: atm-drift-bottom 20s var(--ease-settle, ease-out) both;
 }
 @keyframes atm-drift-top {
   from { transform: translate3d(-2%, 0, 0) scale(1); }
@@ -119,15 +82,15 @@
   to   { transform: translate3d(-3%, -1.2%, 0) scale(1); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .atm-top,
-  .atm-bottom {
+  html:not([data-atm-rest]) .atm-top,
+  html:not([data-atm-rest]) .atm-bottom {
     animation: none;
   }
 }
 
 /* ───── shared chrome — sheet header + done pill ───────────────── */
 .sheet-header {
-  position: relative; z-index: 5;
+  position: relative; z-index: var(--z-sticky);
   padding: max(60px, calc(28px + var(--safe-area-top))) 22px 14px;
   display: flex; align-items: center; justify-content: space-between;
   border-bottom: 1px solid var(--hairline);
@@ -138,62 +101,67 @@
    assertion is untouched, and AppShell's .app-shell-main already insets the
    column by safe-area-top so the island stays cleared. Mirrors .kd-header
    (kink detail), generalized for any sheet route that opts in. */
-.sheet-header.sheet-flush {
-  padding-top: 14px;
-}
-.sheet-header-left {
-  display: flex; align-items: center; gap: 10px;
-  color: var(--cream);
-}
 .sheet-title {
   font-family: var(--display);
   font-style: italic;
-  font-size: 19px;
+  font-size: var(--fs-20);
   font-weight: 500;
   letter-spacing: -0.005em;
   color: var(--cream);
   white-space: nowrap;
 }
+/* Modal-style flows close with "Done" (DESIGN.md header pattern): 44px
+   tall, rose on mist, sentence case. */
 .done-pill {
   appearance: none;
-  background: transparent;
-  color: var(--cream);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  background: var(--accent-mist, rgb(var(--accent-rgb) / 0.12));
+  color: var(--accent);
   border: 1px solid transparent;
   border-radius: var(--r-pill);
   background-clip: padding-box;
-  box-shadow: var(--ring-hairline-strong, inset 0 0 0 1px var(--hairline-strong));
-  padding: 8px 18px;
+  box-shadow: none;
+  padding: 0 var(--space-5);
+  text-decoration: none;
+  white-space: nowrap;
   font-family: var(--body);
-  font-size: 13px;
+  font-size: var(--fs-13);
   font-weight: 500;
   cursor: pointer;
   transition: background var(--dur-state) var(--ease-settle), transform var(--dur-tap) ease-out;
 }
 .done-pill:active { transform: scale(0.97); }
-.done-pill:hover { background: rgba(243, 220, 217, 0.04); }
+.done-pill:hover { background: var(--accent-a22); }
 
 /* ───── infinity ribbon ────────────────────────────────────────── */
 .infinity {
   color: var(--accent);
   display: block;
 }
-.infinity.is-breathing path {
-  animation: ribbon-breath 6.4s ease-in-out infinite alternate;
-  transform-origin: 50px 25px;
-}
 @keyframes ribbon-breath {
   0%   { opacity: 0.78; transform: scale(0.995); }
   100% { opacity: 1;    transform: scale(1.012); }
 }
 
-/* ───── eyebrow label (mono caps) ──────────────────────────────── */
-.eyebrow {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--cream-faint);
+/* ───── kicker (DESIGN.md One Kicker Rule) ──────────────────────
+   The one sanctioned label style above a heading or block: Geist 13px,
+   weight 500, sentence case, no tracking. `.eyebrow` is the legacy name for
+   the same style. Use it only when the line adds something the heading
+   can't carry ("Hi, Alex", "From Alex · 2h ago"). */
+.eyebrow,
+.kicker {
+  font-family: var(--body);
+  font-size: var(--fs-13);
   font-weight: 500;
+  line-height: var(--lh-snug);
+  letter-spacing: 0;
+}
+.eyebrow {
+  color: var(--cream-muted);
 }
 .eyebrow em {
   font-style: normal;
@@ -202,33 +170,15 @@
 }
 
 /* ───── headlines ──────────────────────────────────────────────── */
-.h-section {
-  font-family: var(--display);
-  font-style: normal;
-  font-weight: 500;
-  font-size: 26px;
-  line-height: 1.15;
-  letter-spacing: -0.015em;
-  color: var(--cream);
-}
 .h-intimate {
   font-family: var(--display);
   font-style: italic;
   font-weight: 500;
-  font-size: 26px;
+  font-size: var(--fs-24);
   line-height: 1.1;
   letter-spacing: -0.005em;
   color: var(--cream);
   text-wrap: pretty;
-}
-.h-quiet {
-  font-family: var(--display);
-  font-style: italic;
-  font-weight: 400;
-  font-size: 15px;
-  line-height: 1.35;
-  letter-spacing: -0.005em;
-  color: var(--cream-muted);
 }
 
 /* ───── press response — universal ─────────────────────────────── */
@@ -280,32 +230,17 @@
   color: var(--ink);
   border: none;
   font-family: var(--body);
-  font-size: 15px;
+  font-size: var(--fs-15);
   font-weight: 600;
   letter-spacing: -0.005em;
   cursor: pointer;
   box-shadow: 0 8px 24px var(--accent-fog), inset 0 1px 0 rgba(255,255,255,0.16);
 }
 .cta-primary[disabled] {
-  background: rgba(243, 220, 217, 0.08);
+  background: var(--cream-a08);
   color: var(--cream-faint);
   cursor: not-allowed;
   box-shadow: none;
-}
-.cta-secondary {
-  appearance: none;
-  width: 100%;
-  padding: 15px 24px;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--cream);
-  border: 1px solid transparent;
-  background-clip: padding-box;
-  box-shadow: var(--ring-hairline-strong, inset 0 0 0 1px var(--hairline-strong));
-  font-family: var(--body);
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
 }
 
 /* ───── status pill ────────────────────────────────────────────── */
@@ -314,12 +249,12 @@
   align-items: center;
   gap: 6px;
   font-family: var(--body);
-  font-size: 11px;
+  font-size: var(--fs-12);
   font-weight: 500;
   color: var(--cream-muted);
   padding: 5px 10px;
   border-radius: var(--r-pill);
-  background: rgba(243, 220, 217, 0.04);
+  background: var(--cream-a04);
   border: 1px solid transparent;
   background-clip: padding-box;
   box-shadow: var(--ring-hairline, inset 0 0 0 1px var(--hairline));

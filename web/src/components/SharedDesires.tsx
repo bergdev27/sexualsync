@@ -35,9 +35,9 @@ export default function SharedDesires({ workspaceId }: { workspaceId: string }) 
   return (
     <section
       aria-label="What you're both into"
-      style={{ display: "flex", flexDirection: "column", gap: 8, padding: "14px 16px", background: "var(--surface-2)", borderRadius: 18, boxShadow: "var(--ring-hairline)" }}
+      style={{ display: "flex", flexDirection: "column", gap: 8, padding: "14px 16px", background: "var(--surface-2)", borderRadius: "var(--r-lg)", boxShadow: "var(--ring-hairline)" }}
     >
-      <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgb(var(--accent-rgb) / 0.8)" }}>
+      <span className="kicker" style={{ color: "rgb(var(--accent-rgb) / 0.85)" }}>
         What you&apos;re both into · tap to propose
       </span>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -46,7 +46,7 @@ export default function SharedDesires({ workspaceId }: { workspaceId: string }) 
             key={c.id}
             href={proposeHref(c.label)}
             className="pressable"
-            style={{ padding: "5px 11px", borderRadius: 999, fontSize: 13, background: "rgb(var(--cream-rgb) / 0.08)", color: "var(--cream)", boxShadow: "var(--ring-hairline)", textDecoration: "none" }}
+            style={{ padding: "5px 11px", borderRadius: "var(--r-pill)", fontSize: "var(--fs-13)", background: "var(--cream-a08)", color: "var(--cream)", boxShadow: "var(--ring-hairline)", textDecoration: "none" }}
           >
             {c.emoji} {c.label}
           </Link>

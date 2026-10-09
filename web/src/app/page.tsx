@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import BrandWordmark from "@/components/BrandWordmark";
+import ScreenPicture from "@/components/ScreenPicture";
 import { useDeploymentConfig } from "@/lib/deployment-config";
 import "./signin.css";
 
@@ -62,7 +63,7 @@ export default function HomePage() {
   }, [router]);
 
   return (
-    <main className="signin signin-cl public-preview min-h-screen">
+    <main id="app-main" tabIndex={-1} className="signin signin-cl public-preview min-h-screen">
       <div className="cl-candle" aria-hidden="true" />
       <div className="cl-floor" aria-hidden="true" />
       <div className="cl-wave" aria-hidden="true">
@@ -77,9 +78,9 @@ export default function HomePage() {
       <section className="public-preview-copy" aria-labelledby="public-preview-title">
         <p className="public-preview-kicker">{selfHost ? "Self-hosted" : "Private · yours to run"}</p>
         <h1 id="public-preview-title" className="cl-headline">
-          <span className="quiet">Get Curious.</span>
+          <span className="quiet">Get curious.</span>
           <br />
-          <span className="glow">Get in Sync.</span>
+          <span className="glow">Get in sync.</span>
         </h1>
         <p className="cl-sub">
           A private room for two — explore what you want, trade ideas and kinks, and turn a
@@ -95,11 +96,11 @@ export default function HomePage() {
 
       {!selfHost && (
         <section className="pp-shots" aria-label="A look inside the app">
-          <div className="pp-shots-track">
+          {/* A scroll region: focusable so the arrow keys can move it. */}
+          <div className="pp-shots-track" tabIndex={0} role="region" aria-label="App screenshots">
             {SHOTS.map((shot) => (
               <figure className="pp-shot" key={shot.src}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={shot.src} alt={shot.alt} loading="lazy" decoding="async" />
+                <ScreenPicture src={shot.src} alt={shot.alt} sizes="156px" />
               </figure>
             ))}
           </div>

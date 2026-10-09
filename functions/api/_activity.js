@@ -16,7 +16,8 @@ const RESOURCE_LABELS = {
   shelf: "Shelf",
   vault: "Vault",
   pile: "Pile",
-  "blind-reveals": "Blind Reveal"
+  "blind-reveals": "Blind Reveal",
+  mood: "Mood light"
 };
 
 const ACTION_LABELS = {
@@ -24,6 +25,8 @@ const ACTION_LABELS = {
     created: "Ask drafted",
     sent: "New Ask landed",
     reviewed: "Ask reviewed",
+    passed: "Ask passed",
+    maybe: "Ask got a maybe",
     counter_accepted: "Counter accepted",
     revoked: "Ask taken back",
     archive: "Ask archived",
@@ -31,6 +34,8 @@ const ACTION_LABELS = {
     on_deck: "Ask moved on deck",
     completed: "Ask completed",
     expire: "Ask expired",
+    planned: "Plan set",
+    unplanned: "Plan cleared",
     updated: "Sexboard updated"
   },
   "fantasy-backlog": {
@@ -74,6 +79,11 @@ const ACTION_LABELS = {
     revealed: "Blind Reveal opened",
     archived: "Blind Reveal closed",
     promoted: "Saved to Inspiration"
+  },
+  // Only the shared match is ever recorded — never one partner's on/off, which
+  // the double-blind mood light must not disclose.
+  mood: {
+    match: "You're both in the mood"
   }
 };
 
@@ -110,6 +120,10 @@ function labelFor(resource, action, actorName = "") {
     const actor = firstName(actorName);
     if (resource === "fantasy-backlog") return `This kink got ${actor} thinking dirty.`;
     if (resource === "shelf") return `${actor} came back for another taste.`;
+  }
+  if (resource === "request-board" && (action === "passed" || action === "maybe")) {
+    const actor = firstName(actorName);
+    return action === "passed" ? `${actor} passed` : `${actor} said maybe`;
   }
   return ACTION_LABELS[resource]?.[action] || `${RESOURCE_LABELS[resource] || "Activity"} updated`;
 }

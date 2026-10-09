@@ -1,0 +1,610 @@
+/* Styles only /games/pile renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.pile-hero { margin-bottom: 22px; }
+
+.pile-sub {
+  max-width: 36ch;
+  margin: 12px 0 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}
+
+.pile-time-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent-fog);
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, var(--accent-mist) 0%, var(--surface) 100%);
+  color: inherit;
+}
+
+.pile-time-body {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.pile-time-eyebrow,
+.pile-count-eyebrow {
+  margin: 0 0 5px;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}
+
+.pile-time-input {
+  width: 100%;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 12px 13px;
+  line-height: 1.15;
+  text-align: left;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pile-time-meta {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}
+
+.pile-waiting-pill {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  margin: -2px auto 18px;
+  padding: 8px 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 44%, transparent);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.pile-counts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.pile-count {
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--cream-a02);
+}
+
+.pile-count-you {
+  border-color: var(--accent-fog);
+  background: var(--accent-mist);
+}
+
+.pile-count-num {
+  margin: 0 0 4px;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-38);
+  font-style: italic;
+  line-height: 1;
+}
+
+.pile-count-meta {
+  margin: 0;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  font-style: italic;
+}
+
+.pile-section { margin-bottom: 22px; }
+
+.pile-act-actions {
+  display: grid;
+  margin-top: 10px;
+}
+
+.pile-act-action {
+  width: 100%;
+  min-height: 52px;
+  border-color: color-mix(in srgb, var(--accent-soft) 32%, transparent);
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 9%, transparent), transparent 82%),
+    color-mix(in srgb, var(--accent-deep) 6%, transparent),
+    var(--cream-a02);
+  color: color-mix(in srgb, var(--cream) 88%, var(--accent-soft));
+  font-weight: 600;
+}
+
+.pile-hidden-count {
+  margin: 8px 0 0;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.35;
+}
+
+.pile-history-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pile-history-remove {
+  justify-self: start;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cream) 10%, transparent);
+  color: var(--cream-muted);
+  cursor: pointer;
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.pile-history-remove:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+.pile-drops {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pile-drop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-fog);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.pile-drop-emoji {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--accent-mist);
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+
+.pile-drop-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+
+.pile-drop-remove {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--cream-faint);
+  cursor: pointer;
+}
+
+.pile-add-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pile-add-form .btn-ghost {
+  min-width: 74px;
+  padding-inline: 18px;
+}
+
+.pile-decline-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--cream) 10%, transparent);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, var(--cream-a04), transparent 76%),
+    rgba(23, 10, 16, 0.32);
+}
+
+.pile-decline-kicker {
+  margin: 0 0 5px;
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.pile-decline-copy {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.35;
+}
+
+.pile-decline-action {
+  width: 100%;
+  min-height: 50px;
+}
+
+.pile-revealed-stage {
+  padding-top: max(42px, calc(30px + var(--safe-area-top)));
+}
+
+.pile-revealed-stage .pile-headline { margin-bottom: 10px; }
+
+.pile-reveal-machine {
+  min-height: min(540px, calc(100svh - 240px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+}
+
+.pile-reveal-eyebrow {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 22px;
+  margin: 0 0 14px;
+  text-align: center;
+  transition:
+    opacity 900ms var(--ease-bloom),
+    transform 900ms var(--ease-bloom),
+    color 600ms var(--ease-bloom),
+    visibility 900ms var(--ease-bloom);
+}
+
+.pile-reveal-machine.is-match .pile-reveal-eyebrow,
+.pile-reveal-machine.is-drift .pile-reveal-eyebrow {
+  color: var(--accent);
+}
+
+.pile-reveal-eyebrow.is-final {
+  display: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+}
+
+.pile-reveal-machine.is-settle .pile-reveal-board,
+.pile-reveal-machine.is-final .pile-reveal-board {
+  opacity: 0;
+  filter: blur(14px);
+  transform: scale(0.88);
+  pointer-events: none;
+}
+
+.pile-reveal-stack { min-width: 0; }
+
+.pile-stack-label {
+  margin: 0 0 12px;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+}
+
+.pile-stack-cards {
+  position: relative;
+  min-height: 300px;
+}
+
+.pile-reveal-theirs .pile-reveal-card {
+  transition-delay: calc(var(--i) * 110ms);
+}
+
+.pile-reveal-card.is-covered { transform: rotateY(180deg); }
+
+/* Match / miss states ------------------------------------------------- */
+
+.pile-reveal-machine.is-match .pile-reveal-card.is-match,
+.pile-reveal-machine.is-drift .pile-reveal-card.is-match {
+  transform: translateY(-6px) scale(1.03);
+}
+
+.pile-reveal-machine.is-match .pile-reveal-card.is-miss,
+.pile-reveal-machine.is-drift .pile-reveal-card.is-miss {
+  opacity: 0.14;
+  filter: blur(5px);
+  transform: translateY(16px) scale(0.96);
+}
+
+/* "Drift" pulls matched cards toward the centerline before the board
+   dissolves into the pulse band. Mine slides right, theirs slides left;
+   both gain a stronger accent glow on the way. */
+
+.pile-reveal-machine.is-drift .pile-reveal-mine  .pile-reveal-card.is-match {
+  transform: translate(38%, -6px) scale(1.03);
+}
+
+.pile-reveal-machine.is-drift .pile-reveal-theirs .pile-reveal-card.is-match {
+  transform: translate(-38%, -6px) scale(1.03);
+}
+
+.pile-reveal-machine.is-drift .pile-reveal-card.is-match .pile-reveal-face {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent-fog),
+    0 0 40px color-mix(in srgb, var(--accent) 32%, transparent),
+    0 14px 32px rgba(0, 0, 0, 0.42);
+}
+
+/* Centerline glow that appears at the kiss --------------------------- */
+
+.pile-reveal-centerglow {
+  position: absolute;
+  left: 50%;
+  top: 0; bottom: 0;
+  width: 120px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 60% 70% at 50% 50%,
+    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
+    transparent 70%
+  );
+  transition: opacity 900ms var(--ease-bloom);
+}
+
+.pile-reveal-machine.is-drift .pile-reveal-centerglow { opacity: 1; }
+
+/* Card faces -------------------------------------------------------- */
+
+.pile-reveal-face {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  backface-visibility: hidden;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+}
+
+.pile-reveal-back {
+  transform: rotateY(180deg);
+  border-color: var(--accent-fog);
+  background:
+    radial-gradient(ellipse 70% 70% at 50% 50%, var(--accent-mist), transparent 70%),
+    var(--surface-2);
+}
+
+.pile-reveal-front span {
+  width: 26px; height: 26px;
+  display: grid; place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  background: var(--accent-mist);
+}
+
+.pile-reveal-front em {
+  min-width: 0;
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.pile-reveal-card.is-match .pile-reveal-face {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent-fog),
+    0 0 28px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.pile-reveal-machine.is-final .pile-final {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+.pile-final .pile-headline {
+  max-width: none;
+  margin-top: 28px;
+  font-size: var(--fs-48);
+  line-height: 1;
+  text-align: center;
+}
+
+.pile-final .pile-headline em { font-style: italic; color: var(--accent); }
+
+.pile-final .pile-sub { max-width: none; margin: 0; text-align: center; }
+
+/* The grid: 36px spine on the left, rows on the right. The min-height gives
+ * the heartbeat trace room to breathe; it scales with the row count so a
+ * single-overlap reveal still fits within an iPhone viewport along with the
+ * headline + lock-it-in actions below. */
+
+.pile-pulse-band {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 0;
+  margin-top: 8px;
+  min-height: 140px;
+}
+
+.pile-pulse-band[data-count="2"] { min-height: 200px; }
+
+.pile-pulse-band[data-count="3"] { min-height: 260px; }
+
+.pile-pulse-band[data-count="4"],
+.pile-pulse-band[data-count="5"] { min-height: 320px; }
+
+.pile-pulse-spine {
+  position: relative;
+  width: 36px;
+  overflow: visible;
+}
+
+.pile-pulse-spine svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.pile-pulse-wave {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 22%, transparent);
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Rows distribute evenly so each node sits roughly at an EKG beat. The
+ * min-height tracks the parent band so single-overlap reveals don't push the
+ * pile-final actions past the iPhone tab bar. */
+
+.pile-pulse-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 8px;
+  min-height: 140px;
+  max-height: 460px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pile-pulse-band[data-count="2"] .pile-pulse-rows { min-height: 200px; }
+
+.pile-pulse-band[data-count="3"] .pile-pulse-rows { min-height: 260px; }
+
+.pile-pulse-band[data-count="4"] .pile-pulse-rows,
+.pile-pulse-band[data-count="5"] .pile-pulse-rows { min-height: 320px; }
+
+.pile-pulse-row:nth-child(2)::before { animation-delay: 0.4s; }
+
+.pile-pulse-row:nth-child(3)::before { animation-delay: 0.8s; }
+
+.pile-pulse-row:nth-child(4)::before { animation-delay: 1.2s; }
+
+.pile-pulse-row:nth-child(5)::before { animation-delay: 1.6s; }
+
+.pile-pulse-pip {
+  width: 30px; height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-size: var(--fs-15);
+}
+
+.pile-pulse-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: var(--fs-20);
+  line-height: 1.18;
+  color: var(--cream);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pile-pulse-tag {
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  color: var(--accent);
+}
+
+.pile-miss-line {
+  margin: 2px 0 4px;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.pile-final-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pile-pulse-heart { stroke-dashoffset: 0; }
+  .pile-pulse-row { opacity: 1; transform: none; filter: none; }
+  .pile-reveal-machine.is-final .pile-final { opacity: 1; transform: none; filter: none; }
+}
+
+/* ───── The Pile: reveal-time presets (v2 layout pass) ──────────────────── */
+
+.pile-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.pile-preset-grid .pile-preset {
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-15);
+}
+
+.pile-custom-time {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+.pile-time-label,
+label.pile-time-eyebrow {
+  display: block;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}

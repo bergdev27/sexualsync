@@ -1,0 +1,193 @@
+/* Styles only /ask renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.ask-seed {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--accent-mist);
+  box-shadow: var(--ring-accent-fog);
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}
+
+.ask-seed em {
+  color: var(--cream);
+  font-family: var(--display);
+  font-style: italic;
+}
+
+/* Ask parity with the legacy panel form, but with the submit in normal flow. */
+
+/* The Ask form sits on the page surface: its act chips and timing buttons
+   are the bordered elements, so the form itself is not another card. */
+
+.ask-panel {
+  display: grid;
+  gap: 28px;
+}
+
+.ask-section {
+  margin-top: 0;
+}
+
+.ask-section .font-display {
+  color: var(--cream);
+  font-size: var(--fs-24);
+  font-style: normal;
+  font-weight: 600;
+}
+
+.ask-surprise-action {
+  grid-column: 1 / -1;
+}
+
+.ask-film-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 58px;
+  margin-top: 12px;
+  padding: 14px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  background: var(--cream-a04);
+  background-clip: padding-box;
+  box-shadow: var(--ring-hairline);
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 650;
+  text-align: left;
+}
+
+.ask-film-button::before {
+  content: "📹";
+  flex: 0 0 auto;
+  font-size: var(--fs-20);
+  line-height: 1;
+}
+
+.ask-film-button::after {
+  content: "";
+  width: 46px;
+  height: 28px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  border-radius: var(--r-pill);
+  background:
+    radial-gradient(circle at 14px 50%, var(--cream-muted) 0 9px, transparent 10px),
+    color-mix(in srgb, var(--cream) 8%, transparent);
+  border: 1px solid transparent;
+  box-shadow: var(--ring-hairline-strong);
+  transition: background 180ms var(--ease-settle), border-color 180ms var(--ease-settle);
+}
+
+.ask-film-button.is-on {
+  border-color: transparent;
+  background: var(--accent-mist);
+  box-shadow: var(--ring-accent);
+  color: var(--accent);
+}
+
+.ask-film-button.is-on::after {
+  border-color: transparent;
+  box-shadow: var(--ring-accent-fog);
+  background:
+    radial-gradient(circle at 31px 50%, var(--bg) 0 9px, transparent 10px),
+    var(--accent);
+}
+
+.ask-submit-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 0 0 4px;
+  scroll-margin-bottom: calc(var(--tabbar-height) + 24px);
+}
+
+.ask-submit-button {
+  width: 100%;
+  min-height: 56px;
+  font-size: var(--fs-17);
+  line-height: 1.15;
+  white-space: normal;
+  scroll-margin-bottom: calc(var(--tabbar-height) + 24px);
+}
+
+.ask-submit-hint {
+  display: block;
+  padding-top: 7px;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  text-align: center;
+}
+
+/* ───── Ask composer, thumb-zone send (v2 layout pass) ───────────────────
+   Send lives in StickyAction above the tab bar, with the selection summary
+   (or the reason Send is unavailable) beside it. The shell already reserves
+   --shell-bottom-room for the tab bar + sticky action, so the stage only
+   needs ordinary end padding. */
+
+.ask-stage {
+  position: relative;
+  z-index: var(--z-raised-2);
+  padding: 18px 22px calc(var(--tabbar-height) + 28px);
+  padding-bottom: var(--space-7);
+}
+
+.sticky-action .ask-submit-panel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+}
+
+.sticky-action .ask-submit-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: var(--lh-snug);
+  text-align: left;
+}
+
+.sticky-action .ask-submit-hint.is-blocked { color: var(--cream-faint); }
+
+.sticky-action .ask-submit-hint.is-nudged { animation: ask-reason-nudge 900ms var(--ease-settle, ease-out); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sticky-action .ask-submit-hint.is-nudged { animation: none; color: var(--accent); }
+}
+
+.sticky-action .ask-submit-button {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 50px;
+  padding: 0 var(--space-5);
+  font-size: var(--fs-15);
+  white-space: nowrap;
+  scroll-margin-bottom: 0;
+}
+
+/* aria-disabled keeps Send focusable; it looks like the DESIGN.md disabled
+   primary (flat cream fill, no glow) and explains itself when tapped. */
+
+.ask-submit-button[aria-disabled="true"] {
+  background: var(--cream-a16);
+  color: rgb(var(--cream-rgb) / 0.44);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+@keyframes ask-reason-nudge {
+  0%, 35% { color: var(--accent); }
+  100% { color: var(--cream-faint); }
+}

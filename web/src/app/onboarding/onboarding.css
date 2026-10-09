@@ -3,7 +3,7 @@
 
 .onboarding-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   padding: 0 22px max(28px, calc(16px + var(--safe-area-bottom)));
   display: flex;
   flex-direction: column;
@@ -23,18 +23,16 @@
 
 .field label {
   display: block;
-  font-family: var(--mono);
-  font-size: 10px;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   color: var(--cream-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
   margin-bottom: 7px;
   font-weight: 500;
 }
 
 .field-hint {
   font-family: var(--body);
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   color: var(--cream-faint);
   margin-top: 5px;
   font-style: italic;
@@ -44,21 +42,20 @@
   margin-top: 18px;
   width: 100%;
   min-height: 52px;
-  font-size: 15px;
+  font-size: var(--fs-15);
 }
 
 .onboarding-secondary {
   margin-top: 10px;
   width: 100%;
   min-height: 48px;
-  font-size: 13.5px;
+  font-size: var(--fs-13);
 }
 
 .onboarding-foot {
   margin-top: 16px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
+  font-family: var(--body);
+  font-size: var(--fs-12);
   text-align: center;
   color: var(--cream-faint);
   line-height: 1.6;
@@ -70,8 +67,8 @@
   border: 1px solid rgba(201, 138, 130, 0.4);
   background: rgba(201, 138, 130, 0.12);
   color: var(--no);
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-13);
   text-align: center;
 }
 
@@ -81,7 +78,7 @@
   position: relative;
   background: var(--surface);
   border: 1px solid var(--accent-fog);
-  border-radius: 14px;
+  border-radius: var(--r-md);
   padding: 16px 14px;
   margin-bottom: 14px;
   display: flex;
@@ -93,7 +90,7 @@
 .onboarding-link-url {
   flex: 1;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-12);
   color: var(--cream);
   word-break: break-all;
   user-select: all;
@@ -103,14 +100,12 @@
   flex-shrink: 0;
   background: var(--accent);
   color: var(--ink);
-  font-family: var(--mono);
-  font-size: 10px;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   font-weight: 600;
   padding: 6px 12px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: none;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
   cursor: pointer;
   min-width: 64px;
   transition: background var(--dur-state, 180ms) ease;
@@ -134,10 +129,10 @@
   gap: 6px;
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 14px;
+  border-radius: var(--r-md);
   padding: 14px 6px;
   font-family: var(--body);
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   color: var(--cream-muted);
   text-decoration: none;
   cursor: pointer;
@@ -157,11 +152,11 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
+  border-radius: var(--r-xs);
   background: var(--accent-mist);
   border: 1px solid var(--accent-fog);
   color: var(--accent);
-  font-size: 15px;
+  font-size: var(--fs-15);
 }
 
 .onboarding-share-actions {
@@ -212,7 +207,7 @@
     background: var(--accent-soft);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.26),
-      0 6px 18px rgba(233, 168, 179, 0.5);
+      0 6px 18px rgb(var(--accent-rgb) / 0.5);
   }
 }
 .onboarding-copy-pill:active { transform: scale(0.94); }
@@ -248,7 +243,7 @@
   }
   .onboarding-share-btn:hover .onboarding-share-icon {
     transform: scale(1.08);
-    box-shadow: 0 0 18px rgba(233, 168, 179, 0.28);
+    box-shadow: 0 0 18px var(--accent-a28);
   }
 }
 .onboarding-share-btn:active { transform: translateY(0) scale(0.97); }

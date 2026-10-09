@@ -1,0 +1,665 @@
+/* Styles only /inspiration renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+/* Match moment (/mutual): see the "Match moment" block at the end of this file. */
+
+/* Inspiration */
+
+.insp-stage {
+  position: relative;
+  z-index: var(--z-raised-2);
+  flex: 1;
+  padding: 18px 22px 16px;
+}
+
+.insp-section { margin-bottom: 24px; }
+
+.insp-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.insp-link {
+  color: var(--accent);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.inspiration-card {
+  display: grid;
+  gap: 15px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent),
+    rgba(35, 17, 26, 0.54);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cream) 5%, transparent);
+}
+
+/* The source dock is a plain section: its link cards sit on the page
+   surface rather than inside another card. */
+
+.inspiration-source-dock {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.inspiration-actions-grid {
+  display: grid;
+  gap: 13px;
+}
+
+.inspiration-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.inspiration-row-links {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.inspiration-source-card {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  align-content: center;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--cream) 12%, transparent);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 74%),
+    var(--cream-a04);
+  color: inherit;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--cream) 5%, transparent);
+}
+
+.inspiration-source-name-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inspiration-source-name {
+  min-width: 0;
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 750;
+  line-height: 1.15;
+}
+
+.inspiration-source-icon {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: var(--fs-13);
+  line-height: 1;
+}
+
+.inspiration-link-caption {
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  line-height: 1.3;
+  text-transform: lowercase;
+}
+
+.shelf-entry-link--block {
+  width: 100%;
+}
+
+.inspiration-shelf-link {
+  position: relative;
+  min-height: 46px;
+  justify-content: center;
+  padding-inline: 46px;
+  text-align: center;
+}
+
+.inspiration-shelf-link span:first-child {
+  min-width: 0;
+  text-align: center;
+}
+
+.inspiration-shelf-link span[aria-hidden="true"] {
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  transform: translateY(-50%);
+}
+
+@media (min-width: 560px) {
+  .inspiration-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.kink-compose-obvious {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent),
+    var(--cream-a04);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.kink-compose-obvious-head {
+  display: grid;
+  gap: 5px;
+}
+
+.weekly-prompt-card {
+  appearance: none;
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 13px 15px;
+  border: 1px solid var(--accent-fog);
+  border-radius: var(--r-md);
+  background: var(--accent-mist);
+  color: var(--cream);
+  text-align: left;
+}
+
+.weekly-prompt-kicker {
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+}
+
+.weekly-prompt-text {
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  line-height: 1.25;
+}
+
+.kink-template-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-inline: -1px;
+  margin-bottom: 8px;
+  padding: 1px;
+  overflow: visible;
+}
+
+.kink-template-chip {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--cream-a08);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cream) 28%, transparent);
+  color: var(--cream);
+  font-size: var(--fs-12);
+  font-weight: 650;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.kink-compose-kicker {
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.kink-compose-title {
+  margin: 0;
+  color: var(--cream);
+  font-size: var(--fs-17);
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+.kink-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kink-library-panel {
+  margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 68%),
+    rgba(35, 17, 26, 0.5);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 5%, transparent),
+    0 14px 28px color-mix(in srgb, var(--accent) 5%, transparent);
+  overflow: hidden;
+}
+
+.kink-library-summary {
+  appearance: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  padding: 13px 14px;
+  color: var(--cream);
+  cursor: pointer;
+  list-style: none;
+}
+
+.kink-library-summary::-webkit-details-marker {
+  display: none;
+}
+
+.kink-library-summary::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-right: 1.5px solid var(--accent);
+  border-bottom: 1.5px solid var(--accent);
+  transform: rotate(45deg) translateY(-2px);
+  transform-origin: center;
+  transition: transform var(--dur-state, 160ms) var(--ease-settle, ease);
+}
+
+.kink-library-panel[open] .kink-library-summary::after {
+  transform: rotate(225deg) translateY(-1px);
+}
+
+.kink-library-summary-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.kink-library-kicker {
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.kink-library-title {
+  min-width: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  font-weight: 650;
+  line-height: 1.1;
+}
+
+.kink-library-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.kink-library-list {
+  padding: 0 12px 12px;
+}
+
+.kink-library-panel:not([open]) .kink-library-list {
+  display: none;
+}
+
+.kink-library-more {
+  display: flex;
+  justify-content: center;
+  padding: 2px 12px 14px;
+}
+
+.kink-card {
+  position: relative;
+  overflow: hidden;
+  /* Long library lists: skip render work for cards far off-screen; engines
+     without content-visibility ignore both lines. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.kink-card--needs-response {
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent), 0 14px 28px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.kink-card--waiting-on-them {
+  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+}
+
+.kink-card--wants-details {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--gold) 14%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent) 0%, transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--gold) 8%, transparent) 0%, transparent 66%),
+    var(--surface);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 16px 34px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.kink-card--both-in {
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.kink-card.is-archived {
+  opacity: 0.72;
+}
+
+.idea-signal {
+  position: relative;
+  z-index: var(--z-raised);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  margin: 0 0 10px;
+}
+
+.idea-signal-pill {
+  display: inline-flex;
+  min-height: 27px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  overflow: hidden;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--bg) 52%, transparent);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cream) 16%, transparent);
+  color: color-mix(in srgb, var(--cream) 68%, transparent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.idea-signal-wave {
+  display: inline-block;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 12px;
+  overflow: visible;
+  color: currentColor;
+  opacity: 0.82;
+  transform-box: fill-box;
+}
+
+.idea-signal-wave path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+}
+
+.idea-signal-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.idea-signal-pill.is-curious {
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--gold) 16%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 24%, transparent), color-mix(in srgb, var(--gold) 10%, transparent));
+  color: var(--cream);
+  box-shadow:
+    0 0 16px color-mix(in srgb, var(--accent) 24%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 14%, transparent);
+}
+
+.idea-signal-pill.is-hell-yeah {
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--cream);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.idea-signal-pill.is-later {
+  border-color: color-mix(in srgb, var(--cream) 28%, transparent);
+  background: color-mix(in srgb, var(--cream) 8%, transparent);
+  color: color-mix(in srgb, var(--cream) 78%, transparent);
+}
+
+.idea-signal-pill.is-commented {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--cream) 18%);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--cream-muted);
+}
+
+.idea-signal-pill.is-no {
+  border-color: color-mix(in srgb, var(--cream) 12%, transparent);
+  background: color-mix(in srgb, var(--cream) 5%, transparent);
+  color: var(--cream-faint);
+}
+
+.idea-signal-pill.is-waiting {
+  border-color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 9%, transparent);
+  color: var(--gold);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--gold) 18%, transparent);
+}
+
+.idea-signal-pill.is-needed,
+.idea-signal-pill.is-action {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.kink-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.kink-author {
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}
+
+.kink-author em {
+  color: var(--cream-muted);
+  font-style: normal;
+}
+
+.kink-body {
+  margin: 0 0 10px;
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-17);
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.42;
+  letter-spacing: 0;
+  text-wrap: pretty;
+}
+
+.kink-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kink-reactions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kink-react {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: var(--cream-a04);
+  background-clip: padding-box;
+  box-shadow: var(--ring-hairline);
+}
+
+.kink-react-emoji {
+  font-size: var(--fs-12);
+  line-height: 1;
+}
+
+.kink-react-count {
+  color: var(--cream-muted);
+  font-size: var(--fs-12);
+  font-weight: 500;
+}
+
+.kink-card--wants-details .kink-react {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 44%, transparent),
+    0 0 14px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.kink-card--wants-details .kink-react-count {
+  color: var(--cream);
+}
+
+.kink-comments {
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}
+
+.ideas-graveyard-v1 {
+  margin-top: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--cream-a02);
+  padding: 12px;
+}
+
+.ideas-graveyard-v1 summary {
+  cursor: pointer;
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+}
+
+.ideas-graveyard-v1 summary span {
+  color: var(--accent);
+}
+
+/* Kink library bulk-archive — select mode + action bar + selectable cards. */
+
+.kink-library-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.kink-select-start { align-self: flex-start; }
+
+.kink-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--accent-a12);
+  box-shadow: var(--ring-hairline);
+}
+
+.kink-bulk-count { font-family: var(--mono); font-size: var(--fs-12); color: var(--cream); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.kink-bulk-actions { display: flex; gap: 8px; }
+
+.kink-bulk-hint { margin: 0; font-size: var(--fs-13); line-height: 1.45; color: var(--cream-faint); }
+
+.kink-card-selectable {
+  position: relative;
+  width: 100%;
+  text-align: left;
+  border: none;
+  cursor: pointer;
+  padding-right: 40px;
+}
+
+.kink-card-selectable .kink-select-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-13);
+  background: var(--cream-a10);
+  box-shadow: var(--ring-hairline);
+}
+
+.kink-card-selectable.is-selected { box-shadow: inset 0 0 0 2px rgb(var(--accent-rgb) / 0.85); }
+
+.kink-card-selectable.is-selected .kink-select-check { background: var(--accent); color: var(--ink); }

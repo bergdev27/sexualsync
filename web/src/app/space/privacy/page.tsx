@@ -2,11 +2,12 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import PrivacyProofActions from "@/components/PrivacyProofActions";
 import ScreenHeader from "@/components/ScreenHeader";
+import "./privacy.css";
 
 const DATA_POINTS = [
   {
     label: "Account",
-    title: "We keep the basics needed to run your space.",
+    title: "We keep the basics needed to run your room.",
     copy: "Email, display name, active workspace, invite status, membership, notification preferences, and device push subscription details when you enable them.",
   },
   {
@@ -17,7 +18,7 @@ const DATA_POINTS = [
   {
     label: "This device",
     title: "Private notes stay on your device.",
-    copy: "Notes in Space are stored in this browser. They are not sent to our API unless you turn one into an Ask or share it to Inspiration.",
+    copy: "Private notes are stored in this browser. They are not sent to our API unless you turn one into an Ask or share it to Inspiration.",
   },
   {
     label: "Vault",
@@ -56,12 +57,12 @@ export default function SpacePrivacyPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/space" className="text-ink-3">Back to Space</Link>}
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Privacy"
         subtitle="What the app sees, what stays local, and what is encrypted."
         trailing={
-          <Link href="/privacy.html" className="done-pill pressable" aria-label="Open the full privacy policy">
+          <Link href="/privacy.html" className="btn-ghost privacy-policy-link pressable" aria-label="Open the full privacy policy">
             Policy
           </Link>
         }

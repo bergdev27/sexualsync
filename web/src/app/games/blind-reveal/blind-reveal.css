@@ -1,0 +1,402 @@
+/* Styles only /games/blind-reveal renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+/* Blind Reveal */
+
+.reveal-stage:not(.reveal-candle) {
+  min-height: calc(100svh - 156px);
+  padding-bottom: max(34px, calc(28px + var(--safe-area-bottom)));
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.reveal-stage:not(.reveal-candle)::before {
+  content: "";
+  position: absolute;
+  inset: -24px -18px auto;
+  height: 360px;
+  z-index: var(--z-below);
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 62% 48% at 50% 20%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 72%),
+    radial-gradient(circle at 86% 12%, color-mix(in srgb, var(--gold) 13%, transparent), transparent 34%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 38%, transparent), transparent);
+  opacity: 0.92;
+}
+
+.reveal-stage:not(.reveal-candle) > * {
+  position: relative;
+  z-index: var(--z-raised);
+}
+
+.reveal-active-stage:not(.reveal-candle) {
+  display: grid;
+  place-items: start center;
+  align-content: start;
+  padding-top: clamp(30px, 6svh, 72px);
+  padding-bottom: calc(var(--tabbar-height) + 32px);
+}
+
+.reveal-active-stage:not(.reveal-candle) > * {
+  width: min(100%, 560px);
+}
+
+.reveal-stage .blind-history-section {
+  margin-bottom: calc(var(--tabbar-height) + 32px);
+}
+
+.reveal-prompt {
+  margin: 0 0 22px;
+  padding: 16px 17px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--hairline));
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--cream) 5%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface) 74%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 7%, transparent),
+    0 16px 44px rgba(0, 0, 0, 0.2);
+}
+
+.reveal-prompt-eyebrow,
+.reveal-side-label {
+  margin: 0 0 6px;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+}
+
+.reveal-prompt-helper-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reveal-prompt-helper {
+  margin: -2px 0 10px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.35;
+}
+
+.reveal-prompt-text {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.reveal-pair {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.reveal-side {
+  min-width: 0;
+}
+
+.reveal-side-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reveal-side-label::after {
+  content: "";
+  height: 1px;
+  flex: 1 1 auto;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 30%, transparent), transparent);
+}
+
+.reveal-side form,
+.reveal-textbox {
+  position: relative;
+  overflow: hidden;
+  min-height: 166px;
+  border: 1px solid color-mix(in srgb, var(--cream) 10%, transparent);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--cream) 5%, transparent), transparent 46%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 72%, transparent), color-mix(in srgb, var(--surface) 88%, transparent));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 8%, transparent),
+    0 18px 48px rgba(0, 0, 0, 0.26);
+}
+
+.reveal-side form {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.reveal-side textarea.input:focus {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--hairline));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--cream) 6%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.reveal-textbox {
+  display: grid;
+  place-items: center;
+  padding: 22px;
+}
+
+.reveal-textbox.locked {
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--hairline));
+  background:
+    radial-gradient(ellipse 76% 80% at 50% 28%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 72%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 78%, transparent), color-mix(in srgb, var(--surface) 90%, transparent));
+}
+
+.reveal-cover {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-base);
+  pointer-events: none;
+  background:
+    linear-gradient(120deg, transparent 0%, color-mix(in srgb, var(--cream) 7%, transparent) 42%, transparent 72%),
+    radial-gradient(ellipse 90% 54% at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 72%);
+  opacity: 0.82;
+}
+
+.reveal-text {
+  position: relative;
+  z-index: var(--z-raised);
+  width: 100%;
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.reveal-partner-box {
+  min-height: 178px;
+  padding-top: 56px;
+}
+
+.reveal-redacted {
+  position: relative;
+  z-index: var(--z-raised);
+  display: grid;
+  gap: 12px;
+  width: min(100%, 230px);
+}
+
+.reveal-redacted span {
+  display: block;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--cream) 20%, transparent), transparent),
+    color-mix(in srgb, var(--cream) 10%, transparent);
+  background-size: 220% 100%, 100% 100%;
+  box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.reveal-redacted span:nth-child(2) { width: 78%; }
+
+.reveal-redacted span:nth-child(3) { width: 58%; }
+
+.reveal-textbox.is-waiting .reveal-redacted span {
+  animation: reveal-redacted-sheen 2.8s ease-in-out infinite;
+}
+
+.reveal-textbox.is-waiting .reveal-redacted span:nth-child(2) { animation-delay: 150ms; }
+
+.reveal-textbox.is-waiting .reveal-redacted span:nth-child(3) { animation-delay: 300ms; }
+
+.reveal-waiting-overlay {
+  position: absolute;
+  z-index: var(--z-raised-2);
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: 22px 16px 16px;
+  pointer-events: none;
+  text-align: center;
+}
+
+.reveal-status-pill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-115%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--cream) 16%, transparent), transparent);
+  animation: reveal-pill-sheen 3.6s ease-in-out infinite;
+}
+
+.reveal-textbox.is-waiting .reveal-status-pill .dot {
+  background: var(--accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 72%, transparent);
+  animation: reveal-waiting-dot 1.45s ease-in-out infinite;
+}
+
+@media (min-width: 760px) {
+  .reveal-pair {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .reveal-textbox,
+  .reveal-side form {
+    min-height: 196px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal-redacted span,
+  .reveal-status-pill::after,
+  .reveal-textbox.is-waiting .reveal-status-pill .dot {
+    animation: none !important;
+  }
+}
+
+.reveal-stage.reveal-candle {
+  position: relative;
+  isolation: isolate;
+  padding-bottom: 32px;
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 28%, rgba(31, 13, 23, 0.92) 0%, rgba(17, 7, 9, 0.96) 70%);
+  transition: filter 720ms var(--ease-bloom);
+}
+
+.reveal-stage.reveal-candle.is-closing { filter: brightness(0.78) saturate(0.85); }
+
+.candle-prompt {
+  margin: 0 auto 12px;
+  text-align: center;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: var(--fs-24);
+  line-height: 1.22;
+  color: var(--cream);
+  max-width: 24ch;
+  opacity: 0.92;
+}
+
+.reveal-stage.reveal-candle.is-closing .candle-pool {
+  opacity: 0.18;
+  animation: none;
+}
+
+.candle-pair {
+  position: relative;
+  z-index: var(--z-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  margin-top: 20px;
+  padding: 18px 4px 18px;
+}
+
+.candle-answer {
+  position: relative;
+  padding: 24px 16px 12px;
+  min-height: 88px;
+  text-align: center;
+}
+
+.candle-answer.is-theirs .candle-flame {
+  animation-duration: 1.8s;
+  animation-delay: 0.6s;
+}
+
+.reveal-stage.reveal-candle.is-closing .candle-flame {
+  opacity: 0.28;
+  animation: none;
+}
+
+.candle-side {
+  display: block;
+  margin: 0 0 8px;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  color: var(--cream-faint);
+}
+
+.candle-answer.is-theirs .candle-text { animation-delay: 320ms; }
+
+.reveal-stage.reveal-candle.is-closing .candle-text {
+  opacity: 0.30;
+  filter: blur(4px) brightness(0.55);
+  animation: none;
+}
+
+/* Status crossfade between "open" and "sealed" ---------------------- */
+
+.candle-status {
+  position: relative;
+  z-index: var(--z-raised);
+  margin: 8px auto 16px;
+  height: 16px;
+  text-align: center;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  color: var(--cream-faint);
+}
+
+.candle-status em { color: var(--gold); font-style: normal; }
+
+.candle-status > .candle-status-open  { opacity: 1; }
+
+.candle-status > .candle-status-close { opacity: 0; }
+
+.reveal-stage.reveal-candle.is-closing .candle-status-open  { opacity: 0; }
+
+.reveal-stage.reveal-candle.is-closing .candle-status-close { opacity: 1; }
+
+.candle-cta { position: relative; z-index: var(--z-raised); margin-top: 22px; }
+
+.reveal-stage.is-activity-highlight {
+  outline: 1px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: 8px;
+  border-radius: var(--r-lg);
+  animation: activity-target-glow 1.9s ease-in-out 3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .candle-text { opacity: 1; filter: none; transform: none; }
+}
+
+.reveal-prompt-shuffle {
+  padding: 6px 2px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  padding-inline: var(--space-3);
+}
+
+@keyframes reveal-redacted-sheen {
+  0%, 100% { background-position: 120% 50%, 0 0; opacity: 0.72; }
+  50%      { background-position: -20% 50%, 0 0; opacity: 1; }
+}
+
+@keyframes reveal-pill-sheen {
+  0%, 48%  { transform: translateX(-115%); opacity: 0; }
+  58%      { opacity: 1; }
+  100%     { transform: translateX(115%); opacity: 0; }
+}
+
+@keyframes reveal-waiting-dot {
+  0%, 100% { transform: scale(0.86); opacity: 0.66; }
+  50%      { transform: scale(1.04); opacity: 1; }
+}

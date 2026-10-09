@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useEffect, useState, type ReactNode } from "react"
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import ScreenHeader from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
@@ -119,9 +120,9 @@ function SharePageInner() {
       )}
       {state.kind === "no-workspace" && (
         <EmptyState
-          title="Set up your space"
-          body="You're signed in, but you don't have a partner-paired space yet."
-          action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+          title="Set up your room"
+          body="You're signed in, but you don't have a partner-paired room yet."
+          action={<Link href="/space" className="btn-ghost">Open Us</Link>}
         />
       )}
       {state.kind === "error" && <ErrorState title="Couldn't open Share" body={state.message} />}
@@ -166,13 +167,13 @@ function SharePageInner() {
 
 function ShareShell({ children }: { children: ReactNode }) {
   return (
-    <AppShell hideTabBar>
-      <header className="shelf-header">
-        <div className="header-left">
-          <span className="header-title">Save to Shelf</span>
-        </div>
-        <Link href="/inspiration/shelf" className="done-pill pressable">Done</Link>
-      </header>
+    <AppShell>
+      <ScreenHeader
+        variant="bar"
+        barClassName="shelf-header"
+        title="Save to Shelf"
+        done={{ href: "/inspiration/shelf", ariaLabel: "Done, back to the Shelf" }}
+      />
       {children}
     </AppShell>
   );

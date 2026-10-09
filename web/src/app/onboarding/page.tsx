@@ -261,7 +261,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <AppShell hideTabBar>
+    <AppShell>
       <ScreenHeader
         showBrand
         eyebrow={stage.kind === "share" ? "Step 3 · of 3" : stage.kind === "encrypt" ? "Step 2 · of 3" : "Step 1 · of 3"}

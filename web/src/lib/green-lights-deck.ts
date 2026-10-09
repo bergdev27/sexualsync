@@ -24,6 +24,19 @@
 //
 // - heavy: true -> emotionally heavier (openness / cheating-adjacent); rendered
 //   with a "worth talking through" tone and grouped toward the end.
+// - valence: "concern" -> the top option admits a worry or a brake ("I feel
+//   pressure to orgasm"). Both picking it is shared ground worth naming, not a
+//   green light, so the reveal files it separately. Both picking the bottom
+//   option (no worry) IS a green light.
+//
+// Ids are permanent. Stored answers are keyed by id: rewording keeps the id,
+// a changed scale is safe (the reveal skips values that aren't current
+// options, and the card counts as unanswered), and a dropped card's id moves
+// to RETIRED_GREEN_LIGHT_IDS.
+
+// Bumped whenever cards are added or re-scaled. Partners who answered an older
+// deck get an "answer the new questions" prompt instead of a full retake.
+export const GREEN_LIGHT_DECK_VERSION = 2;
 
 export type GreenLightScale = "comfort" | "agree" | "want" | "matters" | "prefer" | "cadence";
 
@@ -41,6 +54,7 @@ export interface GreenLightCard {
   label: string;
   heavy: boolean;
   scale: GreenLightScale;
+  valence?: "concern";
   // Inline options for per-question scales (prefer, cadence). For the shared
   // scales (comfort/agree/want/matters) options come from SHARED_SCALE_OPTIONS.
   options?: GreenLightOption[];
@@ -96,8 +110,8 @@ export interface GreenLightCategory {
 
 export const GREEN_LIGHT_CATEGORIES: GreenLightCategory[] = [
   { id: "amount", title: "Amount & cadence" },
-  { id: "libido", title: "Desire & libido" },
-  { id: "pleasure", title: "Her pleasure & balance" },
+  { id: "pleasure", title: "Pleasure & balance" },
+  { id: "turnons", title: "Turn-ons & turn-offs" },
   { id: "initiation", title: "Initiation" },
   { id: "affection", title: "Affection beyond sex" },
   { id: "talking", title: "Talking about sex" },
@@ -106,8 +120,7 @@ export const GREEN_LIGHT_CATEGORIES: GreenLightCategory[] = [
   { id: "solo", title: "Solo & autonomy" },
   { id: "timing", title: "Timing & life" },
   { id: "health", title: "Health & care" },
-  { id: "eyes", title: "Eyes on others" },
-  { id: "digital", title: "Digital" },
+  { id: "digital", title: "Attention elsewhere" },
   { id: "trust", title: "Telling & trust" },
   { id: "others", title: "Physical with others" },
   { id: "sharing", title: "Sharing & compersion" },
@@ -120,22 +133,29 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "am-more", category: "amount", label: "I'd like sex more often than we do", heavy: false, scale: "want" },
   { id: "am-quality", category: "amount", label: "Quality matters more to me than quantity", heavy: false, scale: "agree" },
   { id: "am-dryspell", category: "amount", label: "A dry spell doesn't mean something's wrong", heavy: false, scale: "agree" },
-  { id: "am-maintenance", category: "amount", label: "\"Maintenance sex\" to stay connected — even if not fully in the mood — is okay", heavy: false, scale: "comfort" },
+  { id: "am-maintenance", category: "amount", label: "Sex when I'm not fully in the mood, just to stay connected, is okay", heavy: false, scale: "comfort" },
   { id: "am-schedule", category: "amount", label: "Scheduling sex is okay", heavy: false, scale: "comfort" },
   { id: "am-quickvslong", category: "amount", label: "Quick & frequent, or long & occasional?", heavy: false, scale: "prefer", options: prefer("Quick & frequent", "Long & occasional") },
   { id: "am-spontaneous", category: "amount", label: "Spontaneous, or planned?", heavy: false, scale: "prefer", options: prefer("Spontaneous", "Planned") },
 
   // Desire & libido — different drives are normal; a lower one isn't "broken"
-  { id: "li-less-love", category: "libido", label: "Wanting sex less often doesn't mean wanting you any less", heavy: false, scale: "agree" },
-  { id: "li-fluctuates", category: "libido", label: "My drive rises and falls with stress, sleep, and life — and that's allowed", heavy: false, scale: "agree" },
-  { id: "li-not-owed", category: "libido", label: "Sex should never feel like something we owe each other", heavy: false, scale: "agree" },
+  { id: "li-less-love", category: "amount", label: "Wanting sex less often doesn't mean wanting you any less", heavy: false, scale: "agree" },
+  { id: "li-fluctuates", category: "amount", label: "My drive rises and falls with stress, sleep, and life", heavy: false, scale: "agree" },
+  { id: "li-not-owed", category: "amount", label: "Sex should never feel like something we owe each other", heavy: false, scale: "agree" },
 
   // Her pleasure & balance
-  { id: "pl-orgasm-equity", category: "pleasure", label: "Her orgasm matters as much as his", heavy: false, scale: "agree" },
-  { id: "pl-her-session", category: "pleasure", label: "A whole session just on her is fair game", heavy: false, scale: "agree" },
+  { id: "pl-orgasm-equity", category: "pleasure", label: "Both our orgasms matter equally", heavy: false, scale: "agree" },
+  { id: "pl-her-session", category: "pleasure", label: "A whole session just on getting one of us off is fair game", heavy: false, scale: "agree" },
   { id: "pl-buildup", category: "pleasure", label: "I want more build-up before we get to penetration", heavy: false, scale: "want" },
   { id: "pl-okay-nofinish", category: "pleasure", label: "Not finishing sometimes is okay — sex is still good without it", heavy: false, scale: "agree" },
-  { id: "pl-pressure", category: "pleasure", label: "I feel pressure to orgasm — or to make you orgasm", heavy: false, scale: "agree" },
+  { id: "pl-pressure", category: "pleasure", label: "I feel pressure to orgasm, or to make you orgasm", heavy: false, scale: "agree", valence: "concern" },
+
+  // Turn-ons & turn-offs — what switches desire on, and what slams the brakes
+  { id: "tn-wanted", category: "turnons", label: "Feeling wanted by you is my biggest turn-on", heavy: false, scale: "agree" },
+  { id: "tn-filthy-words", category: "turnons", label: "Explicit, filthy words turn me on", heavy: false, scale: "agree" },
+  { id: "tn-unrushed", category: "turnons", label: "I need to feel unrushed to get there", heavy: false, scale: "agree" },
+  { id: "tn-clean", category: "turnons", label: "I need to feel clean before sex", heavy: false, scale: "agree" },
+  { id: "tn-mess", category: "turnons", label: "A messy house or a long to-do list kills my mood", heavy: false, scale: "agree", valence: "concern" },
 
   // Initiation
   { id: "in-initiate", category: "initiation", label: "I'm comfortable being the one to initiate", heavy: false, scale: "comfort" },
@@ -143,7 +163,6 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "in-anytime", category: "initiation", label: "Either of us can initiate anytime", heavy: false, scale: "agree" },
   { id: "in-notonight", category: "initiation", label: "\"Not tonight\" isn't rejection", heavy: false, scale: "agree" },
   { id: "in-raincheck", category: "initiation", label: "A rain check is fine, as long as it actually happens", heavy: false, scale: "comfort" },
-  { id: "in-no-warmth", category: "initiation", label: "A \"no\" should come with warmth, not a cold shut-down", heavy: false, scale: "agree" },
   { id: "in-how-initiated", category: "initiation", label: "I most like being initiated with — a touch, or words?", heavy: false, scale: "prefer", options: prefer("A touch", "Words") },
 
   // Affection beyond sex
@@ -151,6 +170,7 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "af-nonsexual", category: "affection", label: "Non-sexual touch that doesn't have to lead to sex", heavy: false, scale: "want" },
   { id: "af-sleep", category: "affection", label: "Falling asleep tangled up", heavy: false, scale: "want" },
   { id: "af-public", category: "affection", label: "Affection in public", heavy: false, scale: "comfort" },
+  { id: "af-after", category: "affection", label: "After sex: cuddle, or clean up and sleep?", heavy: false, scale: "prefer", options: prefer("Cuddle", "Clean up and sleep") },
 
   // Talking about sex
   { id: "tk-inmoment", category: "talking", label: "I'm comfortable saying what I want mid-sex", heavy: false, scale: "comfort" },
@@ -176,7 +196,8 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "cf-reassure", category: "confidence", label: "Reassurance when I feel self-conscious", heavy: false, scale: "want" },
   { id: "cf-praise", category: "confidence", label: "Praise during sex", heavy: false, scale: "matters" },
   { id: "cf-wanted", category: "confidence", label: "Feeling wanted, not just available", heavy: false, scale: "matters" },
-  { id: "cf-bodyconscious", category: "confidence", label: "I sometimes feel self-conscious about my body during sex", heavy: false, scale: "agree" },
+  { id: "cf-bodyconscious", category: "confidence", label: "I sometimes feel self-conscious about my body during sex", heavy: false, scale: "agree", valence: "concern" },
+  { id: "cf-bodychange", category: "confidence", label: "My body has changed and I'm still getting used to it in bed", heavy: false, scale: "agree", valence: "concern" },
 
   // Solo & autonomy
   { id: "sl-masturbate", category: "solo", label: "My partner masturbating whenever", heavy: false, scale: "comfort" },
@@ -191,34 +212,36 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "sl-sidebyside", category: "solo", label: "Getting myself off next to you — while you read or scroll — should be totally normal", heavy: false, scale: "agree" },
   // Solo disclosure — a preference, never an obligation (pairs with "keep some private")
   { id: "sl-horny-reach", category: "solo", label: "When I'm horny: reach for you first, or handle it solo?", heavy: false, scale: "prefer", options: prefer("Reach for you", "Handle it solo") },
-  { id: "sl-tell-after", category: "solo", label: "I like knowing when you've gotten yourself off", heavy: false, scale: "agree" },
-  { id: "sl-no-need-tell", category: "solo", label: "It's totally fine to handle it solo without telling me", heavy: false, scale: "agree" },
+  { id: "sl-tell-after", category: "solo", label: "After you get yourself off: tell me, or no need?", heavy: false, scale: "prefer", options: prefer("Tell me", "No need") },
   { id: "sl-cam", category: "solo", label: "My partner watching cam models or paying for OnlyFans", heavy: false, scale: "comfort" },
 
   // Timing & life
   { id: "tm-drinking", category: "timing", label: "Sex while drinking / a little high", heavy: false, scale: "comfort" },
   { id: "tm-stressed", category: "timing", label: "Sex when we're stressed or tired", heavy: false, scale: "comfort" },
-  { id: "tm-period", category: "timing", label: "Sex during her period", heavy: false, scale: "comfort" },
-  { id: "tm-home", category: "timing", label: "Sex with kids / roommates home (quiet, risky)", heavy: false, scale: "comfort" },
+  { id: "tm-period", category: "timing", label: "Period sex", heavy: false, scale: "comfort" },
+  { id: "tm-home", category: "timing", label: "Sex with kids or roommates home", heavy: false, scale: "comfort" },
   { id: "tm-apart", category: "timing", label: "Keeping it going when we're apart (phone / video)", heavy: false, scale: "want" },
   { id: "tm-morning", category: "timing", label: "More in the mood: morning, or night?", heavy: false, scale: "prefer", options: prefer("Morning", "Night") },
   { id: "tm-makeup", category: "timing", label: "Make-up sex after a fight", heavy: false, scale: "comfort" },
-  { id: "tm-tension", category: "timing", label: "I can't get in the mood when something's unresolved between us", heavy: false, scale: "agree" },
+  { id: "tm-tension", category: "timing", label: "I can't get in the mood when something's unresolved between us", heavy: false, scale: "agree", valence: "concern" },
 
   // Health & care
   { id: "hl-protection", category: "health", label: "We're aligned on protection / birth control", heavy: false, scale: "agree" },
-  { id: "hl-testing", category: "health", label: "Regular testing matters — especially if we ever open up", heavy: true, scale: "agree" },
+  { id: "hl-testing", category: "health", label: "Regular STI testing matters to me", heavy: true, scale: "agree" },
   { id: "hl-aftercare", category: "health", label: "We check in and take care of each other after intense stuff", heavy: false, scale: "agree" },
-  { id: "hl-safeword", category: "health", label: "We have a safeword — and it stops everything instantly, no questions", heavy: false, scale: "agree" },
-  { id: "hl-hurts-stop", category: "health", label: "If something hurts, I'll say so right away — and we stop", heavy: false, scale: "agree" },
+  { id: "hl-safeword", category: "health", label: "We have a safeword", heavy: false, scale: "agree" },
+  { id: "hl-safeword-stops", category: "health", label: "When the safeword is said, everything stops. No questions.", heavy: false, scale: "agree" },
+  { id: "hl-stopanytime", category: "health", label: "Either of us can stop mid-sex for any reason, no hurt feelings", heavy: false, scale: "agree" },
+  { id: "hl-hurts-stop", category: "health", label: "If something hurts, I'll say so right away", heavy: false, scale: "agree" },
+  { id: "hl-meds", category: "health", label: "If my drive drops because of health or meds, I'll tell you", heavy: false, scale: "agree" },
   { id: "hl-showered", category: "health", label: "Freshly showered, or come-as-you-are?", heavy: false, scale: "prefer", options: prefer("Freshly showered", "Come-as-you-are") },
   { id: "hl-grooming", category: "health", label: "We're aligned on grooming / shaving preferences", heavy: false, scale: "agree" },
   { id: "hl-lube", category: "health", label: "Reaching for lube is normal, not a sign anything's wrong", heavy: false, scale: "agree" },
 
   // Eyes on others
-  { id: "ey-attractive", category: "eyes", label: "My partner finding others attractive — and saying so", heavy: false, scale: "comfort" },
-  { id: "ey-flirt", category: "eyes", label: "My partner harmlessly flirting", heavy: false, scale: "comfort" },
-  { id: "ey-closefriend", category: "eyes", label: "A close friendship with someone they're attracted to", heavy: false, scale: "comfort" },
+  { id: "ey-attractive", category: "digital", label: "My partner finding others attractive — and saying so", heavy: false, scale: "comfort" },
+  { id: "ey-flirt", category: "digital", label: "My partner harmlessly flirting", heavy: false, scale: "comfort" },
+  { id: "ey-closefriend", category: "digital", label: "A close friendship with someone they're attracted to", heavy: false, scale: "comfort" },
 
   // Digital
   { id: "dg-sext", category: "digital", label: "My partner sexting or trading nudes with someone else", heavy: true, scale: "comfort" },
@@ -235,6 +258,8 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
   { id: "tr-jealousy", category: "trust", label: "Jealousy is something we talk through, not bottle up", heavy: false, scale: "agree" },
   { id: "tr-whitelie", category: "trust", label: "A small white lie to spare feelings is okay", heavy: false, scale: "agree" },
   { id: "tr-define-cheat", category: "trust", label: "We've actually talked about what counts as cheating for us", heavy: false, scale: "agree" },
+  { id: "tr-friends", category: "trust", label: "What we do in bed stays between us, not our friends", heavy: false, scale: "agree" },
+  { id: "tr-pastpartners", category: "trust", label: "Talking about past partners is fine", heavy: false, scale: "comfort" },
   { id: "tr-emotional-affair", category: "trust", label: "An emotional affair would hurt me as much as a physical one", heavy: false, scale: "agree" },
 
   // Physical with others
@@ -262,6 +287,30 @@ export const GREEN_LIGHT_DECK: GreenLightCard[] = [
 export const GREEN_LIGHT_BY_ID: Record<string, GreenLightCard> = Object.fromEntries(
   GREEN_LIGHT_DECK.map((card) => [card.id, card]),
 );
+
+// Dropped or folded cards. Never reuse these ids.
+export const RETIRED_GREEN_LIGHT_IDS: readonly string[] = ["sl-no-need-tell", "in-no-warmth"];
+
+// Cards this person has no usable answer for: never answered, or answered
+// under an older scale whose value is no longer one of the card's options.
+export function unansweredGreenLightCards(answers: Record<string, { value: string } | undefined> | null | undefined): GreenLightCard[] {
+  const given = answers || {};
+  return GREEN_LIGHT_DECK.filter((card) => {
+    const answer = given[card.id];
+    return !answer || !optionsForCard(card).some((option) => option.id === answer.value);
+  });
+}
+
+// Answers for current cards with current values only, so a resubmit drops
+// retired cards and stale-scale values.
+export function activeGreenLightAnswers<T extends { value: string }>(answers: Record<string, T> | null | undefined): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const [id, answer] of Object.entries(answers || {})) {
+    const card = GREEN_LIGHT_BY_ID[id];
+    if (card && optionsForCard(card).some((option) => option.id === answer?.value)) out[id] = answer;
+  }
+  return out;
+}
 
 export function greenLightCategoryTitle(id: string): string {
   return GREEN_LIGHT_CATEGORIES.find((c) => c.id === id)?.title || "";
@@ -326,12 +375,24 @@ export interface GreenLightTalkItem extends GreenLightPairItem {
 export interface GreenLightCadenceItem extends GreenLightPairItem {
   gap: number;
 }
+export interface GreenLightCategoryScore {
+  category: string;
+  title: string;
+  aligned: number;
+  total: number;
+  // 0-100, same rule as the overall sync score.
+  score: number;
+}
 export interface GreenLightsReveal {
   greenLights: GreenLightRevealItem[];
+  // Both admitted the same worry or brake: common ground to name out loud.
+  sharedConcerns: GreenLightRevealItem[];
   agreedLimits: GreenLightRevealItem[];
   talk: GreenLightTalkItem[];
   cadence: GreenLightCadenceItem[];
   syncScore: number | null;
+  // Per-topic alignment, in deck order, for topics you both answered.
+  categories: GreenLightCategoryScore[];
 }
 
 function gentleOpener(card: GreenLightCard, ia: number, ib: number): string {
@@ -352,11 +413,13 @@ export function computeGreenLightsReveal(
   partner: Record<string, GreenLightAnswerLike>,
 ): GreenLightsReveal {
   const greenLights: GreenLightRevealItem[] = [];
+  const sharedConcerns: GreenLightRevealItem[] = [];
   const agreedLimits: GreenLightRevealItem[] = [];
   const talk: GreenLightTalkItem[] = [];
   const cadence: GreenLightCadenceItem[] = [];
   let both = 0;
   let aligned = 0;
+  const perCategory = new Map<string, { aligned: number; total: number }>();
 
   for (const card of GREEN_LIGHT_DECK) {
     const a = mine[card.id];
@@ -386,6 +449,10 @@ export function computeGreenLightsReveal(
     both += 1;
     const same = a.value === b.value;
     if (same) aligned += 1;
+    const tally = perCategory.get(card.category) || { aligned: 0, total: 0 };
+    tally.total += 1;
+    if (same) tally.aligned += 1;
+    perCategory.set(card.category, tally);
 
     if (card.scale === "prefer") {
       if (same) {
@@ -399,6 +466,17 @@ export function computeGreenLightsReveal(
 
     // comfort / agree / want / matters — top = aligned-yes, bottom = shared-no.
     const last = opts.length - 1;
+    if (card.valence === "concern") {
+      if (ia === 0 && ib === 0) {
+        sharedConcerns.push({ id: card.id, label: card.label, valueLabel: mineSide.label, scale: card.scale });
+      } else if (ia === last && ib === last) {
+        // Neither of you carries this worry: that's the green light.
+        greenLights.push({ id: card.id, label: card.label, valueLabel: mineSide.label, scale: card.scale });
+      } else {
+        talk.push({ id: card.id, label: card.label, scale: card.scale, mine: mineSide, partner: partnerSide, opener: gentleOpener(card, ia, ib) });
+      }
+      continue;
+    }
     if (ia === 0 && ib === 0) {
       greenLights.push({ id: card.id, label: card.label, valueLabel: mineSide.label, scale: card.scale });
     } else if (ia === last && ib === last) {
@@ -410,9 +488,22 @@ export function computeGreenLightsReveal(
 
   return {
     greenLights,
+    sharedConcerns,
     agreedLimits,
     talk,
     cadence,
     syncScore: both === 0 ? null : Math.round((aligned / both) * 100),
+    categories: GREEN_LIGHT_CATEGORIES
+      .filter((category) => perCategory.has(category.id))
+      .map((category) => {
+        const tally = perCategory.get(category.id)!;
+        return {
+          category: category.id,
+          title: category.title,
+          aligned: tally.aligned,
+          total: tally.total,
+          score: Math.round((tally.aligned / tally.total) * 100),
+        };
+      }),
   };
 }

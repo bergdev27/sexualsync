@@ -60,8 +60,8 @@ export function groupByTiming(requests: RequestRecord[]) {
  *  Sort so those float to the top, then the rest by updatedAt desc. */
 export function rankActive(requests: RequestRecord[], me: AuthInfo): RequestRecord[] {
   return [...requests].sort((a, b) => {
-    const aTop = a.status === "pending" && isFromPartner(a, me);
-    const bTop = b.status === "pending" && isFromPartner(b, me);
+    const aTop = (a.status === "pending" || a.status === "sent") && isFromPartner(a, me);
+    const bTop = (b.status === "pending" || b.status === "sent") && isFromPartner(b, me);
     if (aTop && !bTop) return -1;
     if (!aTop && bTop) return 1;
     return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();

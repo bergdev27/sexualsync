@@ -43,11 +43,11 @@ concurrency:
 jobs:
   verify:
     name: verify (config, unit, smoke)
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event.repository.private && vars.CI_RUNNER) || (github.event.repository.private && 'self-hosted' || 'ubuntu-latest') }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       # The self-host config check, realtime unit tests, and server smoke run
@@ -64,11 +64,11 @@ jobs:
 
   build:
     name: build web UI
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event.repository.private && vars.CI_RUNNER) || (github.event.repository.private && 'self-hosted' || 'ubuntu-latest') }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -84,10 +84,17 @@ jobs:
 
   docker:
     name: docker image (build + boot)
-    runs-on: ubuntu-latest
+    # Hosted runners are free on public repos, so a public copy always runs
+    # this job there. A private repo's self-hosted runners may have no Docker
+    # socket, so there it runs only when a Docker-capable runner label is set
+    # in the CI_DOCKER_RUNNER repo variable; otherwise run the same build +
+    # boot check on a Docker host by hand. The variable is ignored on a public
+    # repo, so fork pull requests always stay on hosted runners.
+    if: ${{ !github.event.repository.private || vars.CI_DOCKER_RUNNER != '' }}
+    runs-on: ${{ (github.event.repository.private && vars.CI_DOCKER_RUNNER) || 'ubuntu-latest' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Builds the SAME image self-host operators run — README "Docker
       # (recommended)" and docker-compose.yml both point here, and the v1.0.0
       # release advertises Docker as a first-class install path. Nothing in CI

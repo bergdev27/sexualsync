@@ -1,0 +1,64 @@
+/* Styles only /signed-out renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.signed-out-panel {
+  position: relative;
+  z-index: var(--z-raised-2);
+  display: grid;
+  justify-items: center;
+  width: 100%;
+  padding: 24px 18px 20px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background:
+    linear-gradient(180deg, var(--cream-a04), transparent),
+    rgb(var(--surface-rgb) / 0.76);
+  text-align: center;
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 var(--cream-a06);
+}
+
+.signed-out-mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: 16px;
+  border: 1px solid var(--accent-fog);
+  border-radius: 50%;
+  background: var(--accent-mist);
+  color: var(--accent);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  line-height: 1;
+}
+
+.signed-out-panel h1 {
+  margin: 0;
+  max-width: 10ch;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-38);
+  font-style: italic;
+  font-weight: 600;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.signed-out-panel p:not(.eyebrow) {
+  margin: 14px 0 0;
+  max-width: 31ch;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.5;
+}
+
+.signed-out-actions {
+  display: grid;
+  width: 100%;
+  gap: 10px;
+  margin-top: 22px;
+}

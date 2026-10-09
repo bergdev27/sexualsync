@@ -46,7 +46,11 @@ export const DATA_ENCRYPTED_STORES = [
   "sexualsync-prompt-cache",
   // Generated notification body pools are generic, but the keys are workspace
   // scoped and the copy is intimate enough to protect at rest.
-  "sexualsync-push-body-cache"
+  "sexualsync-push-body-cache",
+  // Mood light (functions/api/mood.js). Tiny per-workspace record, but it holds
+  // each partner's undisclosed "in the mood" window — the one thing the
+  // double-blind protocol exists to hide — so it never sits in plaintext.
+  "sexualsync-mood"
 ];
 
 // Preferred secret: DATA_ENCRYPTION_KEY_V1 (and future V2/V3/etc). If no

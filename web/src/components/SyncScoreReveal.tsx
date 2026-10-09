@@ -25,12 +25,12 @@ export default function SyncScoreReveal({ score, label }: { score: number; label
       style={{ marginTop: 8, background: "var(--surface-2)", borderRadius: 20, boxShadow: "var(--ring-hairline-strong)", padding: "18px 18px 16px", textAlign: "center", position: "relative", overflow: "hidden" }}
     >
       <div className="sync-score-glow" aria-hidden="true" />
-      <div style={{ position: "relative", fontSize: 46, fontWeight: 700, color: "var(--cream)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-        {display}<span style={{ fontSize: 22, color: "rgb(var(--cream-rgb) / 0.5)" }}>%</span>
+      <div style={{ position: "relative", fontSize: "var(--fs-48)", fontWeight: 700, color: "var(--cream)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+        {display}<span style={{ fontSize: "var(--fs-24)", color: "var(--cream-faint)" }}>%</span>
       </div>
-      <div style={{ position: "relative", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: "rgb(var(--accent-rgb) / 0.85)", marginTop: 4 }}>{label}</div>
-      <div style={{ position: "relative", height: 6, borderRadius: 999, background: "rgb(var(--cream-rgb) / 0.1)", overflow: "hidden", marginTop: 12 }}>
-        <div className="sync-score-fill" style={{ ...fillStyle, height: "100%", background: "linear-gradient(90deg, var(--accent), var(--accent-deep))", borderRadius: 999 }} />
+      <div className="kicker" style={{ position: "relative", color: "rgb(var(--accent-rgb) / 0.85)", marginTop: 4 }}>{label}</div>
+      <div style={{ position: "relative", height: 6, borderRadius: "var(--r-pill)", background: "var(--cream-a10)", overflow: "hidden", marginTop: 12 }}>
+        <div className="sync-score-fill" style={{ ...fillStyle, height: "100%", background: "linear-gradient(90deg, var(--accent), var(--accent-deep))", borderRadius: "var(--r-pill)" }} />
       </div>
     </div>
   );
@@ -41,13 +41,13 @@ export default function SyncScoreReveal({ score, label }: { score: number; label
 function useCountUp(target: number, duration: number): number {
   const [value, setValue] = useState(0);
   useEffect(() => {
-    if (typeof window === "undefined") { setValue(target); return; }
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce || target <= 0) { setValue(target); return; }
+    // Reduced motion or nothing to count: land on the final value next frame.
+    const span = reduce || target <= 0 ? 0 : duration;
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
+      const t = span === 0 ? 1 : Math.min(1, (now - start) / span);
       const eased = 1 - Math.pow(1 - t, 3);
       setValue(Math.round(target * eased));
       if (t < 1) raf = requestAnimationFrame(tick);

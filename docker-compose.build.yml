@@ -1,0 +1,9 @@
+# Build the self-host image from source instead of pulling the published one.
+# Run from a clone of this repo:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+services:
+  sexualsync:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sexualsync-selfhost:local

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import ScreenPicture from "@/components/ScreenPicture";
 import "@/app/product-site.css";
 
 // The desktop face of the product. The app itself is mobile-only; this page's
@@ -72,6 +73,9 @@ function Wordmark() {
 }
 
 // One shared IntersectionObserver drives every [data-reveal] on the page.
+// Nothing to subscribe to: the value only differs between server and client.
+const subscribeNever = () => () => {};
+
 function useReveals(rootRef: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const root = rootRef.current;
@@ -229,14 +233,14 @@ function PileDemo() {
 export default function ProductSite() {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const [ready, setReady] = useState(false);
+  // False during prerender and hydration, true once running in the browser.
+  const ready = useSyncExternalStore(subscribeNever, () => true, () => false);
   const [navSolid, setNavSolid] = useState(false);
 
   useReveals(rootRef);
   useHeroParallax(stageRef);
 
   useEffect(() => {
-    setReady(true);
     const onScroll = () => setNavSolid(window.scrollY > 24);
     onScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -305,13 +309,13 @@ export default function ProductSite() {
             <div className="ps-hero-stage" ref={stageRef} aria-hidden="true">
               <div className="ps-hero-glow" />
               <div className="ps-phone ps-hero-phone-side ps-hero-phone-left">
-                <img src="/docs/screenshots/share/05-ask-detail.png" alt="" loading="lazy" decoding="async" />
+                <ScreenPicture src="/docs/screenshots/share/05-ask-detail.png" alt="" sizes="(max-width: 880px) 42vw, 228px" />
               </div>
               <div className="ps-phone ps-hero-phone">
-                <img src="/docs/screenshots/share/03-sexboard-home.png" alt="" decoding="async" />
+                <ScreenPicture src="/docs/screenshots/share/03-sexboard-home.png" alt="" sizes="(max-width: 880px) 68vw, 300px" eager />
               </div>
               <div className="ps-phone ps-hero-phone-side ps-hero-phone-right">
-                <img src="/docs/screenshots/share/13-pile-revealed.png" alt="" loading="lazy" decoding="async" />
+                <ScreenPicture src="/docs/screenshots/share/13-pile-revealed.png" alt="" sizes="(max-width: 880px) 42vw, 228px" />
               </div>
             </div>
           </div>
@@ -609,7 +613,7 @@ export default function ProductSite() {
                   This is all a lock screen ever says. The ask itself lives only inside.
                 </p>
                 <div className="ps-phone ps-privacy-shot" data-reveal style={{ "--d": "220ms" } as React.CSSProperties}>
-                  <img src="/docs/screenshots/share/21-privacy-data.png" alt="The in-app privacy and data controls" loading="lazy" decoding="async" />
+                  <ScreenPicture src="/docs/screenshots/share/21-privacy-data.png" alt="The in-app privacy and data controls" sizes="230px" />
                 </div>
               </div>
             </div>
@@ -630,7 +634,7 @@ export default function ProductSite() {
                 {GALLERY.map((shot) => (
                   <figure className="ps-marquee-item" key={`${copy}-${shot.src}`}>
                     <div className="ps-phone">
-                      <img src={shot.src} alt={copy === 0 ? shot.alt : ""} loading="lazy" decoding="async" />
+                      <ScreenPicture src={shot.src} alt={copy === 0 ? shot.alt : ""} sizes="196px" />
                     </div>
                     <figcaption className="ps-marquee-cap">
                       <strong>{shot.name}</strong>

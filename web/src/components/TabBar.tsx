@@ -40,48 +40,50 @@ function writeChatUnread(count: number) {
   window.dispatchEvent(new CustomEvent(CHAT_UNREAD_EVENT, { detail: next }));
 }
 
+function underRoute(path: string, route: string) {
+  return path === route || path.startsWith(`${route}/`);
+}
+
+// The five slots (DESIGN.md "Tab bar (v2 target)"): Home · Play · + Ask ·
+// Sext · Us. Ask is the centre slot and renders as the raised primary
+// action; the other four are plain icon-over-label tabs. Routes keep their
+// internal names (/sexboard, /games, /space); only the UI names changed.
 const tabs: Tab[] = [
   {
     href: "/sexboard",
-    label: "Sexboard",
-    activeId: "sexboard",
+    label: "Home",
+    activeId: "home",
     icon: (active) => <IconRibbon active={active} />,
-    match: (p) => p === "/sexboard" || p.startsWith("/sexboard/"),
+    match: (p) => underRoute(p, "/sexboard") || underRoute(p, "/tonight"),
+  },
+  {
+    href: "/games",
+    label: "Play",
+    activeId: "play",
+    icon: (active) => <IconGames active={active} />,
+    // Inspiration (and its old /ideas and /shelf aliases) lives inside Play.
+    match: (p) => underRoute(p, "/games") || underRoute(p, "/inspiration") || underRoute(p, "/ideas") || underRoute(p, "/shelf"),
   },
   {
     href: "/ask",
     label: "Ask",
     activeId: "ask",
-    icon: (active) => <IconAsk active={active} />,
-    match: (p) => p.startsWith("/ask"),
+    icon: () => <IconPlus />,
+    match: (p) => underRoute(p, "/ask"),
   },
   {
     href: "/chat",
     label: "Sext",
     activeId: "chat",
     icon: (active) => <IconChat active={active} />,
-    match: (p) => p.startsWith("/chat"),
-  },
-  {
-    href: "/inspiration",
-    label: "Inspiration",
-    activeId: "inspiration",
-    icon: (active) => <IconSparkle active={active} />,
-    match: (p) => p.startsWith("/inspiration") || p.startsWith("/ideas") || p.startsWith("/shelf"),
-  },
-  {
-    href: "/games",
-    label: "Reveals",
-    activeId: "games",
-    icon: (active) => <IconGames active={active} />,
-    match: (p) => p.startsWith("/games"),
+    match: (p) => underRoute(p, "/chat"),
   },
   {
     href: "/space",
-    label: "Space",
-    activeId: "space",
+    label: "Us",
+    activeId: "us",
     icon: (active) => <IconSpace active={active} />,
-    match: (p) => p.startsWith("/space"),
+    match: (p) => underRoute(p, "/space") || underRoute(p, "/limits"),
   },
 ];
 
@@ -158,13 +160,19 @@ export default function TabBar() {
       <div className="tabbar-inner">
         {tabs.map((tab) => {
           const active = tab.match(pathname);
-          const unread = tab.activeId === "chat" ? chatUnread : unreadForTab(activitySummary, tab.activeId);
+          // Home carries the activity feed, so while you're on it its badge
+          // would count rows already in front of you.
+          const unread = tab.activeId === "chat"
+            ? chatUnread
+            : active && tab.activeId === "home" ? 0 : unreadForTab(activitySummary, tab.activeId);
+          const primary = tab.activeId === "ask";
           return (
             <Link
               key={tab.activeId}
               href={tab.href}
               aria-current={active ? "page" : undefined}
-              className={`tab pressable ${active ? "is-active" : ""} ${unread ? "has-unread" : ""}`}
+              data-tab={tab.activeId}
+              className={`tab pressable ${primary ? "tab-primary" : ""} ${active ? "is-active" : ""} ${unread ? "has-unread" : ""}`}
               onPointerEnter={() => { void getProfileCached(); }}
               onFocus={() => { void getProfileCached(); }}
             >
@@ -208,19 +216,12 @@ function IconRibbon({ active }: { active: boolean }) {
   );
 }
 
-function IconAsk({ active }: { active: boolean }) {
-  // A flame — heat / desire — abstract and minimal to match the other tab
-  // glyphs, and active-responsive (thicker stroke + a soft fill) like them.
+function IconPlus() {
+  // The centre Ask slot: a plus drawn in ink on the rose disc (the disc is the
+  // .tab-icon box itself, styled in globals.css under .tab-primary).
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12.5 2.6c.7 2.7 2.4 4.4 3.7 6 1.1 1.4 1.8 2.9 1.8 4.7a6 6 0 0 1-12 0c0-1.2.35-2.4 1.05-3.4.3 1.2 1.1 2 2.15 2.3-.7-2.4.05-4.9 1.85-7 .55-.85 1-1.75 1.5-2.6Z"
-        stroke="currentColor"
-        strokeWidth={active ? 1.6 : 1.35}
-        strokeLinejoin="round"
-        fill={active ? "currentColor" : "none"}
-        fillOpacity={active ? 0.18 : 0}
-      />
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
     </svg>
   );
 }
@@ -236,22 +237,6 @@ function IconChat({ active }: { active: boolean }) {
         fill={active ? "currentColor" : "none"}
         fillOpacity={active ? 0.16 : 0}
       />
-    </svg>
-  );
-}
-
-function IconSparkle({ active }: { active: boolean }) {
-  return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 3 L13.5 10.5 L21 12 L13.5 13.5 L12 21 L10.5 13.5 L3 12 L10.5 10.5 Z"
-        stroke="currentColor"
-        strokeWidth={active ? 1.6 : 1.3}
-        fill={active ? "currentColor" : "none"}
-        fillOpacity={active ? 0.18 : 0}
-      />
-      <circle cx="19" cy="5" r="1" fill="currentColor" />
-      <circle cx="5" cy="6" r="0.7" fill="currentColor" />
     </svg>
   );
 }

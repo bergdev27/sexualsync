@@ -1,0 +1,128 @@
+/* Styles only /games/sex-quiz renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.rg-pane.is-tight { gap: 14px; }
+
+.rg-actions.is-wrap { flex-wrap: wrap; }
+
+.rg-chip-rank { margin-right: 5px; }
+
+.rg-role { text-transform: capitalize; }
+
+.rg-card.is-swipe {
+  cursor: grab;
+  touch-action: none;
+  transition: transform 200ms var(--ease-settle);
+  user-select: none;
+}
+
+.rg-card.is-swipe.is-dragging {
+  cursor: grabbing;
+  transition: none;
+  will-change: transform;
+}
+
+.rg-swipe-hint {
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  padding: 5px 14px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  box-shadow: var(--ring-hairline-strong);
+  font-size: var(--fs-13);
+  font-weight: 600;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.rg-card-emoji {
+  margin-top: 14px;
+  font-size: var(--fs-48);
+  line-height: 1;
+}
+
+.rg-card-desc {
+  max-width: 30ch;
+  margin: 6px auto 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  line-height: 1.5;
+}
+
+.rg-card-label {
+  margin-top: 20px;
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.rg-roles {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rg-tip {
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  text-align: center;
+}
+
+.rg-panel.is-quiet {
+  gap: 0;
+  border-radius: var(--r-md);
+  box-shadow: var(--ring-hairline);
+}
+
+.rg-panel-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rg-panel-foot .rg-btn { margin-left: auto; }
+
+.rg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+}
+
+.rg-list-emoji {
+  width: 24px;
+  font-size: var(--fs-20);
+  text-align: center;
+}
+
+.rg-list-chevron {
+  margin-left: 2px;
+  color: rgb(var(--accent-rgb) / 0.8);
+  font-size: var(--fs-17);
+  line-height: 1;
+}
+
+.rg-reveal-title {
+  margin-top: 2px;
+  color: var(--cream);
+  font-size: var(--fs-24);
+  font-weight: 600;
+}
+
+.rg-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.rg-edge .rg-error {
+  max-width: 32ch;
+  font-size: var(--fs-12);
+  text-align: center;
+}

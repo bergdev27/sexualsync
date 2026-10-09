@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import AppShell from "@/components/AppShell";
+import AppShell, { useFocusedRun } from "@/components/AppShell";
+import ScreenHeader from "@/components/ScreenHeader";
 import { ErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
@@ -21,12 +22,14 @@ import type {
   ProfileResponse,
   Workspace,
 } from "@/lib/types";
+import { DEFAULT_BLIND_REVEAL_QUESTION, nextBlindRevealQuestion } from "@/lib/blind-reveal-questions";
 import { useQueryParam } from "@/lib/use-query-param";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { normalizeEmail, partnerOf } from "@/lib/workspace";
 import { useMarkActivityRead } from "@/lib/use-mark-activity-read";
+import "./blind-reveal.css";
 
-const DEFAULT_PROMPT = "The filthiest thing you've been quietly turning over but never said out loud.";
+const DEFAULT_PROMPT = DEFAULT_BLIND_REVEAL_QUESTION;
 
 type LoadState =
   | { kind: "loading" }
@@ -136,15 +139,12 @@ export default function BlindRevealPage() {
 
   return (
     <AppShell>
-      <header className="sheet-header">
-        <Link href="/games" className="fd-back pressable" aria-label="Back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </Link>
-        <span className="sheet-title">Blind Reveal</span>
-        <span className="status-pill"><span className="dot" />Lock-in</span>
-      </header>
+      <ScreenHeader
+        variant="bar"
+        back={{ href: "/games", label: "Play" }}
+        title="Blind Reveal"
+        trailing={<span className="status-pill"><span className="dot" />Lock-in</span>}
+      />
       <Body
         state={state}
         onReload={() => reload(
@@ -207,7 +207,7 @@ function Body({
       <ErrorState
         title="No partner space yet"
         body="Blind Reveal needs two active partners."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -256,10 +256,15 @@ function StartReveal({
   return (
     <div className="reveal-stage">
       <p className="eyebrow">One question, two answers.</p>
-      <h1 className="h-intimate reveal-headline">Both write it. Then it opens.</h1>
+      <h2 className="h-intimate reveal-headline">Both write it. Then it opens.</h2>
       <form className="reveal-prompt" onSubmit={submit}>
         <p className="reveal-prompt-eyebrow">The question</p>
-        <p className="reveal-prompt-helper">Don&apos;t like this question? Write your own.</p>
+        <div className="reveal-prompt-helper-row">
+          <p className="reveal-prompt-helper">Don&apos;t like this question? Write your own.</p>
+          <button type="button" className="reveal-prompt-shuffle pressable" onClick={() => setPrompt((current) => nextBlindRevealQuestion(current))}>
+            Another question
+          </button>
+        </div>
         <textarea
           className="input min-h-[96px] resize-none"
           value={prompt}
@@ -364,6 +369,9 @@ function ActiveReveal({
   highlightedRevealId: string;
 }) {
   const reveal = state.reveal!;
+  // Writing your answer is a focused run; once it's locked in, the tab bar
+  // comes back while you wait.
+  useFocusedRun(!reveal.mySubmitted);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const isHighlighted = reveal.id === highlightedRevealId;
   const partner = partnerOf(state.workspace, state.auth.email);
@@ -421,7 +429,7 @@ function ActiveReveal({
   return (
     <div ref={stageRef} className={`reveal-stage reveal-active-stage ${isHighlighted ? "is-activity-highlight" : ""}`} data-activity-highlight={isHighlighted ? "true" : undefined}>
       <p className="eyebrow">Reveal time · <em>{reveal.submittedCount}/{reveal.requiredCount} locked</em></p>
-      <h1 className="h-intimate reveal-headline">Both write it. Then it opens.</h1>
+      <h2 className="h-intimate reveal-headline">Both write it. Then it opens.</h2>
       <div className="reveal-prompt">
         <p className="reveal-prompt-eyebrow">The question</p>
         <p className="reveal-prompt-text">{reveal.prompt}</p>
@@ -595,7 +603,7 @@ function OpenedReveal({
       data-activity-highlight={isHighlighted ? "true" : undefined}
     >
       <p className="eyebrow candle-eyebrow">
-        {isArchived ? "closed reveal" : "two answers"} · <em>by candle</em>
+        {isArchived ? "Closed reveal" : "Two answers"} · <em>by candle</em>
       </p>
 
       <p className="reveal-prompt-text candle-prompt">{reveal.prompt}</p>
@@ -612,7 +620,7 @@ function OpenedReveal({
               style={{ "--i": index } as CSSProperties}
             >
               <span className="candle-flame" aria-hidden="true" />
-              <p className="candle-side">{isMine ? "you" : entry.name || "partner"}</p>
+              <p className="candle-side">{isMine ? "You" : entry.name || "Partner"}</p>
               <p className="candle-text">{entry.text}</p>
             </article>
           );
@@ -621,9 +629,9 @@ function OpenedReveal({
 
       <div className="candle-status" aria-live="polite">
         <span className="candle-status-open">
-          {isArchived ? <>closed · <em>reopened from history</em></> : <>two · <em>locked in</em> · open</>}
+          {isArchived ? <>Closed · <em>reopened from history</em></> : <>Both · <em>locked in</em> · open</>}
         </span>
-        {!isArchived && <span className="candle-status-close">read once · <em>then sealed</em></span>}
+        {!isArchived && <span className="candle-status-close">Read once · <em>then sealed</em></span>}
       </div>
 
       {!isArchived && (

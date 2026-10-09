@@ -283,6 +283,16 @@ test("assigned reviewer can pass a sent request from Ask detail", async () => {
   assert.equal(body.request.decisions[0].decision, "No");
   assert.deepEqual(body.request.counters, []);
   assert.equal(body.request.feedback, "Not tonight.");
+
+  // The activity feed names the pass instead of a generic "Ask reviewed".
+  const { readActivity } = await import("../../functions/api/_activity.js");
+  let items = [];
+  for (let i = 0; i < 20 && !items.length; i += 1) {
+    items = ((await readActivity(e, "w1", PARTNER))?.items || []).filter((item) => item.entityId === "r1");
+    if (!items.length) await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(items[0]?.action, "passed");
+  assert.match(items[0]?.label || "", /passed$/);
 });
 
 test("requester cannot use the direct reply action for their own sent request", async () => {
@@ -815,4 +825,134 @@ test("a reviewed E2EE Ask gets the most generous timing window, then expires", a
     "3-day-old E2EE Ask survives (padded to the Next week window)");
   const old = body.history.find((r) => r.id === "r-e2ee-old");
   assert.equal(old?.status, "expired", "the padded window still ends — 10-day-old E2EE Ask expires");
+});
+
+// ── "Plan it" (match moment) ────────────────────────────────────────────────
+const YES_ACT = { label: "Massage", decision: "Yes", targetType: "act" };
+const hoursFromNow = (hours) => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+
+test("either participant can plan an approved Ask; status is unchanged", async () => {
+  const e = await setup([req("r1", { status: "on_deck", decisions: [YES_ACT] })]);
+  const plannedFor = hoursFromNow(30);
+
+  const res = await callAs(e, PARTNER, "PATCH", { id: "r1", action: "plan", plannedFor, workspaceId: "w1" });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.request.plannedFor, plannedFor);
+  assert.equal(body.request.status, "on_deck");
+  assert.equal(body.request.plannedByEmail, PARTNER);
+  assert.ok(body.activeRequests.find((r) => r.id === "r1"), "a planned Ask stays on the active board");
+
+  const stored = (await readRequests(e)).find((r) => r.id === "r1");
+  assert.equal(stored.plannedFor, plannedFor);
+  assert.equal(stored.status, "on_deck");
+});
+
+test("an empty plannedFor clears the plan", async () => {
+  const e = await setup([req("r1", {
+    status: "on_deck",
+    decisions: [YES_ACT],
+    plannedFor: hoursFromNow(20),
+    plannedAt: NOW,
+    plannedByEmail: ME,
+    plannedByName: "Me",
+  })]);
+  const res = await call(e, "PATCH", { id: "r1", action: "plan", plannedFor: "", workspaceId: "w1" });
+  assert.equal(res.status, 200);
+  const stored = (await readRequests(e)).find((r) => r.id === "r1");
+  assert.equal(stored.plannedFor, undefined);
+  assert.equal(stored.plannedByEmail, undefined);
+});
+
+test("planning and clearing a plan each leave an audit row with the planned time only", async () => {
+  const e = await setup([req("r1", { status: "on_deck", decisions: [YES_ACT] })]);
+  const plannedFor = hoursFromNow(30);
+  assert.equal((await callAs(e, PARTNER, "PATCH", { id: "r1", action: "plan", plannedFor, workspaceId: "w1" })).status, 200);
+  assert.equal((await callAs(e, PARTNER, "PATCH", { id: "r1", action: "plan", plannedFor: "", workspaceId: "w1" })).status, 200);
+
+  const audit = (await readKey(e, "sexualsync-audit", "workspace-w1")) || [];
+  const [unplanned, planned] = audit.filter((row) => row.type === "request_planned" || row.type === "request_unplanned");
+  assert.equal(planned?.type, "request_planned");
+  assert.equal(planned.entityId, "r1");
+  assert.equal(planned.actorEmail, PARTNER);
+  assert.deepEqual(planned.metadata, { plannedFor });
+  assert.equal(unplanned?.type, "request_unplanned");
+  assert.deepEqual(unplanned.metadata, {}, "a cleared plan records no time");
+});
+
+test("only an approved Ask can be planned", async () => {
+  const e = await setup([
+    req("pending", { status: "sent" }),
+    req("countered", {
+      status: "reviewed",
+      decisions: [{ label: "Massage", decision: "Counter", counter: "Kissing", targetType: "act" }],
+    }),
+  ]);
+  const plannedFor = hoursFromNow(4);
+  const pending = await call(e, "PATCH", { id: "pending", action: "plan", plannedFor, workspaceId: "w1" });
+  const countered = await call(e, "PATCH", { id: "countered", action: "plan", plannedFor, workspaceId: "w1" });
+  assert.equal(pending.status, 409);
+  assert.equal(countered.status, 409);
+  const stored = await readRequests(e);
+  assert.ok(stored.every((r) => !r.plannedFor));
+});
+
+test("plan rejects garbage, far-future and past times", async () => {
+  const e = await setup([req("r1", { status: "on_deck", decisions: [YES_ACT] })]);
+  for (const plannedFor of ["not a date", hoursFromNow(24 * 90), hoursFromNow(-24)]) {
+    const res = await call(e, "PATCH", { id: "r1", action: "plan", plannedFor, workspaceId: "w1" });
+    assert.equal(res.status, 400, `expected 400 for ${plannedFor}`);
+  }
+  assert.equal((await readRequests(e)).find((r) => r.id === "r1").plannedFor, undefined);
+});
+
+test("a non-participant member cannot plan an Ask", async () => {
+  const e = await setup(
+    [req("r1", { status: "on_deck", decisions: [YES_ACT] })],
+    [{ email: THIRD, role: "partner", status: "active", displayName: "Third" }],
+  );
+  const res = await callAs(e, THIRD, "PATCH", { id: "r1", action: "plan", plannedFor: hoursFromNow(5), workspaceId: "w1" });
+  assert.equal(res.status, 403);
+});
+
+test("a plan keeps a Tonight Ask alive past its timing window until the planned day ends", async () => {
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+  const e = await setup([
+    req("planned", {
+      status: "on_deck",
+      decisions: [YES_ACT],
+      sentAt: threeDaysAgo,
+      createdAt: threeDaysAgo,
+      plannedFor: hoursFromNow(48),
+    }),
+    req("unplanned", {
+      status: "on_deck",
+      decisions: [YES_ACT],
+      sentAt: threeDaysAgo,
+      createdAt: threeDaysAgo,
+    }),
+    req("plan-passed", {
+      status: "on_deck",
+      decisions: [YES_ACT],
+      sentAt: threeDaysAgo,
+      createdAt: threeDaysAgo,
+      plannedFor: new Date(Date.now() - 2.5 * 24 * 60 * 60 * 1000).toISOString(),
+    }),
+  ]);
+
+  const res = await board({ request: new Request("http://localhost/api/request-board?workspaceId=w1"), env: e });
+  const body = await res.json();
+  assert.equal(body.activeRequests.find((r) => r.id === "planned")?.status, "on_deck");
+  assert.equal(body.history.find((r) => r.id === "unplanned")?.status, "expired");
+  assert.equal(body.history.find((r) => r.id === "plan-passed")?.status, "expired",
+    "a plan only extends the window through its own day");
+});
+
+test("migrate drops an invalid stored plannedFor", async () => {
+  const e = await setup([req("r1", { status: "on_deck", decisions: [YES_ACT], plannedFor: "soon-ish", plannedByEmail: ME })]);
+  const res = await board({ request: new Request("http://localhost/api/request-board?workspaceId=w1"), env: e });
+  const body = await res.json();
+  const row = body.activeRequests.find((r) => r.id === "r1");
+  assert.equal(row.plannedFor, undefined);
+  assert.equal(row.plannedByEmail, undefined);
 });

@@ -320,7 +320,8 @@ export default function PwaBridge() {
     && environment.mobileLike
     && !environment.embedded
     && !installDismissed;
-  const installLabel = installPrompt ? "Install app" : environment?.iosSafari ? "Add to Home Screen" : "Install help";
+  // Short labels: the pill has to fit a 360px screen without truncating.
+  const installLabel = installPrompt ? "Install" : "Show me";
   const installHelpTitle = environment?.iosSafari ? "Add Sexualsync to Home Screen" : "Install Sexualsync";
   const installHelpSteps = environment?.iosSafari
     ? ["Tap Share in Safari.", "Choose Add to Home Screen.", "Open Sexualsync from the new Home Screen icon."]
@@ -353,9 +354,9 @@ export default function PwaBridge() {
     <>
       {showInstallPrompt && (
         <div className="pwa-install-pill" role="status" aria-live="polite">
-          <span>Better from your Home Screen</span>
+          <span>Best on your Home Screen</span>
           <button type="button" className="pressable" onClick={installApp} disabled={installing}>
-            {installing ? "Opening..." : installLabel}
+            {installing ? "Opening…" : installLabel}
           </button>
           <button
             type="button"
@@ -363,7 +364,9 @@ export default function PwaBridge() {
             onClick={dismissInstall}
             aria-label="Dismiss install prompt"
           >
-            Close
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
       )}

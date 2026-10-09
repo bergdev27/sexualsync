@@ -18,6 +18,7 @@ import type {
   HealthResponse,
   Workspace,
 } from "@/lib/types";
+import "./health.css";
 
 const RANGES: Array<{ id: HealthRangeId; label: string }> = [
   { id: "30d", label: "30d" },
@@ -73,7 +74,7 @@ export default function HealthPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/space" className="text-ink-3">‹ Space</Link>}
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Health"
         subtitle="Approved Asks and Pile overlaps count as sex."
@@ -113,8 +114,8 @@ function Body({
     return (
       <ErrorState
         title="No partner space yet"
-        body="Health is scoped to a shared space."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        body="Health is scoped to a shared room."
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -279,7 +280,7 @@ function Balance({ health }: { health: HealthResponse }) {
         </article>
       </div>
       {health.insights.newActs.length > 0 && (
-        <div className="health-chip-row" aria-label="New Acts">
+        <div className="health-chip-row" role="group" aria-label="New Acts">
           {health.insights.newActs.slice(0, 4).map((act) => (
             <span key={act.label} className="chip-primary">First time: {act.label}</span>
           ))}
@@ -316,7 +317,8 @@ function SourceHistory({ events }: { events: HealthEvent[] }) {
               <strong>{event.title}</strong>
               <span>{formatDate(event.at)} · {event.acts.length} Act{event.acts.length === 1 ? "" : "s"}</span>
             </span>
-            <span className="health-event-acts" aria-label={event.acts.join(", ")}>
+            {/* The emoji row reads as one image named by the act list. */}
+            <span className="health-event-acts" role="img" aria-label={event.acts.join(", ")}>
               {eventActSummaries(event).slice(0, 4).map((act, index) => (
                 <span key={`${event.id}-${act.label}-${index}`} className="health-act-emoji" title={act.label}>
                   {act.emoji}

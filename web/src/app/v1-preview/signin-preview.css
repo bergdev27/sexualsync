@@ -1,3 +1,99 @@
+/* ── Route styles moved from globals.css. They come first because they loaded
+   before this file's own rules when they lived in globals.css. ── */
+
+.signin-header {
+  position: relative;
+  z-index: var(--z-raised-2);
+  padding: max(58px, calc(28px + var(--safe-area-top))) 22px 0;
+}
+
+.signin-ribbon {
+  width: min(52vw, 200px);
+  max-width: 100%;
+  height: auto;
+  overflow: visible;
+  animation: signin-ribbon-breathe 6.4s cubic-bezier(0.45, 0, 0.2, 1) infinite alternate;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.signin-ribbon-glow {
+  animation: signin-glow-breathe 6.4s ease-in-out infinite alternate;
+  opacity: 0.42;
+  transform-origin: 50px 25px;
+  transform-box: fill-box;
+  will-change: transform;
+}
+
+/* The line keeps one static glow; only its opacity breathes. The soft
+   swell comes from .signin-ribbon-glow underneath, so no stroke-width or
+   filter is re-rasterised per frame. */
+
+.signin-ribbon-line {
+  animation: signin-stroke-breathe 6.4s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 10px var(--accent-fog));
+  stroke-width: 1.36;
+  transform-origin: 50px 25px;
+  transform-box: fill-box;
+  vector-effect: non-scaling-stroke;
+}
+
+.signin-ribbon-trace {
+  opacity: 0.72;
+  stroke-dasharray: 34 216;
+  stroke-dashoffset: 0;
+  filter: drop-shadow(0 0 11px var(--accent-fog));
+  vector-effect: non-scaling-stroke;
+  animation: signin-trace-orbit 4.2s linear infinite;
+}
+
+@keyframes signin-ribbon-breathe {
+  0% {
+    transform: translateY(1px) scale(0.994);
+  }
+  100% {
+    transform: translateY(-1px) scale(1.01);
+  }
+}
+
+@keyframes signin-glow-breathe {
+  0% {
+    opacity: 0.34;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 0.68;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes signin-stroke-breathe {
+  0% { opacity: 0.78; }
+  100% { opacity: 1; }
+}
+
+@keyframes signin-trace-orbit {
+  0% {
+    opacity: 0.32;
+    stroke-dashoffset: 0;
+  }
+  16% {
+    opacity: 0.96;
+  }
+  50% {
+    opacity: 0.88;
+  }
+  84% {
+    opacity: 0.38;
+  }
+  100% {
+    opacity: 0.32;
+    stroke-dashoffset: -250;
+  }
+}
+
+/* ── signin-preview.css ── */
+
 /* ───────────────────────────────────────────────────────────────
    Sign-in mockups (dev-only). Three variants live under
    /v1-preview/signin-a, -b, -c. Selectors are scoped by variant
@@ -10,7 +106,7 @@
   top: max(14px, calc(8px + var(--safe-area-top, 0px)));
   left: 50%;
   transform: translateX(-50%);
-  z-index: 12;
+  z-index: var(--z-sticky);
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -22,10 +118,8 @@
   box-shadow: var(--ring-hairline-strong, inset 0 0 0 1px var(--hairline-strong));
   backdrop-filter: blur(10px);
   color: var(--cream-muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   white-space: nowrap;
   pointer-events: none;
 }
@@ -36,7 +130,7 @@
 
 .preview-switcher {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   margin-top: 30px;
   padding: 0 22px 28px;
   display: flex;
@@ -44,10 +138,8 @@
   gap: 8px;
 }
 .preview-switcher a {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-12);
   color: var(--cream-faint);
   text-decoration: none;
   padding: 7px 12px;
@@ -76,7 +168,7 @@
    ═══════════════════════════════════════════════════════════════ */
 .pa-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   width: 100%;
   min-width: 0;
   min-height: calc(100dvh - 90px);
@@ -105,17 +197,15 @@
 }
 .pa-eyebrow {
   display: inline-block;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   color: var(--gold);
   opacity: 0.78;
   margin: 0 0 14px;
 }
 .pa-headline {
   margin: 0;
-  font-size: 52px;
+  font-size: var(--fs-48);
   line-height: 0.96;
   letter-spacing: -0.01em;
 }
@@ -126,10 +216,9 @@
   margin: 18px auto 0;
   max-width: 30ch;
   color: var(--cream-muted);
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 400;
-  font-size: 17px;
+  font-size: var(--fs-17);
   line-height: 1.45;
 }
 
@@ -147,12 +236,12 @@
   border: 1px solid transparent;
   background:
     linear-gradient(180deg,
-      rgba(243, 220, 217, 0.07) 0%,
-      rgba(243, 220, 217, 0.02) 100%);
+      var(--cream-a08) 0%,
+      var(--cream-a02) 100%);
   background-clip: padding-box;
   color: var(--cream);
   font-family: var(--body);
-  font-size: 15px;
+  font-size: var(--fs-15);
   font-weight: 500;
   letter-spacing: 0.005em;
   display: inline-flex;
@@ -172,8 +261,8 @@
 .pa-cta:hover {
   background:
     linear-gradient(180deg,
-      rgba(243, 220, 217, 0.10) 0%,
-      rgba(243, 220, 217, 0.03) 100%);
+      var(--cream-a10) 0%,
+      var(--cream-a02) 100%);
   border-color: transparent;
   box-shadow:
     var(--ring-accent-fog, inset 0 0 0 1px var(--accent-fog)),
@@ -189,10 +278,9 @@
   place-items: center;
   background: var(--cream);
   color: var(--ink);
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-13);
   line-height: 1;
   padding-bottom: 1px;
 }
@@ -200,7 +288,7 @@
 .pa-foot {
   margin: 26px 0 0;
   color: var(--cream-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   letter-spacing: 0.02em;
   text-align: center;
 }
@@ -217,7 +305,7 @@
    ═══════════════════════════════════════════════════════════════ */
 .pb-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   width: 100%;
   min-width: 0;
   min-height: calc(100dvh - 90px);
@@ -230,10 +318,8 @@
 .pb-eyebrow {
   display: block;
   text-align: center;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.36em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   color: var(--gold);
   opacity: 0.82;
   margin: 0 0 16px;
@@ -241,7 +327,7 @@
 .pb-headline {
   margin: 0;
   text-align: center;
-  font-size: 46px;
+  font-size: var(--fs-48);
   line-height: 0.98;
   letter-spacing: -0.012em;
 }
@@ -295,7 +381,7 @@
   font-family: var(--display);
   font-style: italic;
   font-weight: 500;
-  font-size: 22px;
+  font-size: var(--fs-24);
   line-height: 1.15;
   color: var(--cream);
 }
@@ -303,7 +389,7 @@
   margin: 0 auto 22px;
   max-width: 30ch;
   color: var(--cream-muted);
-  font-size: 14px;
+  font-size: var(--fs-15);
   line-height: 1.5;
 }
 .pb-cta {
@@ -315,7 +401,7 @@
   background: var(--accent);
   color: var(--ink);
   font-family: var(--body);
-  font-size: 14.5px;
+  font-size: var(--fs-15);
   font-weight: 600;
   letter-spacing: 0.01em;
   display: inline-flex;
@@ -339,10 +425,9 @@
   place-items: center;
   background: var(--ink);
   color: var(--accent);
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 1;
   padding-bottom: 1px;
 }
@@ -358,7 +443,7 @@
 .pb-ghost {
   display: inline-block;
   font-family: var(--body);
-  font-size: 12.5px;
+  font-size: var(--fs-13);
   letter-spacing: 0.02em;
   color: var(--cream-faint);
   text-decoration: none;
@@ -376,7 +461,7 @@
   margin: 26px 0 0;
   text-align: center;
   color: var(--cream-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   letter-spacing: 0.02em;
 }
 .pb-foot a { color: var(--cream-muted); text-decoration: none; }
@@ -390,7 +475,7 @@
    ═══════════════════════════════════════════════════════════════ */
 .pc-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   width: 100%;
   min-width: 0;
   min-height: calc(100dvh - 90px);
@@ -415,7 +500,7 @@
 }
 .pc-headline {
   margin: 0;
-  font-size: 32px;
+  font-size: var(--fs-30);
   line-height: 1.02;
   letter-spacing: -0.008em;
 }
@@ -423,7 +508,7 @@
   margin: 12px auto 0;
   max-width: 32ch;
   color: var(--cream-muted);
-  font-size: 14.5px;
+  font-size: var(--fs-15);
   line-height: 1.45;
 }
 
@@ -467,10 +552,9 @@
 }
 .pc-tile-title {
   margin: 1px 0 4px;
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 500;
-  font-size: 17px;
+  font-size: var(--fs-17);
   line-height: 1.1;
   color: var(--cream);
   letter-spacing: -0.005em;
@@ -478,7 +562,7 @@
 .pc-tile-body {
   margin: 0;
   color: var(--cream-muted);
-  font-size: 13.5px;
+  font-size: var(--fs-13);
   line-height: 1.45;
 }
 
@@ -498,7 +582,7 @@
   background: var(--accent);
   color: var(--ink);
   font-family: var(--body);
-  font-size: 14.5px;
+  font-size: var(--fs-15);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -519,10 +603,9 @@
   place-items: center;
   background: var(--ink);
   color: var(--accent);
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 1;
   padding-bottom: 1px;
 }
@@ -530,7 +613,7 @@
   margin: 16px 0 0;
   text-align: center;
   color: var(--cream-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   letter-spacing: 0.02em;
 }
 .pc-foot a { color: var(--cream-muted); text-decoration: none; }
@@ -541,7 +624,7 @@
    ═══════════════════════════════════════════════════════════════ */
 .preview-index-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   padding: 18px 22px 34px;
 }
 .preview-index-lede {
@@ -553,7 +636,7 @@
   font-family: var(--display);
   font-style: italic;
   font-weight: 500;
-  font-size: 26px;
+  font-size: var(--fs-24);
   line-height: 1.1;
   color: var(--cream);
 }
@@ -561,7 +644,7 @@
   margin: 8px auto 0;
   max-width: 32ch;
   color: var(--cream-muted);
-  font-size: 14px;
+  font-size: var(--fs-15);
   line-height: 1.45;
 }
 .preview-index-list {
@@ -593,10 +676,8 @@
 }
 .preview-index-card:active { transform: scale(0.99); }
 .preview-index-card kbd {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-12);
   color: var(--accent);
   background: transparent;
   border: 0;
@@ -607,23 +688,21 @@
   font-family: var(--display);
   font-style: italic;
   font-weight: 500;
-  font-size: 20px;
+  font-size: var(--fs-20);
   line-height: 1.15;
   color: var(--cream);
 }
 .preview-index-card p {
   margin: 0;
   color: var(--cream-muted);
-  font-size: 13.5px;
+  font-size: var(--fs-13);
   line-height: 1.45;
 }
 .preview-index-back {
   display: inline-block;
   margin-top: 18px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-12);
   color: var(--cream-faint);
   text-decoration: none;
 }

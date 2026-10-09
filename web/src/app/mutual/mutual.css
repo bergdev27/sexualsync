@@ -1,0 +1,609 @@
+/* Styles only /mutual renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.mutual-stage {
+  position: fixed;
+  inset: 0 auto 0 50%;
+  z-index: var(--z-raised-2);
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 440px);
+  height: 100vh;
+  height: 100dvh;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+.match-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: calc(var(--safe-area-top) + clamp(28px, 8svh, 80px)) var(--space-6) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  scroll-padding-bottom: var(--space-6);
+}
+
+/* ── The ribbon ─────────────────────────────────────────────────────────── */
+
+.mutual-mark {
+  position: relative;
+  display: grid;
+  flex: 0 0 auto;
+  width: 168px;
+  height: 84px;
+  place-items: center;
+  color: var(--accent);
+}
+
+.match-ribbon {
+  position: relative;
+  z-index: var(--z-raised);
+  display: block;
+  overflow: visible;
+  transform-origin: 50% 50%;
+}
+
+.match-stroke {
+  stroke-dasharray: none;
+}
+
+.match-stroke--b {
+  opacity: 0.86;
+}
+
+.match-bloom,
+.match-ring,
+.match-spark {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Resting glow behind the closed loop. */
+
+.match-bloom {
+  inset: -70% -30%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(var(--accent-rgb) / 0.34), rgb(var(--accent-rgb) / 0.1) 55%, transparent 100%);
+  opacity: 0.55;
+}
+
+.match-ring {
+  top: 50%;
+  left: 50%;
+  width: 72px;
+  height: 72px;
+  margin: -36px 0 0 -36px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--accent-fog);
+  opacity: 0;
+}
+
+/* The flash where the two strokes cross. */
+
+.match-spark {
+  top: 50%;
+  left: 50%;
+  z-index: var(--z-raised-2);
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(var(--cream-rgb) / 0.95), rgb(var(--accent-rgb) / 0.7) 45%, transparent);
+  opacity: 0;
+}
+
+.match-mark--quiet {
+  color: var(--accent-soft);
+}
+
+.match-mark--quiet .match-ribbon {
+  opacity: 0.7;
+}
+
+/* ── Copy ───────────────────────────────────────────────────────────────── */
+
+.mutual-eyebrow {
+  margin: var(--space-5) 0 0;
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+/* Focus lands here programmatically so screen readers start on the result;
+   it is not a control, so it never draws a ring. */
+
+.mutual-title:focus,
+.mutual-title:focus-visible {
+  outline: none;
+}
+
+.match-acts {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.match-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  max-width: 100%;
+  min-width: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-30);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+/* Four or more matched Acts step down one size so the list stays a list. */
+
+.match-acts:has(> :nth-child(4)) .match-act {
+  font-size: var(--fs-24);
+}
+
+.match-act-emoji {
+  flex: 0 0 auto;
+  font-family: var(--body);
+  font-size: var(--fs-30);
+  font-style: normal;
+  line-height: 1;
+}
+
+.match-acts:has(> :nth-child(4)) .match-act-emoji {
+  font-size: var(--fs-24);
+}
+
+.match-act--count {
+  color: var(--cream-muted);
+}
+
+.match-when {
+  margin: var(--space-4) 0 0;
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.match-when-time {
+  color: var(--cream);
+  font-weight: 600;
+}
+
+.match-when-time.is-planned {
+  color: var(--accent);
+}
+
+.mutual-narration {
+  max-width: 28ch;
+  margin: var(--space-6) auto 0;
+  color: rgb(var(--cream-rgb) / 0.86);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+.mutual-narration--fallback {
+  color: rgb(var(--cream-rgb) / 0.78);
+}
+
+/* Notes around the match: one panel, rows split by hairlines (no nesting). */
+
+.mutual-note {
+  display: grid;
+  width: 100%;
+  max-width: 34ch;
+  margin: var(--space-6) auto 0;
+  padding: var(--space-1) var(--space-5);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--ring-hairline);
+  text-align: left;
+}
+
+.match-note {
+  margin: 0;
+  padding: var(--space-4) 0;
+}
+
+.match-note + .match-note {
+  border-top: 1px solid var(--hairline);
+}
+
+.mutual-note-text {
+  margin: 0;
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-17);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mutual-note-label {
+  margin-top: var(--space-2);
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  line-height: 1.35;
+}
+
+.mutual-note-act {
+  color: var(--cream-faint);
+}
+
+.match-pass:hover {
+  background: var(--cream-a06);
+  color: var(--cream);
+}
+
+.match-pass:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.match-pass:disabled {
+  cursor: not-allowed;
+  color: var(--cream-faint);
+}
+
+.mutual-error {
+  max-width: 32ch;
+  margin: var(--space-3) auto 0;
+  color: rgb(var(--no-rgb));
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  line-height: 1.35;
+}
+
+/* ── Dock: the next taps, pinned to the thumb zone ─────────────────────── */
+
+.match-dock {
+  position: relative;
+  z-index: var(--z-raised-2);
+  flex: 0 0 auto;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) calc(var(--safe-area-bottom) + var(--space-4));
+  background: linear-gradient(to bottom, rgb(var(--bg-rgb) / 0), rgb(var(--bg-rgb) / 0.94) 22px);
+  text-align: center;
+}
+
+.match-secondary-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.match-secondary-row--lead {
+  grid-template-columns: 1fr;
+}
+
+.match-secondary.cta-primary {
+  font-weight: 600;
+}
+
+/* Planned state: the plan itself is the control that changes it. */
+
+.match-planned-change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 58px;
+  padding: var(--space-2) var(--space-5);
+  border: 0;
+  border-radius: var(--r-lg);
+  background: var(--accent-mist);
+  box-shadow: var(--ring-accent-fog);
+  color: var(--cream);
+  font-family: var(--body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.match-planned-change:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.match-planned-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.match-planned-kicker {
+  color: var(--accent);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.match-planned-time {
+  color: var(--cream);
+  font-size: var(--fs-17);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.match-planned-action {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: var(--fs-15);
+  font-weight: 500;
+}
+
+/* Plan picker (inline in the dock, not a modal). */
+
+.match-plan {
+  display: grid;
+  gap: var(--space-3);
+  text-align: left;
+  animation: match-plan-in var(--dur-route) var(--ease-enter) both;
+}
+
+.match-plan-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.match-plan-legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.match-plan-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.match-plan-option input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.match-plan-option[data-checked] {
+  background: var(--accent-mist);
+  box-shadow: var(--ring-accent);
+}
+
+.match-plan-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.match-plan-option-label {
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.match-plan-option-hint {
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+.match-plan-option[data-checked] .match-plan-option-hint {
+  color: var(--accent);
+}
+
+.match-plan-custom {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.match-plan-custom-label {
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.match-plan-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--cream);
+  color-scheme: dark;
+  font-family: var(--body);
+  font-size: var(--fs-17);
+  font-variant-numeric: tabular-nums;
+}
+
+.match-plan-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.match-plan-actions {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: var(--space-2);
+}
+
+.match-plan-actions .match-secondary,
+.match-plan-actions .match-cta {
+  min-height: 52px;
+}
+
+.match-plan-error {
+  margin: 0;
+  text-align: center;
+}
+
+.match-plan-clear {
+  justify-self: center;
+  margin-top: 0;
+}
+
+/* ── The reveal (full) ──────────────────────────────────────────────────── */
+
+/* Two strokes leave opposite tips, cross at the centre (~430ms) and close the
+   loop (~800ms). The in-out curve makes the crossing the fastest point. */
+
+.match-moment[data-reveal="full"] .match-stroke {
+  stroke-dasharray: 100;
+  animation: match-draw 720ms cubic-bezier(0.65, 0, 0.35, 1) 80ms both;
+}
+
+.match-moment[data-reveal="full"] .match-stroke--b {
+  animation:
+    match-draw 720ms cubic-bezier(0.65, 0, 0.35, 1) 80ms both,
+    match-merge 720ms linear 80ms both;
+}
+
+.match-moment[data-reveal="full"] .match-spark {
+  animation: match-spark 560ms var(--ease-enter) 370ms both;
+}
+
+.match-moment[data-reveal="full"] .match-ribbon {
+  animation: match-land 560ms var(--ease-settle) 780ms both;
+}
+
+.match-moment[data-reveal="full"] .match-bloom {
+  animation: match-bloom 900ms var(--ease-enter) 700ms both;
+}
+
+.match-moment[data-reveal="full"] .match-ring {
+  animation: match-ring 1000ms var(--ease-enter) 790ms both;
+}
+
+.match-moment[data-reveal="full"] .mutual-eyebrow {
+  animation: match-rise 380ms var(--ease-enter) 300ms both;
+}
+
+.match-moment[data-reveal="full"] .mutual-title {
+  animation: match-open 640ms var(--ease-enter) 330ms both;
+}
+
+.match-moment[data-reveal="full"] .match-act-emoji {
+  animation: match-pop 560ms var(--ease-enter) calc(700ms + var(--i, 0) * 90ms) both;
+}
+
+.match-moment[data-reveal="full"] .match-act-name {
+  animation: match-rise 520ms var(--ease-enter) calc(740ms + var(--i, 0) * 90ms) both;
+}
+
+.match-moment[data-reveal="full"] .match-when {
+  animation: match-rise 420ms var(--ease-enter) 1000ms both;
+}
+
+.match-moment[data-reveal="full"] .mutual-narration {
+  animation: match-rise 460ms var(--ease-enter) 1080ms both;
+}
+
+.match-moment[data-reveal="full"] .mutual-note,
+.match-moment[data-reveal="full"] .match-pass {
+  animation: match-rise 460ms var(--ease-enter) 1180ms both;
+}
+
+.match-moment[data-reveal="full"] .match-dock > * {
+  animation: match-rise 420ms var(--ease-enter) 1120ms both;
+}
+
+/* Repeat visit to the same match: the loop is already closed, the rest
+   settles in quickly. */
+
+.match-moment[data-reveal="brief"] .match-scroll > :not(.mutual-mark),
+.match-moment[data-reveal="brief"] .match-dock > * {
+  animation: match-fade 280ms var(--ease-enter) both;
+}
+
+/* Arrived by a shared-element morph: the hero is already moving in. */
+
+.match-moment[data-morph="1"] .match-hero,
+.match-moment[data-morph="1"] .match-hero * {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .match-moment *,
+  .match-moment *::before,
+  .match-moment *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .match-stroke {
+    stroke-dasharray: none !important;
+  }
+}
+
+@keyframes match-plan-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes match-draw {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes match-merge {
+  0%, 82% { opacity: 0.55; }
+  100% { opacity: 0.86; }
+}
+
+@keyframes match-land {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+@keyframes match-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes match-open {
+  from { opacity: 0.25; clip-path: inset(-25% 50% -25% 50%); }
+  to { opacity: 1; clip-path: inset(-25% -6% -25% -6%); }
+}
+
+@keyframes match-pop {
+  from { opacity: 0; transform: scale(0.55); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes match-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

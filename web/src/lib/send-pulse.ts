@@ -1,7 +1,11 @@
 /* fireSendPulse — visual-only send confirmation. Self-mounting overlay
    that fires one glowing rose orb up a curved sync-wave path from an
    origin point, then cleans itself up. Optionally fades in a confirm
-   message after the orb exits. Framework-agnostic, SSR-safe. */
+   message after the orb exits. Framework-agnostic, SSR-safe. The layer is
+   aria-hidden, so the confirm words go to screen readers through the
+   app-level announcer instead. */
+
+import { announce } from "./announce";
 
 type PulseOrigin = HTMLElement | { x: number; y: number };
 
@@ -104,6 +108,7 @@ export function fireSendPulse(origin?: PulseOrigin, options?: PulseOptions): Pro
     const headline = document.createElement("p");
     headline.className = "ss-send-pulse-confirm-headline";
     headline.textContent = confirm.headline;
+    announce(confirm.sub ? `${confirm.headline} ${confirm.sub}.` : confirm.headline);
     confirmEl.appendChild(headline);
     if (confirm.sub) {
       const sub = document.createElement("p");

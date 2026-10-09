@@ -193,3 +193,26 @@ test("3+ active members never reveal (ambiguous-partner defense)", async () => {
   assert.deepEqual(view.matches, [], "no overlap exposed with 3+ members");
   assert.equal(view.partnerRatings, null);
 });
+
+test("a game submit sends the partner a content-free live hint", async () => {
+  const e = await setup();
+  const broadcasts = [];
+  e.ROOMS = {
+    idFromName: (name) => name,
+    get: () => ({
+      async fetch(request) {
+        if (new URL(request.url).pathname === "/broadcast") broadcasts.push(await request.json());
+        return new Response("{}", { status: 200 });
+      },
+    }),
+  };
+  await submitAs(quizRequest, e, PARTNER, { ratings: { c1: { interest: "into" } }, topPicks: ["c1"] });
+  await submitAs(glRequest, e, PARTNER, { answers: { q1: { value: "agree" } } });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const hints = broadcasts.filter((b) => b.resource === "sex-quiz" || b.resource === "green-lights");
+  assert.deepEqual(hints.map((b) => [b.resource, b.action, b.passive]), [["sex-quiz", "submitted", true], ["green-lights", "submitted", true]]);
+  for (const hint of hints) {
+    assert.equal(hint.actorEmail, PARTNER);
+    assert.ok(!JSON.stringify(hint).includes("into") && !JSON.stringify(hint).includes("agree"), "no answers in the hint");
+  }
+});

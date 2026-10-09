@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
@@ -17,6 +16,7 @@ import type {
   AdminSystemServiceStatus,
   FeedbackSentiment,
 } from "@/lib/types";
+import "./admin.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -93,9 +93,9 @@ export default function AdminPage() {
   }, []);
 
   return (
-    <AppShell hideTabBar>
+    <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/space" className="text-ink-3">‹ Space</Link>}
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Admin"
         subtitle={state.kind === "ready" ? `Updated ${formatDateTime(state.dashboard.generatedAt)}` : "Feedback and product stats."}

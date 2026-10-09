@@ -1,17 +1,19 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import AskReplyForm, { type ReplyDecisionPayload } from "@/components/AskReplyForm";
+import AskReplyCard, { type ReplyDecisionPayload, type ReplyKind } from "@/components/AskReplyCard";
+import AskSummaryCard from "@/components/AskSummaryCard";
 import ScreenHeader from "@/components/ScreenHeader";
-import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
+import { EmptyState, ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
-import { splitActLabel } from "@/lib/act-label";
-import { lastRequestEventAt, mutualAskHref } from "@/lib/activity";
+import { mutualAskHref } from "@/lib/activity";
+import { announce } from "@/lib/announce";
 import { currentTimingLabel, isApprovedSexActRequest, requestCounterItems, timingCopyForRequest } from "@/lib/request-state";
 import {
+  ApiOfflineQueuedError,
   ApiUnauthorizedError,
   createAct,
   getActs,
@@ -25,10 +27,11 @@ import { getProfileCached } from "@/lib/profile-cache";
 import { hasUnlockedRoomE2eeKey, restoreRoomE2eeSession, setRoomE2eeEnabled } from "@/lib/room-crypto";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { useDayRollover } from "@/lib/use-day-rollover";
+import { useNow } from "@/lib/use-now";
+import "../ask-reply.css";
 import type {
   Act,
   AuthInfo,
-  DecisionItem,
   ProfileResponse,
   RequestBoardResponse,
   RequestRecord,
@@ -36,11 +39,12 @@ import type {
 } from "@/lib/types";
 
 type RequestAction = "revoke" | "accept_counter" | "archive" | "pass" | "restore";
-type BusyAction = RequestAction | "reply" | "remind" | "maybe";
+type BusyAction = RequestAction | "remind";
+type ReplyResultState = { kind: ReplyKind; queued: boolean };
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; error?: unknown }
   | { kind: "unauthorized" }
   | { kind: "no-workspace" }
   | {
@@ -67,6 +71,9 @@ function AskDetail() {
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [busyAction, setBusyAction] = useState<BusyAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Set once this screen sends a reply: the calm confirmation that replaces
+  // the reply card (a mutual yes hands off to /mutual instead).
+  const [replyResult, setReplyResult] = useState<ReplyResultState | null>(null);
   // Cheap guard so a live-room push doesn't refetch while a reload it
   // triggered is still in flight (useLiveRoomReload also debounces, but a
   // visibility flip can race with it).
@@ -119,7 +126,7 @@ function AskDetail() {
           setState({ kind: "unauthorized" });
           return;
         }
-        setState({ kind: "error", message: error instanceof Error ? error.message : "Couldn't load this Ask." });
+        setState({ kind: "error", message: error instanceof Error ? error.message : "", error });
       }
     })();
     return () => {
@@ -158,17 +165,20 @@ function AskDetail() {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [state.kind, onLiveReload]);
 
-  // H6: retry wired into the error ErrorState. Resets to the skeleton, then
-  // re-runs the same load + error mapping as the initial mount.
-  const retryLoad = useCallback(() => {
-    setState({ kind: "loading" });
-    load().catch((error) => {
+  // H6: retry wired into the error state (LoadErrorState also calls it on
+  // reconnect / return to the foreground). Re-runs the same load + error
+  // mapping as the initial mount; the card shows its own busy state, so no
+  // flash back to the skeleton.
+  const retryLoad = useCallback(async () => {
+    try {
+      await load();
+    } catch (error) {
       if (error instanceof ApiUnauthorizedError) {
         setState({ kind: "unauthorized" });
         return;
       }
-      setState({ kind: "error", message: error instanceof Error ? error.message : "Couldn't load this Ask." });
-    });
+      setState({ kind: "error", message: error instanceof Error ? error.message : "", error });
+    }
   }, [load]);
 
   async function runAction(action: RequestAction) {
@@ -238,14 +248,16 @@ function AskDetail() {
     }
   }
 
+  // Throws on failure so the reply card can show the error and stay put. A
+  // write that lands in the offline queue counts as sent: the card hands over
+  // to the result state with an optimistic copy of the answer.
   async function runMaybe() {
     if (state.kind !== "ready" || !requestId) return;
-    setBusyAction("maybe");
-    setActionError(null);
+    const current = state;
     try {
-      const result = await maybeAsk({ workspaceId: state.workspace.id, id: requestId });
+      const result = await maybeAsk({ workspaceId: current.workspace.id, id: requestId });
       setState({
-        ...state,
+        ...current,
         board: {
           workspaceId: result.workspaceId,
           requests: result.requests,
@@ -253,42 +265,52 @@ function AskDetail() {
           history: result.history,
         },
       });
+      setReplyResult({ kind: "maybe", queued: false });
       if (navigator.vibrate) navigator.vibrate(6);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Couldn't save your maybe.");
-    } finally {
-      setBusyAction(null);
+      if (error instanceof ApiOfflineQueuedError) {
+        setState(withLocalRequest(current, requestId, { status: "maybe", maybeAt: new Date().toISOString() }));
+        setReplyResult({ kind: "maybe", queued: true });
+        return;
+      }
+      throw new Error(error instanceof Error && error.message ? error.message : "Couldn't save your maybe.");
     }
   }
 
-  async function runReply(decisions: ReplyDecisionPayload[], note: string) {
+  async function runReply(decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) {
     if (state.kind !== "ready" || !requestId) return;
-    setBusyAction("reply");
-    setActionError(null);
-    try {
-      // Room Encryption: a reply in an E2EE room must be encrypted client-side,
-      // which needs the room key unlocked this session. The gate normally
-      // guarantees that, but the in-memory key can be dropped (full reload,
-      // background relock). Mirror the create flow (ask/page.tsx runSend): re-
-      // check, try to restore the session, and re-arm the passphrase gate —
-      // otherwise the server silently 400s the reply and the user dead-ends.
-      const requiresE2ee = Boolean(state.workspace.settings?.roomE2eeEnabled);
-      if (requiresE2ee && !hasUnlockedRoomE2eeKey(state.workspace.id)) {
-        const restored = await restoreRoomE2eeSession(state.workspace.id);
-        if (!restored) {
-          setRoomE2eeEnabled(state.workspace.id, true);
-          setActionError("Unlock Room Encryption to send this reply.");
-          return;
-        }
+    const current = state;
+    // Room Encryption: a reply in an E2EE room must be encrypted client-side,
+    // which needs the room key unlocked this session. The gate normally
+    // guarantees that, but the in-memory key can be dropped (full reload,
+    // background relock). Mirror the create flow (ask/page.tsx runSend): re-
+    // check, try to restore the session, and re-arm the passphrase gate —
+    // otherwise the server silently 400s the reply and the user dead-ends.
+    const requiresE2ee = Boolean(current.workspace.settings?.roomE2eeEnabled);
+    if (requiresE2ee && !hasUnlockedRoomE2eeKey(current.workspace.id)) {
+      const restored = await restoreRoomE2eeSession(current.workspace.id);
+      if (!restored) {
+        setRoomE2eeEnabled(current.workspace.id, true);
+        throw new Error("Unlock Room Encryption to send this reply.");
       }
+    }
+    try {
       const result = await replyToRequest({
-        workspaceId: state.workspace.id,
+        workspaceId: current.workspace.id,
         id: requestId,
         decisions,
         note,
       });
+      if (navigator.vibrate) navigator.vibrate(8);
+      const answered = result.request || result.requests.find((item) => item.id === requestId);
+      // A plain yes makes the Ask agreed: hand off to the match moment, the
+      // same place the Sexboard routes an agreed Ask.
+      if (kind === "yes" && answered && isApprovedSexActRequest(answered)) {
+        router.push(mutualAskHref(answered.id, answered.categories || [], answered.matchNarration || ""));
+        return;
+      }
       setState({
-        ...state,
+        ...current,
         board: {
           workspaceId: result.workspaceId,
           requests: result.requests,
@@ -296,20 +318,38 @@ function AskDetail() {
           history: result.history,
         },
       });
-      if (navigator.vibrate) navigator.vibrate(8);
+      setReplyResult({ kind, queued: false });
     } catch (error) {
+      if (error instanceof ApiOfflineQueuedError) {
+        const now = new Date().toISOString();
+        setState(withLocalRequest(current, requestId, {
+          status: "reviewed",
+          decisions: decisions.map((item) => ({
+            label: item.label,
+            decision: item.decision,
+            counter: item.counter || "",
+            counterActId: item.counterActId || "",
+            note: item.note || "",
+            targetType: item.targetType || "act",
+            actId: item.actId || "",
+          })),
+          counters: [],
+          feedback: note,
+          reviewedAt: now,
+          updatedAt: now,
+        }));
+        setReplyResult({ kind, queued: true });
+        return;
+      }
       const message = error instanceof Error ? error.message : "";
       // Backstop: local E2EE state read "unlocked" but the authoritative server
       // setting still required encryption and rejected the reply. Re-arm the
       // gate so the user can unlock and resend instead of stranding the reply.
       if (/room encryption requires encrypted/i.test(message)) {
-        setRoomE2eeEnabled(state.workspace.id, true);
-        setActionError("Unlock Room Encryption, then send your reply again.");
-      } else {
-        setActionError(message || "Couldn't send this reply.");
+        setRoomE2eeEnabled(current.workspace.id, true);
+        throw new Error("Unlock Room Encryption, then send your reply again.");
       }
-    } finally {
-      setBusyAction(null);
+      throw new Error(message || "Couldn't send this reply.");
     }
   }
 
@@ -344,8 +384,8 @@ function AskDetail() {
       <DetailShell>
         <ErrorState
           title="No partner space yet"
-          body="Asks are scoped to a shared space."
-          action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+          body="Asks are scoped to a shared room."
+          action={<Link href="/space" className="btn-ghost">Open Us</Link>}
         />
       </DetailShell>
     );
@@ -353,11 +393,7 @@ function AskDetail() {
   if (state.kind === "error") {
     return (
       <DetailShell>
-        <ErrorState
-          title="Couldn't load Ask"
-          body={state.message}
-          action={<button type="button" className="btn-ghost" onClick={retryLoad}>Try again</button>}
-        />
+        <LoadErrorState what="this Ask" error={state.error ?? state.message} onRetry={retryLoad} />
       </DetailShell>
     );
   }
@@ -376,13 +412,15 @@ function AskDetail() {
   }
 
   return (
-    <DetailShell title="Ask detail" subtitle={statusLabel(request.status)}>
+    <DetailShell focused>
       <RequestDetail
         request={request}
         me={state.auth}
         acts={state.acts}
         busyAction={busyAction}
         actionError={actionError}
+        replyResult={replyResult}
+        onClearResult={() => setReplyResult(null)}
         onAction={runAction}
         onRemind={runRemind}
         onReply={runReply}
@@ -394,29 +432,90 @@ function AskDetail() {
   );
 }
 
+type ReadyState = Extract<LoadState, { kind: "ready" }>;
+
+// Replace one Ask in a ready state with a locally patched copy (used when a
+// reply is waiting in the offline queue and the server hasn't echoed it yet).
+function withLocalRequest(current: ReadyState, id: string, patch: Partial<RequestRecord>): ReadyState {
+  const patchOne = (item: RequestRecord) => (item.id === id ? { ...item, ...patch } : item);
+  return {
+    ...current,
+    board: {
+      ...current.board,
+      requests: current.board.requests.map(patchOne),
+      activeRequests: current.board.activeRequests.map(patchOne),
+      history: current.board.history.map(patchOne),
+    },
+  };
+}
+
 function DetailShell({
   children,
-  title = "Ask detail",
-  subtitle,
+  title = "Ask details",
+  focused = false,
 }: {
   children: React.ReactNode;
   title?: string;
-  subtitle?: string;
+  // The Ask itself is on screen: its card carries the page heading, so the
+  // shell drops its own title and wordmark.
+  focused?: boolean;
 }) {
   return (
-    <AppShell hideTabBar>
+    <AppShell>
       <ScreenHeader
-        eyebrow={
-          <Link href="/sexboard" className="ask-detail-back-link pressable" aria-label="Back to Sexboard">
-            <span className="ask-detail-back-arrow" aria-hidden="true">‹</span>
-            <span>Back to Sexboard</span>
-          </Link>
-        }
-        title={title}
-        subtitle={subtitle}
+        back={{ href: "/sexboard", label: "Sexboard" }}
+        showBrand={false}
+        title={focused ? undefined : title}
       />
       {children}
     </AppShell>
+  );
+}
+
+const RESULT_COPY: Record<ReplyKind, { title: string; body: (partner: string, timing: string) => string }> = {
+  yes: { title: "Yes sent.", body: (partner) => `${partner} will see it next time they look.` },
+  pass: { title: "Passed.", body: (partner) => `${partner} gets a quiet heads-up. No reason needed.` },
+  maybe: { title: "Saved as a maybe.", body: (_partner, timing) => `It stays open, and comes back to you closer to ${timing}.` },
+  counter: { title: "Counter sent.", body: (partner) => `${partner} can take it or ask again.` },
+};
+
+function ReplyResult({
+  result,
+  partnerName,
+  timingCopy,
+  onDecideNow,
+}: {
+  result: ReplyResultState;
+  partnerName: string;
+  timingCopy: string;
+  onDecideNow?: () => void;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const copy = RESULT_COPY[result.kind];
+  const body = result.queued
+    ? "Your answer sends as soon as you're back online."
+    : copy.body(partnerName, timingCopy);
+  // Focus lands on the result title (so it is read), and the explanation goes
+  // through the app's one polite announcer rather than a second live region.
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+    announce(body);
+  }, [body]);
+  return (
+    <section className="reply-result" data-testid="ask-reply-result">
+      <h2 ref={headingRef} tabIndex={-1} className="reply-result-title">
+        {result.queued ? "Saved offline." : copy.title}
+      </h2>
+      <p className="reply-result-body">{body}</p>
+      <div className="reply-result-actions">
+        <Link href="/sexboard" className="cta-primary pressable">Back to Sexboard</Link>
+        {onDecideNow && (
+          <button type="button" className="btn-ghost w-full" onClick={onDecideNow}>
+            Decide now instead
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -426,6 +525,8 @@ function RequestDetail({
   acts,
   busyAction,
   actionError,
+  replyResult,
+  onClearResult,
   onAction,
   onRemind,
   onReply,
@@ -438,22 +539,27 @@ function RequestDetail({
   acts: Act[];
   busyAction: BusyAction | null;
   actionError: string | null;
+  replyResult: ReplyResultState | null;
+  onClearResult: () => void;
   onAction: (action: RequestAction) => Promise<void>;
   onRemind: () => Promise<void>;
-  onReply: (decisions: ReplyDecisionPayload[], note: string) => Promise<void>;
+  onReply: (decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) => Promise<void>;
   onMaybe: () => Promise<void>;
   onCreateCounterAct: (label: string) => Promise<Act>;
   highlightedFromActivity?: boolean;
 }) {
   useDayRollover();
+  // Ticks each minute so the one-hour reminder cooldown can lift on screen.
+  const now = useNow(60 * 1000);
 
   const mine = normalize(request.requesterEmail) === normalize(me.email);
-  const fromName = mine ? "You" : (request.requesterName || request.requester || "Partner");
-  const toName = mine ? (request.reviewerName || request.reviewer || "Partner") : "you";
+  const requesterName = request.requesterName || request.requester || "Partner";
+  const reviewerName = request.reviewerName || request.reviewer || "Partner";
+  const partnerName = mine ? reviewerName : requesterName;
   const counters = requestCounterItems(request);
   const hasCounter = counters.length > 0;
   const timingCopy = timingCopyForRequest(request);
-  // Reply surface shows for a first answer (pending/sent) AND to convert an
+  // The reply card shows for a first answer (pending/sent) AND to convert an
   // existing maybe ("Decide now"). Deferring itself is only offered on a first
   // answer — you can't re-defer a maybe.
   const awaitingMyReply = !mine && ["pending", "sent", "maybe"].includes(request.status);
@@ -472,130 +578,67 @@ function RequestDetail({
   // to prompt a decision, same anti-spam cooldown as a pending nudge.
   const canRemind = mine && ["pending", "sent", "maybe"].includes(request.status);
   const lastReminderMs = request.lastReminderAt ? Date.parse(request.lastReminderAt) : 0;
-  const reminderCooldownActive = lastReminderMs > 0 && Date.now() - lastReminderMs < 60 * 60 * 1000;
+  const reminderCooldownActive = lastReminderMs > 0 && now - lastReminderMs < 60 * 60 * 1000;
   const remindedAgo = lastReminderMs > 0 ? relativeAgo(lastReminderMs) : "";
+  const askedWhen = formatWhen(request.sentAt || request.createdAt || "");
+  const stageClass = `activity-detail-stage ${highlightedFromActivity ? "is-activity-highlight" : ""}`;
 
-  const decisions = useMemo(() => request.decisions || [], [request.decisions]);
-  const partnerFeedback = String(request.feedback || "").trim();
-  const responseAuthorName = request.reviewerName || request.reviewer || (mine ? "Partner" : "You");
+  if (awaitingMyReply && !replyResult) {
+    return (
+      <div
+        className={`${stageClass} reply-stage`}
+        data-activity-highlight={highlightedFromActivity ? "true" : undefined}
+      >
+        <AskReplyCard
+          partnerName={requesterName}
+          kicker={request.status === "maybe"
+            ? `Your maybe · from ${requesterName}`
+            : `From ${requesterName}${askedWhen ? ` · ${askedWhen}` : ""}`}
+          categories={request.categories}
+          timing={currentTimingLabel(request)}
+          filming={request.filming}
+          note={request.note}
+          limits={request.boundaryConflicts}
+          acts={acts}
+          isMaybe={request.status === "maybe"}
+          allowMaybe={canDefer}
+          onCreateAct={onCreateCounterAct}
+          onSubmit={onReply}
+          onMaybe={canDefer ? onMaybe : undefined}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
-      className={`activity-detail-stage space-y-4 px-5 pb-24 ${highlightedFromActivity ? "is-activity-highlight" : ""}`}
+      className={`${stageClass} reply-detail`}
       data-activity-highlight={highlightedFromActivity ? "true" : undefined}
     >
-      <section className="card p-5">
-        <p className="text-xs uppercase tracking-[0.14em] text-ink-3">
-          {fromName} to {toName}
-        </p>
-        {request.categories.length ? (
-          <>
-            <h1 className="mt-2 font-display text-display-lg italic leading-tight text-ink">
-              {request.categories.length} {request.categories.length === 1 ? "Act" : "Acts"}
-            </h1>
-            <ul className="ask-acts mt-4">
-              {request.categories.map((label, index) => {
-                const { emoji, text } = splitActLabel(label);
-                return (
-                  <li key={`${label}-${index}`} className="ask-act">
-                    <span className="ask-act-emoji" aria-hidden="true">{emoji || "•"}</span>
-                    <span className="ask-act-name">{text}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        ) : (
-          <h1 className="mt-2 font-display text-display-lg italic leading-tight text-ink">
-            No Acts selected
-          </h1>
-        )}
-        <div className="mt-4 flex flex-wrap gap-1.5">
-          <span className="chip">{currentTimingLabel(request)}</span>
-          <span className="chip">Filming: {request.filming}</span>
-          <span className="chip">{statusLabel(request.status)}</span>
-        </div>
-        {request.note && (
-          <p className="mt-4 text-sm leading-relaxed text-ink-2">{request.note}</p>
-        )}
-        <p className="mt-4 text-xs text-ink-3">
-          Updated {formatWhen(lastRequestEventAt(request))}
-        </p>
-      </section>
-
-      {request.boundaryConflicts.length > 0 && (
-        <section className="card p-4" style={{ borderColor: "rgb(var(--gold-rgb) / 0.4)" }}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-gold">Limits touched</p>
-          <ul className="mt-2 space-y-1 text-sm text-ink-2">
-            {request.boundaryConflicts.map((item) => <li key={item}>{item}</li>)}
-          </ul>
-        </section>
+      {replyResult && (
+        <ReplyResult
+          result={replyResult}
+          partnerName={partnerName}
+          timingCopy={timingCopy}
+          onDecideNow={replyResult.kind === "maybe" && !replyResult.queued && awaitingMyReply ? onClearResult : undefined}
+        />
       )}
 
-      {(decisions.length > 0 || partnerFeedback) && (
-        <section className="card p-4">
-          <SectionTitle title="Partner response" />
-          {partnerFeedback && (
-            <div className="mt-3 rounded-[14px] border border-line bg-surface p-3">
-              <p className="text-xs uppercase tracking-[0.14em] text-ink-3">Note from {responseAuthorName}</p>
-              <p className="mt-2 text-sm leading-relaxed text-ink-2">{partnerFeedback}</p>
-            </div>
-          )}
-          {decisions.length > 0 && (
-            <ul className="mt-3 space-y-2">
-              {decisions.map((decision, index) => (
-                <DecisionRow key={`${decision.label}-${index}`} item={decision} />
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
-      {counters.length > 0 && (
-        <section className="card p-4">
-          <SectionTitle title={request.counterAcceptedAt ? "Accepted counter" : "Counter offer"} />
-          <ul className="mt-3 space-y-2">
-            {counters.map((counter, index) => (
-              <li key={`${counter.label}-${index}`} className="rounded-[14px] border border-line bg-surface p-3">
-                <p className="text-sm font-medium text-ink">{counter.label}</p>
-                {counter.fromLabel && (
-                  <p className="mt-1 text-xs text-ink-3">Counter for {counter.fromLabel}</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {awaitingMyReply && (
-        <>
-          {request.status === "maybe" && (
-            <section className="card p-5" style={{ borderColor: "rgb(var(--accent-rgb) / 0.35)" }}>
-              <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--accent)" }}>Still a maybe</p>
-              <p className="mt-2 text-sm leading-relaxed text-ink-2">
-                You said maybe on this earlier. Decide now, or leave it and come back closer to {timingCopy}.
-              </p>
-            </section>
-          )}
-          <AskReplyForm
-            requestedActs={request.categories}
-            requestedTiming={request.timing}
-            acts={acts}
-            submitting={busyAction === "reply" || busyAction === "maybe"}
-            onCreateAct={onCreateCounterAct}
-            onSubmit={onReply}
-            onMaybe={canDefer ? onMaybe : undefined}
-          />
-        </>
-      )}
+      <AskSummaryCard
+        request={request}
+        viewer={mine ? "requester" : "reviewer"}
+        partnerName={partnerName}
+        when={askedWhen}
+        autoFocus={!replyResult}
+      />
 
       {actionError && (
-        <p className="text-sm" style={{ color: "rgb(var(--no-rgb))" }} role="alert" aria-live="assertive">{actionError}</p>
+        <p className="reply-error" role="alert">{actionError}</p>
       )}
 
       {canPassAgreed && (
         <section className="card p-5" style={{ borderColor: "rgb(var(--accent-rgb) / 0.45)" }}>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--accent)" }}>It&rsquo;s on</p>
+          <p className="kicker" style={{ color: "var(--accent)" }}>It&rsquo;s on</p>
           <h2 className="mt-2 font-display text-display-md italic leading-tight text-ink">Both of you said yes.</h2>
           <p className="mt-2 text-sm leading-relaxed text-ink-2">This Ask is agreed. Pass on it below if {timingCopy} changes.</p>
           <Link
@@ -608,20 +651,17 @@ function RequestDetail({
       )}
 
       {canRemind && (
-        <section className="card p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-3">
-            {request.status === "maybe" ? `${toName} said maybe` : `Waiting on ${toName}`}
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-ink-2">
+        <section className="reply-remind">
+          <p className="reply-remind-copy">
             {reminderCooldownActive
               ? `Reminded ${remindedAgo}. They'll get nudged again automatically if it keeps waiting.`
               : request.status === "maybe"
-                ? `${toName} is deciding closer to ${timingCopy}. Nudge for an answer — it sends a quiet notification.`
-                : `Give ${toName} a nudge to come take a look — it sends a quiet notification.`}
+                ? `${partnerName} said maybe and is deciding closer to ${timingCopy}. A nudge sends a quiet notification.`
+                : `Waiting on ${partnerName}. A nudge sends a quiet notification.`}
           </p>
           <button
             type="button"
-            className="btn-primary w-full mt-4"
+            className="btn-primary w-full"
             disabled={!!busyAction || reminderCooldownActive}
             onClick={onRemind}
             data-testid="ask-action-remind"
@@ -630,13 +670,13 @@ function RequestDetail({
               ? "Sending reminder…"
               : reminderCooldownActive
                 ? `Reminded ${remindedAgo}`
-                : `Remind ${toName}`}
+                : `Remind ${partnerName}`}
           </button>
         </section>
       )}
 
       {(canRevoke || canAcceptCounter || canPassAgreed || canArchive || canRestore) && (
-        <section className="space-y-2">
+        <section className="reply-actions">
           {canAcceptCounter && (
             <button
               type="button"
@@ -645,7 +685,7 @@ function RequestDetail({
               onClick={() => onAction("accept_counter")}
               data-testid="ask-action-accept-counter"
             >
-              {busyAction === "accept_counter" ? "Accepting..." : "Accept counter"}
+              {busyAction === "accept_counter" ? "Accepting…" : "Accept counter"}
             </button>
           )}
           {canPassAgreed && (
@@ -656,7 +696,7 @@ function RequestDetail({
               onClick={() => onAction("pass")}
               data-testid="ask-action-pass"
             >
-              {busyAction === "pass" ? "Passing..." : `Pass ${timingCopy}`}
+              {busyAction === "pass" ? "Passing…" : `Pass ${timingCopy}`}
             </button>
           )}
           {canRevoke && (
@@ -667,7 +707,7 @@ function RequestDetail({
               onClick={() => onAction("revoke")}
               data-testid="ask-action-revoke"
             >
-              {busyAction === "revoke" ? "Taking it back..." : "Take back this Ask"}
+              {busyAction === "revoke" ? "Taking it back…" : "Take back this Ask"}
             </button>
           )}
           {canArchive && !canRevoke && (
@@ -678,7 +718,7 @@ function RequestDetail({
               onClick={() => onAction("archive")}
               data-testid="ask-action-archive"
             >
-              {busyAction === "archive" ? "Archiving..." : "Archive"}
+              {busyAction === "archive" ? "Archiving…" : "Archive"}
             </button>
           )}
           {canRestore && (
@@ -689,33 +729,12 @@ function RequestDetail({
               onClick={() => onAction("restore")}
               data-testid="ask-action-restore"
             >
-              {busyAction === "restore" ? "Restoring..." : "Restore to Sexboard"}
+              {busyAction === "restore" ? "Restoring…" : "Restore to Sexboard"}
             </button>
           )}
         </section>
       )}
     </div>
-  );
-}
-
-function SectionTitle({ title }: { title: string }) {
-  return <h2 className="font-display text-lg italic text-ink">{title}</h2>;
-}
-
-function DecisionRow({ item }: { item: DecisionItem }) {
-  return (
-    <li className="rounded-[14px] border border-line bg-surface p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-ink">{item.label}</p>
-        <span className="chip">{item.decision || "Reply"}</span>
-      </div>
-      {item.counter && (
-        <p className="mt-2 text-sm leading-relaxed text-ink-2">Counter: {item.counter}</p>
-      )}
-      {item.note && (
-        <p className="mt-2 text-sm leading-relaxed text-ink-2">{item.note}</p>
-      )}
-    </li>
   );
 }
 
@@ -731,20 +750,6 @@ function relativeAgo(ms: number): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function statusLabel(status: RequestRecord["status"]): string {
-  switch (status) {
-    case "pending":   return "pending review";
-    case "sent":      return "sent";
-    case "reviewed":  return "reviewed";
-    case "on_deck":   return "on Sexboard";
-    case "completed": return "done";
-    case "expired":   return "expired";
-    case "archived":  return "archived";
-    case "draft":     return "draft";
-    default:          return status;
-  }
 }
 
 function formatWhen(iso: string): string {

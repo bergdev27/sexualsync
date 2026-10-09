@@ -302,7 +302,8 @@ export type ActivityResource =
   | "shelf"
   | "vault"
   | "pile"
-  | "blind-reveals";
+  | "blind-reveals"
+  | "mood";
 
 export interface ActivityItem {
   id: string;
@@ -471,6 +472,12 @@ export interface RequestRecord {
   maybeAt?: string;
   maybeByEmail?: string;
   maybeByName?: string;
+  // "Plan it" on the match moment: either partner pins an approved Ask to a
+  // time. Status is unchanged; the server only stretches expiry to cover it.
+  plannedFor?: string;
+  plannedAt?: string;
+  plannedByEmail?: string;
+  plannedByName?: string;
   createdAt: string;
   updatedAt: string;
   sentAt?: string;
@@ -659,6 +666,11 @@ export interface ChatMessage {
   // Client-only: an optimistic message shown instantly while its POST is in
   // flight. Never sent by the server; cleared when the real message replaces it.
   pending?: boolean;
+  // Client-only: a pending message that went to the offline queue and will
+  // send when the connection returns. `queueKey` is its idempotency key, used
+  // to tell when the queue has let go of it.
+  queued?: boolean;
+  queueKey?: string;
 }
 
 export interface ChatMedia {
@@ -975,6 +987,35 @@ export interface GreenLightsResponse {
   // client-side from myAnswers + partnerAnswers via the deck — the single
   // source of truth for each card's answer scale.
   partnerAnswers: Record<string, GreenLightAnswer>;
+}
+
+// ---------- Mood light ----------
+
+/** My own mood-light state. Never carries anything about the partner. */
+export interface MoodMine {
+  on: boolean;
+  /** ISO time my current window started; null when off. */
+  since: string | null;
+  /** ISO time my light switches itself off; null when off. */
+  until: string | null;
+  /** ISO time I may switch on again after switching off; null when free. */
+  cooldownUntil: string | null;
+}
+
+/** Present only while BOTH partners are on. */
+export interface MoodMatch {
+  /** When the match formed (the later switch-on), not when the partner switched on. */
+  since: string;
+  /** The earlier of the two end times: the match ends then unless extended. */
+  until: string;
+}
+
+export interface MoodResponse {
+  workspaceId: string;
+  mine: MoodMine;
+  match: MoodMatch | null;
+  /** Server clock at response time, for countdowns that tolerate device skew. */
+  serverNow: string;
 }
 
 // ---------- Prompts ----------

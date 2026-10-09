@@ -1,0 +1,16 @@
+/* Styles only /space/limits renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.limit-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.limit-type-chip.is-active {
+  background: rgb(var(--primary));
+  box-shadow: var(--ring-accent);
+  color: rgb(var(--ink-rgb));
+}

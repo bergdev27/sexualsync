@@ -1,12 +1,14 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import AskReplyForm, { type ReplyDecisionPayload } from "@/components/AskReplyForm";
+import AskReplyCard, { type ReplyDecisionPayload, type ReplyKind } from "@/components/AskReplyCard";
 import ScreenHeader from "@/components/ScreenHeader";
 import { ErrorState, SkeletonList } from "@/components/States";
+import { mutualAskHref } from "@/lib/activity";
+import { announce } from "@/lib/announce";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
 import {
   ApiUnauthorizedError,
@@ -15,6 +17,7 @@ import {
   resolveReviewToken,
   submitReviewToken,
 } from "@/lib/api";
+import "../ask-reply.css";
 import type {
   Act,
   ReviewTokenRequest,
@@ -26,7 +29,7 @@ type LoadState =
   | { kind: "error"; message: string }
   | { kind: "unauthorized"; token: string }
   | { kind: "ready"; token: string; data: ReviewTokenResolveResponse; acts: Act[] }
-  | { kind: "submitted"; request: ReviewTokenRequest };
+  | { kind: "submitted"; request: ReviewTokenRequest; reply: ReplyKind; partnerName: string };
 
 export default function ReviewPage() {
   return (
@@ -86,7 +89,7 @@ function ReviewFlowForToken({ token }: { token: string }) {
     const returnTo = `/review?token=${encodeURIComponent(state.token)}`;
     const signInUrl = `/api/auth/google?${new URLSearchParams({ returnTo }).toString()}`;
     return (
-      <ReviewShell title="Reply to Ask" subtitle="Sign in to answer this request.">
+      <ReviewShell title="Ask from your partner" subtitle="Sign in to answer this Ask.">
         <ErrorState
           title="Sign in to reply"
           body="Use the same account this Ask was sent to."
@@ -98,7 +101,7 @@ function ReviewFlowForToken({ token }: { token: string }) {
 
   if (state.kind === "error") {
     return (
-      <ReviewShell title="Reply link">
+      <ReviewShell title="Ask details">
         <ErrorState
           title="Reply link unavailable"
           body={state.message}
@@ -110,30 +113,42 @@ function ReviewFlowForToken({ token }: { token: string }) {
 
   if (state.kind === "submitted") {
     return (
-      <ReviewShell title="Reply sent" subtitle="Your answer is back in the room.">
+      <ReviewShell focused>
         <div className="review-stage">
-          <section className="card p-5 text-center">
-            <p className="font-display text-2xl italic text-ink">Reply sent.</p>
-            <p className="mt-2 text-sm leading-relaxed text-ink-2">
-              Your partner can open this Ask from Sexboard.
-            </p>
-            <Link href="/sexboard" className="btn-primary mt-5 w-full">Open Sexboard</Link>
-          </section>
+          <SubmittedResult request={state.request} reply={state.reply} partnerName={state.partnerName} />
+        </div>
+      </ReviewShell>
+    );
+  }
+
+  const request = state.data.request;
+  const closed = !["pending", "sent"].includes(request.status);
+  if (closed) {
+    return (
+      <ReviewShell title="Reply to Ask">
+        <div className="review-stage">
+          <ErrorState
+            title="Already answered"
+            body="This Ask is no longer waiting for a reply."
+            action={<Link href="/sexboard" className="btn-ghost">Open Sexboard</Link>}
+          />
         </div>
       </ReviewShell>
     );
   }
 
   return (
-    <ReviewShell
-      title="Reply to Ask"
-      subtitle={`${state.data.request.requesterName || "Your partner"} sent this to you.`}
-    >
+    <ReviewShell focused>
       <ReviewForm
         token={state.token}
         data={state.data}
         initialActs={state.acts}
-        onSubmitted={(request) => setState({ kind: "submitted", request })}
+        onSubmitted={(answered, reply) => setState({
+          kind: "submitted",
+          request: answered,
+          reply,
+          partnerName: request.requesterName || "Your partner",
+        })}
       />
     </ReviewShell>
   );
@@ -141,23 +156,70 @@ function ReviewFlowForToken({ token }: { token: string }) {
 
 function ReviewShell({
   children,
-  title = "Reply to Ask",
+  title = "Ask details",
   subtitle,
+  focused = false,
 }: {
   children: React.ReactNode;
   title?: string;
   subtitle?: string;
+  // The reply card (or its result) carries the page heading.
+  focused?: boolean;
 }) {
   return (
-    <AppShell hideTabBar>
+    <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/sexboard" className="text-ink-3">‹ Sexboard</Link>}
+        back={{ href: "/sexboard", label: "Sexboard" }}
         showBrand={false}
-        title={title}
-        subtitle={subtitle}
+        title={focused ? undefined : title}
+        subtitle={focused ? undefined : subtitle}
       />
       {children}
     </AppShell>
+  );
+}
+
+const SUBMITTED_COPY: Record<ReplyKind, string> = {
+  yes: "You said yes. It's on.",
+  pass: "You passed. No reason needed.",
+  maybe: "Saved as a maybe.",
+  counter: "Your counter is with them now.",
+};
+
+function SubmittedResult({
+  request,
+  reply,
+  partnerName,
+}: {
+  request: ReviewTokenRequest;
+  reply: ReplyKind;
+  partnerName: string;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const body = `${SUBMITTED_COPY[reply]} ${partnerName} can open it from the Sexboard.`;
+  // Focus reads the title; the explanation goes through the app's one polite
+  // announcer rather than a second live region.
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+    announce(body);
+  }, [body]);
+  return (
+    <section className="reply-result" data-testid="ask-reply-result">
+      <h1 ref={headingRef} tabIndex={-1} className="reply-result-title">Reply sent</h1>
+      <p className="reply-result-body">{body}</p>
+      <div className="reply-result-actions">
+        {reply === "yes" ? (
+          <>
+            <Link href={mutualAskHref(request.id, request.categories || [], "")} className="cta-primary pressable">
+              See the match
+            </Link>
+            <Link href="/sexboard" className="btn-ghost w-full">Open Sexboard</Link>
+          </>
+        ) : (
+          <Link href="/sexboard" className="cta-primary pressable">Open Sexboard</Link>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -170,12 +232,11 @@ function ReviewForm({
   token: string;
   data: ReviewTokenResolveResponse;
   initialActs: Act[];
-  onSubmitted: (request: ReviewTokenRequest) => void;
+  onSubmitted: (request: ReviewTokenRequest, reply: ReplyKind) => void;
 }) {
   const request = data.request;
   const [acts, setActs] = useState(initialActs);
-  const [submitError, setSubmitError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const partnerName = request.requesterName || "Your partner";
 
   async function createCounterAct(label: string) {
     const result = await createAct({
@@ -187,61 +248,34 @@ function ReviewForm({
     return result.act;
   }
 
-  async function submit(decisions: ReplyDecisionPayload[], note: string) {
-    setSubmitting(true);
-    setSubmitError("");
-    try {
-      const result = await submitReviewToken({
-        token,
-        workspaceId: data.workspace.id,
-        decisions,
-        note,
-      });
-      if (navigator.vibrate) navigator.vibrate(8);
-      onSubmitted(result.request);
-    } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Couldn't send this reply.");
-      setSubmitting(false);
-    }
+  // Throws on failure so the card keeps the answer on screen with the error.
+  // The private link is single-use: the server consumes it on success.
+  async function submit(decisions: ReplyDecisionPayload[], note: string, kind: ReplyKind) {
+    const result = await submitReviewToken({
+      token,
+      workspaceId: data.workspace.id,
+      decisions,
+      note,
+    });
+    if (navigator.vibrate) navigator.vibrate(8);
+    onSubmitted(result.request, kind);
   }
 
-  const closed = !["pending", "sent"].includes(request.status);
-
   return (
-    <div className="review-stage">
-      <section className="card p-5">
-        <p className="text-xs uppercase tracking-[0.14em] text-ink-3">
-          {request.requesterName || "Partner"} to you
-        </p>
-        <h1 className="mt-2 font-display text-display-lg italic leading-tight text-ink">
-          {request.categories.length ? request.categories.join(", ") : "Ask"}
-        </h1>
-        <div className="mt-4 flex flex-wrap gap-1.5">
-          <span className="chip">{request.timing}</span>
-          <span className="chip">Filming: {request.filming}</span>
-        </div>
-        {request.note && (
-          <p className="mt-4 text-sm leading-relaxed text-ink-2">{request.note}</p>
-        )}
-      </section>
-
-      {closed ? (
-        <ErrorState
-          title="Already answered"
-          body="This Ask is no longer waiting for a reply."
-          action={<Link href="/sexboard" className="btn-ghost">Open Sexboard</Link>}
-        />
-      ) : (
-        <AskReplyForm
-          requestedActs={request.categories}
-          requestedTiming={request.timing}
-          acts={acts}
-          submitting={submitting}
-          error={submitError}
-          onCreateAct={createCounterAct}
-          onSubmit={submit}
-        />
-      )}
+    <div className="review-stage reply-stage">
+      <AskReplyCard
+        partnerName={partnerName}
+        kicker={`From ${partnerName} · private reply link`}
+        categories={request.categories}
+        timing={request.timing}
+        filming={request.filming}
+        note={request.note}
+        acts={acts}
+        // The reply link answers once; deferring needs the signed-in Ask view.
+        allowMaybe={false}
+        onCreateAct={createCounterAct}
+        onSubmit={submit}
+      />
     </div>
   );
 }

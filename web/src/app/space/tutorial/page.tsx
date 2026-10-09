@@ -1,27 +1,23 @@
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
+import "./tutorial.css";
 
+// One step per tab, in the order a want usually travels: spark, Ask, talk,
+// what's live, and the room's own rules.
 const STEPS = [
   {
-    href: "/inspiration",
-    label: "Inspiration",
-    title: "Catch the spark",
-    sub: "Drop kinks, fantasies, clips, or links — no pressure, nothing committed yet.",
-    cta: "Open Inspiration",
-  },
-  {
     href: "/games",
-    label: "Reveals",
-    title: "Map what turns you on",
-    sub: "Sex Quiz and Green Lights map your desires and limits double-blind. The Pile and Blind Reveal find the overlap with no one leading.",
-    cta: "Open Reveals",
+    label: "Play",
+    title: "Catch the spark",
+    sub: "Inspiration holds kinks, fantasies, clips, and links. Sex Quiz, Green Lights, The Pile, and Blind Reveal find the overlap with no one going first.",
+    cta: "Open Play",
   },
   {
     href: "/ask",
     label: "Ask",
     title: "Make the want explicit",
-    sub: "Send one clear request. Your partner can accept, counter, pass, or park it.",
+    sub: "Tap the + in the middle of the tab bar to send one clear Ask. Your partner can accept, counter, pass, or park it.",
     cta: "Create an Ask",
   },
   {
@@ -33,17 +29,17 @@ const STEPS = [
   },
   {
     href: "/sexboard",
-    label: "Sexboard",
+    label: "Home",
     title: "See what is live",
     sub: "Active Asks, locked answers, and the overlap that is ready to act on.",
-    cta: "Open Sexboard",
+    cta: "Open Home",
   },
   {
     href: "/space",
-    label: "Space",
+    label: "Us",
     title: "Keep the room safe",
-    sub: "Limits, Acts, private notes, notifications, privacy, and account controls.",
-    cta: "Back to Space",
+    sub: "Limits, Acts, private notes, Health, and the Vault. Notifications, privacy, and your account sit under the gear.",
+    cta: "Back to Us",
   },
 ];
 
@@ -51,15 +47,10 @@ export default function TutorialPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow="Space tutorial"
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Quick tour"
         subtitle="A short map for getting from spark to yes."
-        trailing={
-          <Link href="/space" className="done-pill pressable" aria-label="Done with tutorial, return to Space">
-            Done
-          </Link>
-        }
       />
 
       <div className="settings-stage">

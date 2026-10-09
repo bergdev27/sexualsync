@@ -71,7 +71,24 @@ function timingWindowPassed(request: RequestRecord, now: Date): boolean {
  * days). Gated to approved acts by its call sites.
  */
 export function isApprovedSexActStale(request: RequestRecord, now: Date = new Date()): boolean {
+  // A plan keeps the agreed act live through the end of the planned day, the
+  // same way the server stretches its expiry (functions/api/request-board.js
+  // plannedExpirationFor). It never shortens the timing window.
+  if (activePlanDate(request, now)) return false;
   return timingWindowPassed(request, now);
+}
+
+/**
+ * The plan's date ("Plan it" on the match moment) while the planned day has not
+ * ended yet; null when there's no plan or it's in the past.
+ */
+export function activePlanDate(request: Pick<RequestRecord, "plannedFor">, now: Date = new Date()): Date | null {
+  const ms = Date.parse(request.plannedFor || "");
+  if (!Number.isFinite(ms)) return null;
+  const planned = new Date(ms);
+  const day = startOfLocalDay(planned);
+  if (!day) return null;
+  return now.getTime() < addLocalDays(day, 1).getTime() ? planned : null;
 }
 
 /**
@@ -140,4 +157,89 @@ export function addLocalDays(value: Date, days: number): Date {
 
 export function timingCopyForRequest(request: RequestRecord): string {
   return currentTimingLabel(request).toLowerCase();
+}
+
+/**
+ * An Ask the reviewer still owes a first answer on. `sent` is the legacy
+ * name for `pending`; the server treats both as replyable (request-board.js
+ * REPLYABLE_STATUSES, _attention.js), so the client must too or a partner's
+ * legacy Ask drops out of "Needs you" and the badge disagrees with the board.
+ */
+export function isAwaitingFirstReply(status: RequestRecord["status"]): boolean {
+  return status === "pending" || status === "sent";
+}
+
+// ---------- Ask status + reply summary (one helper for every Ask surface) ----
+
+export type AskViewer = "requester" | "reviewer";
+export type AskStatusTone = "yes" | "no" | "neutral";
+
+/**
+ * The one human status for an Ask, read from the viewer's side (`mine` is
+ * true when the viewer sent it). Raw status codes (`sent`, `pending`,
+ * `on_deck`, `reviewed`) never reach the UI (DESIGN.md naming glossary); this
+ * is the one place that maps them to the words people see, and every Ask
+ * surface (Sexboard rows, Tonight, the Ask card) uses it. A replied Ask says
+ * how it went (Yes, Countered, Passed) rather than just "replied".
+ */
+export function askStatusLabel(
+  request: RequestRecord,
+  { mine, partnerName = "your partner" }: { mine: boolean; partnerName?: string },
+): { label: string; tone: AskStatusTone } {
+  const actDecisions = requestedActDecisions(request);
+  const anyYes = actDecisions.some((item) => item.decision === "Yes");
+  const allNo = actDecisions.length > 0 && actDecisions.every((item) => item.decision === "No");
+  switch (request.status) {
+    case "draft":
+      return { label: "Draft", tone: "neutral" };
+    case "pending":
+    case "sent":
+      return { label: mine ? `Waiting on ${partnerName}` : "Waiting on you", tone: "neutral" };
+    case "maybe":
+      return { label: mine ? `${partnerName} said maybe` : "You said maybe", tone: "neutral" };
+    case "reviewed":
+    case "on_deck":
+      if (hasPendingRequestCounter(request)) return { label: "Countered", tone: "neutral" };
+      if (request.counterAcceptedAt || anyYes) return { label: "Yes", tone: "yes" };
+      if (allNo) return { label: "Passed", tone: "no" };
+      if (request.status === "on_deck") return { label: "Yes", tone: "yes" };
+      return { label: mine ? `${partnerName} replied` : "You replied", tone: "neutral" };
+    case "completed":
+      return { label: "Done", tone: "neutral" };
+    case "expired":
+      return { label: "Expired", tone: "neutral" };
+    case "archived":
+      if (request.passedAt || allNo) return { label: "Passed", tone: "no" };
+      return { label: "Archived", tone: "neutral" };
+    default:
+      return { label: "Open", tone: "neutral" };
+  }
+}
+
+/**
+ * The reviewer's per-act answers to the Acts that were asked for: decisions
+ * that target an act and are not themselves a counter offer. Counter offers
+ * come from requestCounterItems so they render once, with human labels.
+ */
+export function requestedActDecisions(request: Pick<RequestRecord, "decisions">): DecisionItem[] {
+  return (request.decisions || []).filter((item) => (
+    (!item.targetType || item.targetType === "act")
+    && Boolean(item.decision)
+    && item.decision !== "Counter"
+    && !item.counter
+    && !item.counterActId
+    && !/^Counter option \d+$/i.test(String(item.label || ""))
+  ));
+}
+
+/** Human word for one reply decision ("No" reads as a pass, never a rejection). */
+export function replyDecisionLabel(decision: DecisionItem["decision"]): string {
+  switch (decision) {
+    case "Yes": return "Yes";
+    case "No": return "Pass";
+    case "Maybe": return "Maybe";
+    case "Let's chat": return "Let's talk";
+    case "Counter": return "Counter";
+    default: return "No answer";
+  }
 }

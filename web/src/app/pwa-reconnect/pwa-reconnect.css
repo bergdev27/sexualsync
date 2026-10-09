@@ -1,0 +1,105 @@
+/* Styles only /pwa-reconnect renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.pwa-reconnect-glow {
+  position: absolute;
+  width: min(84vw, 430px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--accent-a08);
+  filter: blur(70px);
+  pointer-events: none;
+}
+
+.pwa-reconnect-card {
+  position: relative;
+  width: min(100%, 430px);
+  padding: 32px 26px;
+  border: 1px solid var(--cream-a12);
+  border-radius: var(--r-lg);
+  background: rgb(var(--surface-rgb) / 0.9);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 0.28);
+  text-align: center;
+}
+
+.pwa-reconnect-wordmark {
+  display: block;
+  width: 118px;
+  margin: 0 auto 26px;
+}
+
+.pwa-reconnect-card h1 {
+  margin: 8px 0 12px;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-38);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.pwa-reconnect-card > p:not(.eyebrow) {
+  margin: 0 auto 22px;
+  max-width: 34ch;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  line-height: 1.55;
+}
+
+.pwa-reconnect-card .btn-primary {
+  width: 100%;
+  justify-content: center;
+}
+
+.pwa-reconnect-card .pwa-reconnect-copy {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.pwa-reconnect-card .pwa-reconnect-manual {
+  margin: 14px 0 0;
+  max-width: none;
+  font-size: var(--fs-13);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.pwa-reconnect-card .pwa-reconnect-manual a {
+  color: var(--cream);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.pwa-reconnect-card .pwa-reconnect-status {
+  margin-top: 16px;
+  margin-bottom: 0;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+}
+
+.pwa-reconnect-card .pwa-reconnect-secondary {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.pwa-reconnect-card .pwa-reconnect-secondary:disabled {
+  opacity: 0.55;
+}
+
+.pwa-reconnect-card .pwa-reconnect-alt {
+  margin: 18px 0 0;
+  font-size: var(--fs-13);
+}
+
+.pwa-reconnect-card .pwa-reconnect-alt a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  color: var(--cream-faint);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

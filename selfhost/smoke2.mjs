@@ -218,6 +218,57 @@ async function main() {
     }
   });
 
+  await check("mood light: double-blind until both are on, then a match reaches both sockets", async () => {
+    const moodView = async (cookie) => (await api(cookie, `/api/mood?workspaceId=${encodeURIComponent(WS)}`)).json();
+    const setMood = (cookie, body) => api(cookie, "/api/mood", { method: "POST", body: JSON.stringify({ workspaceId: WS, ...body }) });
+    const strip = ({ serverNow, ...rest }) => JSON.stringify(rest);
+    const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    const wsUrl = `ws://127.0.0.1:${port}/api/room/socket?workspaceId=${encodeURIComponent(WS)}`;
+    const sockA = connect(wsUrl, cookieA);
+    const sockB = connect(wsUrl, cookieB);
+    try {
+      await sockA.opened;
+      await sockB.opened;
+      await sockA.waitFor((m) => m.type === "room.hello");
+      await sockB.waitFor((m) => m.type === "room.hello");
+
+      const bBefore = await moodView(cookieB);
+      const aOn = await setMood(cookieA, { action: "on", until });
+      assert.equal(aOn.status, 200, "A switches on");
+      assert.equal((await aOn.json()).match, null, "A alone: no match");
+      const bAfter = await moodView(cookieB);
+      assert.equal(strip(bAfter), strip(bBefore), "B's view is identical whether A is on or off (double-blind)");
+
+      const bOn = await setMood(cookieB, { action: "on", until });
+      assert.equal(bOn.status, 200, "B switches on");
+      const bOnBody = await bOn.json();
+      assert.ok(bOnBody.match, "B sees the match immediately");
+      const aView = await moodView(cookieA);
+      assert.deepEqual(aView.match, bOnBody.match, "A sees the same match");
+
+      const isMatch = (m) => m.type === "room.event" && m.event?.resource === "mood" && m.event?.action === "match";
+      const evtA = await sockA.waitFor(isMatch);
+      const evtB = await sockB.waitFor(isMatch);
+      assert.equal(evtA.event.actorEmail, "", "match event names no actor");
+      assert.equal(evtB.event.entityId, bOnBody.match.since, "event carries the formation time");
+
+      const aOff = await setMood(cookieA, { action: "off" });
+      assert.equal(aOff.status, 200, "A switches off");
+      const isEnded = (m) => m.type === "room.event" && m.event?.resource === "mood" && m.event?.action === "ended";
+      const ended = await sockB.waitFor(isEnded);
+      assert.equal(ended.event.actorEmail, "", "ended event never says who switched off");
+      assert.equal((await moodView(cookieB)).match, null, "match over for B");
+
+      const again = await setMood(cookieA, { action: "on", until });
+      assert.equal(again.status, 429, "switching straight back on hits the cooldown");
+      assert.ok((await again.json()).retryAt, "cooldown carries retryAt");
+    } finally {
+      sockA.close();
+      sockB.close();
+    }
+  });
+
   await new Promise((resolve) => server.close(resolve));
   await fs.rm(dataDir, { recursive: true, force: true });
 

@@ -11,7 +11,7 @@
  *  - Subscribes to live-room events so partner activity refreshes the page.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AppShell from "@/components/AppShell";
 import ScreenHeader from "@/components/ScreenHeader";
 import AboutManifesto from "@/components/AboutManifesto";
@@ -20,6 +20,9 @@ import { confirmAction } from "@/lib/confirm-dialog";
 import { normalizeEmail, partnerOf } from "@/lib/workspace";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { getCachedResource, setCachedResource, useColdStart } from "@/lib/resource-cache";
+import { useRecoverOnReconnect } from "@/lib/network-status";
+import { useQueuedWrites } from "@/lib/use-queued-writes";
+import type { QueuedWritePreview } from "@/lib/offline-queue";
 import {
   emailGreetingName,
   emptyFantasy,
@@ -27,7 +30,9 @@ import {
 } from "./_sexboard-helpers";
 import { Body } from "./_sexboard-body";
 import type { LoadState } from "./_sexboard-types";
+import { useMarkActivityRead } from "@/lib/use-mark-activity-read";
 import type { RequestBoardResponse } from "@/lib/types";
+import "./sexboard.css";
 
 // Read-your-writes shim for Cloudflare KV's eventual consistency. mutateKey
 // writes go through the CAS Durable Object, but reads hit KV directly (see
@@ -75,6 +80,8 @@ function viewedLockedPileSessionKey(workspaceId: string) {
 function viewedLockedBlindRevealKey(workspaceId: string) {
   return `${VIEWED_LOCKED_BLIND_REVEAL_KEY_PREFIX}${workspaceId}`;
 }
+
+const NO_QUEUED: QueuedWritePreview[] = [];
 
 function readViewedIds(storageKey: string): Set<string> {
   if (typeof window === "undefined" || !storageKey) return new Set();
@@ -213,40 +220,72 @@ export default function SexboardPage() {
     });
   }
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await reload();
-        if (cancelled) return;
-      } catch (error) {
-        if (cancelled) return;
-        if (error instanceof ApiUnauthorizedError) {
-          setState({ kind: "unauthorized" });
-          return;
-        }
-        setState({
-          kind: "error",
-          message: error instanceof Error ? error.message : "Something went sideways.",
-        });
+  // A failed load never dead-ends: a board already on screen (memory or cold
+  // snapshot) stays put, otherwise the error state offers Try again. Either
+  // way the load re-runs on reconnect / return to the foreground.
+  const mountedRef = useRef(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  async function load() {
+    try {
+      await reload();
+      if (mountedRef.current) setLoadFailed(false);
+    } catch (error) {
+      if (!mountedRef.current) return;
+      if (error instanceof ApiUnauthorizedError) {
+        setState({ kind: "unauthorized" });
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      setLoadFailed(true);
+      setState((current) => (current.kind === "ready" || current.kind === "no-workspace"
+        ? current
+        : {
+            kind: "error",
+            message: error instanceof Error ? error.message : "",
+            error,
+          }));
+    }
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void load();
+    return () => { mountedRef.current = false; };
+    // Mount-only: load() reads fresh state through setState updaters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useRecoverOnReconnect(load, loadFailed && state.kind !== "error");
+
+  // Asks sent while offline wait in the offline queue; show them as
+  // "Waiting to send" and refresh the board once the queue drains.
+  const queuedAsks = useQueuedWrites("ask:create") ?? NO_QUEUED;
+  const queuedCountRef = useRef(queuedAsks.length);
+  useEffect(() => {
+    const previous = queuedCountRef.current;
+    queuedCountRef.current = queuedAsks.length;
+    if (queuedAsks.length < previous) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedAsks.length]);
 
   useLiveRoomReload({
     workspaceId: state.kind === "ready" ? state.workspace.id : "",
     actorEmail: state.kind === "ready" ? state.auth.email : "",
-    resources: ["request-board", "fantasy-backlog", "shelf", "pile", "blind-reveals", "presence"],
+    resources: ["request-board", "fantasy-backlog", "shelf", "pile", "blind-reveals", "sex-quiz", "green-lights", "presence"],
     onReload: reload,
   });
+
+  // Home shows its own activity feed, so opening it reads what the Home tab
+  // badge was counting, the way opening Play's games clears theirs.
+  const homeWorkspaceId = state.kind === "ready" ? state.workspace.id : "";
+  useMarkActivityRead({ workspaceId: homeWorkspaceId, resource: "request-board", enabled: Boolean(homeWorkspaceId) });
+  useMarkActivityRead({ workspaceId: homeWorkspaceId, resource: "mood", enabled: Boolean(homeWorkspaceId) });
 
   const subtitle = subtitleFor(state);
 
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow={greeting(state) || "Sexboard"}
+        eyebrow={greeting(state)}
         showBrand={false}
         title="Sexboard"
         subtitle={subtitle}
@@ -255,6 +294,8 @@ export default function SexboardPage() {
       <div className="sexboard-stage">
         <Body
           state={state}
+          queuedAsks={queuedAsks}
+          onRetry={load}
           removingPileSessionId={removingPileSessionId}
           viewedLockedPileSessionIds={viewedLockedPileSessionIds}
           viewedLockedBlindRevealIds={viewedLockedBlindRevealIds}
@@ -281,6 +322,9 @@ function greeting(state: LoadState) {
 }
 
 function subtitleFor(state: LoadState) {
+  // Hold the subtitle's space while loading so the header doesn't grow
+  // under the first paint when the real line arrives.
+  if (state.kind === "loading") return <span className="sexboard-subtitle-reserve" aria-hidden="true" />;
   if (state.kind !== "ready") return undefined;
   const partner = partnerOf(state.workspace, state.auth.email);
   const partnerName = partner?.displayName?.split(" ")[0] || "your partner";

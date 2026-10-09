@@ -34,16 +34,16 @@ export default function TopTurnOns({
         flexDirection: "column",
         gap: 8,
         padding: variant === "strip" ? "10px 14px" : "14px 16px",
-        background: variant === "strip" ? "rgb(var(--cream-rgb) / 0.04)" : "var(--surface-2)",
-        borderRadius: variant === "strip" ? 16 : 18,
+        background: variant === "strip" ? "var(--cream-a04)" : "var(--surface-2)",
+        borderRadius: variant === "strip" ? "var(--r-md)" : "var(--r-lg)",
         boxShadow: "var(--ring-hairline)",
       }}
     >
-      <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: "rgb(var(--accent-rgb) / 0.8)" }}>
+      <span className="kicker" style={{ color: "rgb(var(--accent-rgb) / 0.85)" }}>
         {label}
       </span>
       {caption ? (
-        <span style={{ fontSize: 13, color: "rgb(var(--cream-rgb) / 0.62)", lineHeight: 1.45, marginTop: -2 }}>
+        <span style={{ fontSize: "var(--fs-13)", color: "var(--cream-muted)", lineHeight: 1.45, marginTop: -2 }}>
           {caption}
         </span>
       ) : null}
@@ -54,8 +54,8 @@ export default function TopTurnOns({
             style={{
               padding: "5px 11px",
               borderRadius: 999,
-              fontSize: 13,
-              background: "rgb(var(--cream-rgb) / 0.08)",
+              fontSize: "var(--fs-13)",
+              background: "var(--cream-a08)",
               color: "var(--cream)",
               boxShadow: "var(--ring-hairline)",
             }}

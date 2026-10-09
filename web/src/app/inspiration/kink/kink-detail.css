@@ -1,0 +1,363 @@
+/* Styles only /inspiration/kink renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+/* Kink detail */
+
+.kd-stage {
+  position: relative;
+  z-index: var(--z-raised-2);
+  flex: 1;
+  padding: 18px 22px 30px;
+}
+
+.kd-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.kd-body-lead {
+  margin: 0 0 22px;
+  color: var(--cream);
+  font-family: var(--display);
+  font-size: var(--fs-24);
+  font-style: italic;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-wrap: pretty;
+}
+
+.kd-editor {
+  margin-bottom: 14px;
+}
+
+.kd-eyebrow { margin: 0 0 6px; }
+
+.kd-live-caption {
+  min-height: 22px;
+  margin: 0 0 12px;
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  transition: opacity var(--dur-state) var(--ease-settle);
+}
+
+.kd-tray-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.kd-tray-readonly .reaction {
+  cursor: default;
+}
+
+.kd-tray-readonly.is-waiting {
+  border-color: color-mix(in srgb, var(--gold) 34%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--gold) 10%, transparent),
+    0 10px 30px color-mix(in srgb, var(--gold) 10%, transparent),
+    inset 0 1px 0 var(--cream-a06);
+}
+
+.kd-tray-readonly.is-commented {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--cream) 16%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent),
+    0 10px 28px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 var(--cream-a06);
+}
+
+.kd-tray-readonly.is-curious {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--gold) 16%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), rgba(12, 5, 8, 0.6)),
+    rgba(12, 5, 8, 0.55);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent),
+    0 12px 34px color-mix(in srgb, var(--accent) 16%, transparent),
+    inset 0 1px 0 var(--cream-a08);
+}
+
+.kd-tray-readonly.is-curious .reaction.is-active {
+  border-color: color-mix(in srgb, var(--accent) 78%, var(--gold) 14%);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--gold) 10%, transparent));
+  box-shadow: 0 0 20px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.kd-tray-empty {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  overflow: hidden;
+  min-width: 166px;
+  padding: 11px 18px;
+  color: var(--cream-muted);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  line-height: 1;
+  text-align: center;
+  text-transform: none;
+}
+
+.kd-tray-empty.is-waiting > span {
+  position: relative;
+  z-index: var(--z-raised);
+}
+
+.kd-tray-empty.is-commented {
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--cream-muted);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.kd-comment-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.kd-tray-label {
+  margin: 0;
+  color: var(--accent);
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.kd-section { margin-bottom: 22px; }
+
+.kd-msg-editable {
+  cursor: text;
+}
+
+.kd-msg-editable:hover {
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+.kd-msg-editable:focus-visible {
+  outline: 2px solid var(--accent-fog);
+  outline-offset: 3px;
+}
+
+.kd-comment-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.kd-msg-action {
+  border: 0;
+  background: none;
+  color: var(--cream-faint);
+  cursor: pointer;
+  font: 600 var(--fs-12) var(--body);
+  padding: 10px 8px;
+  min-height: 44px;
+}
+
+.kd-msg-action:hover:not(:disabled) {
+  color: var(--cream);
+}
+
+.kd-msg-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.kd-comment-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kd-owner-button {
+  flex: 0 0 auto;
+  padding-inline: 12px;
+  font-size: var(--fs-12);
+}
+
+.kd-archive-button {
+  flex-shrink: 1;
+}
+
+/* ============================================================================
+   KINK DETAIL — premium edition (scoped to .kd-premium)
+   Affects only the shared-kink detail screen (/inspiration/kink). Applies the
+   brand principles — atmospheric depth, entrance choreography, tactile
+   controls, typographic confidence — bespoke to this page. Shared classes
+   (.reaction base, .kink-author, .sheet-header) are NOT touched; everything
+   below is gated behind .kd-premium. Honors prefers-reduced-motion.
+   ============================================================================ */
+
+/* depth — soft rose bloom + grain behind the confession */
+
+.kd-premium { isolation: isolate; padding-top: 8px; }
+
+/* The kink-detail header used to carry a per-page padding-top:14px workaround
+   that stripped its own notch inset and leaned on AppShell's .app-shell-main
+   safe-area-top to clear the Dynamic Island. That split the notch inset across
+   two owners. .app-shell-main now drops its inset for self-insetting sheet
+   headers (see the :has rule near .app-shell-main), so the shared .sheet-header
+   inset is the single source — no per-page override needed here. */
+
+.kd-atmo { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: var(--z-base); }
+
+.kd-atmo-bloom {
+  position: absolute; left: 50%; top: -8%; width: 140%; height: 46%; transform: translateX(-50%);
+  /* Long gradient falloff stands in for the old 40px blur, which re-ran over
+     a full-width layer on every breath frame. */
+  background: radial-gradient(62% 72% at 50% 0%, var(--accent-a16), color-mix(in srgb, var(--accent-a16) 55%, transparent) 38%, color-mix(in srgb, var(--accent-a16) 18%, transparent) 64%, transparent 88%);
+  animation: kd-atmo-breath 7.6s ease-in-out infinite alternate;
+}
+
+.kd-atmo-grain {
+  position: absolute; inset: 0; opacity: 0.04; mix-blend-mode: overlay;
+  background-image: repeating-radial-gradient(circle at 25% 25%, rgb(var(--cream-rgb) / 0.4) 0, rgb(var(--cream-rgb) / 0.4) 0.5px, transparent 0.5px, transparent 2px);
+}
+
+.kd-premium > *:not(.kd-atmo) { position: relative; z-index: var(--z-raised); }
+
+/* entrance choreography — staggered rise (CSS-only) */
+
+.kd-premium .kd-meta-row,
+.kd-premium .kd-body-lead,
+.kd-premium .kd-editor,
+.kd-premium .kd-eyebrow,
+.kd-premium .kd-live-caption,
+.kd-premium .kd-tray-wrap,
+.kd-premium .kd-section { animation: kd-rise 0.62s var(--ease-bloom) both; }
+
+.kd-premium .kd-body-lead,
+.kd-premium .kd-editor { animation-delay: 0.12s; }
+
+.kd-premium .kd-live-caption { animation-delay: 0.42s; }
+
+.kd-premium .kd-tray-wrap { animation-delay: 0.5s; }
+
+.kd-premium .kd-section { animation-delay: 0.72s; }
+
+/* author identity — chip + from → to */
+
+.kd-premium .kd-meta-row {
+  animation-delay: 0.04s;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.kd-author-chip {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 auto;
+  border-radius: 50%; border: 1px solid var(--accent-fog); background: var(--accent-mist); color: var(--accent);
+  font-family: var(--body); font-weight: 600; font-size: var(--fs-15); box-shadow: 0 0 14px var(--accent-fog);
+}
+
+.kd-author { display: flex; flex-direction: column; gap: 2px; line-height: 1.1; }
+
+.kd-author-names { display: inline-flex; align-items: center; gap: 7px; color: var(--cream); font-family: var(--body); font-size: var(--fs-17); }
+
+.kd-arrow { color: var(--accent); font-style: normal; font-size: var(--fs-13); opacity: 0.85; }
+
+.kd-author-age { font-family: var(--mono); font-size: var(--fs-12);color: var(--cream-faint); font-variant-numeric: tabular-nums; }
+
+/* confession = hero: sealed-letter framing + accent rule */
+
+.kd-premium .kd-body-lead { position: relative; margin: 6px 0 24px; padding: 2px 0 2px 18px; font-size: var(--fs-24); line-height: 1.34; }
+
+.kd-premium .kd-body-lead::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent), color-mix(in srgb, var(--accent) 10%, transparent));
+  box-shadow: 0 0 12px var(--accent-fog);
+}
+
+.kd-premium .kd-eyebrow {
+  animation-delay: 0.34s;
+  color: var(--accent);
+}
+
+/* reacted payoff — the win moment: tone-colored glow + scale-in bloom */
+
+.kd-premium .kd-tray-readonly:not(.is-waiting) .reaction.is-active { animation: kd-land 0.6s var(--ease-bloom) both; }
+
+.kd-premium .kd-tray-readonly.is-hell-yeah {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, transparent), rgba(12, 5, 8, 0.6)), rgba(12, 5, 8, 0.55);
+  box-shadow: 0 0 0 1px var(--accent-fog), 0 14px 40px color-mix(in srgb, var(--accent) 24%, transparent), inset 0 1px 0 var(--cream-a08);
+}
+
+.kd-premium .kd-tray-readonly.is-hell-yeah .reaction.is-active { background: color-mix(in srgb, var(--accent) 26%, transparent); box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 34%, transparent); }
+
+.kd-premium .kd-tray-readonly.is-later {
+  border-color: color-mix(in srgb, var(--gold) 40%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--gold) 12%, transparent), 0 12px 34px color-mix(in srgb, var(--gold) 14%, transparent);
+}
+
+.kd-premium .kd-tray-readonly.is-later .reaction.is-active { box-shadow: 0 0 20px color-mix(in srgb, var(--gold) 28%, transparent); }
+
+.kd-premium .kd-tray-readonly.is-pass { border-color: var(--hairline-strong); box-shadow: 0 0 0 1px var(--hairline), 0 10px 28px rgba(0, 0, 0, 0.3); }
+
+.kd-premium .kd-tray-label { font-size: var(--fs-17); }
+
+/* comment area — invite, not form */
+
+.kd-premium .kd-reply-form .input,
+.kd-premium .kd-comment-edit-form .input { transition: box-shadow 0.2s var(--ease-settle), border-color 0.2s; }
+
+.kd-premium .kd-reply-form .input::placeholder { color: var(--cream-faint); }
+
+.kd-premium .kd-reply-form .input:focus,
+.kd-premium .kd-comment-edit-form .input:focus { outline: none; border-color: var(--accent-fog); box-shadow: 0 0 0 3px var(--accent-mist), 0 10px 28px rgba(0, 0, 0, 0.28); }
+
+/* primary action = accent pill */
+
+.kd-premium .kd-reply-actions { margin-top: 2px; }
+
+.kd-premium .kd-comment-submit:active:not(:disabled) { transform: scale(0.985); }
+
+.kd-premium .kd-comment-submit:disabled { background: var(--cream-a08); color: var(--cream-faint); box-shadow: none; cursor: default; }
+
+/* owner actions = quiet secondary row; archive most muted */
+
+.kd-owner-row { display: flex; align-items: center; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--hairline); }
+
+.kd-premium .kd-owner-button { background: none; border: 0; padding: 10px 6px; min-height: 44px; cursor: pointer; font: 600 var(--fs-12) var(--body); color: var(--cream-muted); transition: color 0.18s; }
+
+.kd-premium .kd-owner-button:hover:not(:disabled) { color: var(--cream); }
+
+.kd-premium .kd-owner-button:disabled { opacity: 0.5; cursor: default; }
+
+.kd-premium .kd-archive-button { color: var(--cream-faint); }
+
+.kd-premium .kd-archive-button:hover:not(:disabled) { color: var(--no); }
+
+.kd-owner-sep { width: 1px; height: 12px; background: var(--hairline-strong); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kd-premium .kd-meta-row,
+  .kd-premium .kd-body-lead,
+  .kd-premium .kd-editor,
+  .kd-premium .kd-eyebrow,
+  .kd-premium .kd-live-caption,
+  .kd-premium .kd-tray-wrap,
+  .kd-premium .kd-section,
+  .kd-premium .kd-tray-readonly .reaction.is-active { animation: none !important; }
+  .kd-atmo-bloom { animation: none !important; }
+}
+
+@keyframes kd-atmo-breath { 0% { opacity: 0.6; } 100% { opacity: 1; } }
+
+@keyframes kd-rise { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: none; } }
+
+@keyframes kd-land { 0% { transform: scale(0.5); opacity: 0; } 60% { transform: scale(1.18); } 100% { transform: scale(1.06); opacity: 1; } }

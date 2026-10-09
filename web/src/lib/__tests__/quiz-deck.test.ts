@@ -12,9 +12,18 @@ import {
   QUIZ_CARD_BY_ID,
   QUIZ_CATEGORIES,
   QUIZ_DECK,
+  RETIRED_QUIZ_CARD_IDS,
+  activeQuizRatings,
   categoryTitle,
   proposeHref,
+  quizOverlapByCategory,
+  unratedQuizCards,
 } from "../quiz-deck";
+import {
+  BLIND_REVEAL_QUESTIONS,
+  DEFAULT_BLIND_REVEAL_QUESTION,
+  nextBlindRevealQuestion,
+} from "../blind-reveal-questions";
 
 describe("quiz-deck: data integrity", () => {
   it("has a non-trivial deck and category list", () => {
@@ -58,6 +67,71 @@ describe("quiz-deck: data integrity", () => {
     for (const card of QUIZ_DECK) {
       expect(QUIZ_CARD_BY_ID[card.id]).toBe(card);
     }
+  });
+});
+
+describe("quiz-deck: ids and point of view", () => {
+  it("never reuses a retired id", () => {
+    expect(RETIRED_QUIZ_CARD_IDS.filter((id) => QUIZ_CARD_BY_ID[id])).toEqual([]);
+  });
+
+  it("gives every first-person card a give/receive choice", () => {
+    // "Rub my clit while you fuck me" is answerable by the partner doing it only
+    // if they can say "give". Mutual wording ("we", "our", "each other") is exempt.
+    const firstPerson = /\b(me|my|I)\b/;
+    const mutual = /\b(we|us|our|each other|together)\b/i;
+    const missing = QUIZ_DECK.filter((card) => firstPerson.test(card.label) && !mutual.test(card.label) && !card.role)
+      .map((card) => card.id);
+    expect(missing).toEqual([]);
+  });
+
+  it("deals gentle cards before edge cards within each category", () => {
+    const seenEdge = new Set<string>();
+    const late: string[] = [];
+    for (const card of QUIZ_DECK) {
+      if (card.edge) seenEdge.add(card.category);
+      else if (seenEdge.has(card.category)) late.push(card.id);
+    }
+    expect(late).toEqual([]);
+  });
+
+  it("unratedQuizCards lists only current cards without a rating", () => {
+    const ratings = Object.fromEntries(QUIZ_DECK.slice(1).map((card) => [card.id, { interest: "pass" }]));
+    ratings.handedge = { interest: "into" };
+    expect(unratedQuizCards(ratings).map((card) => card.id)).toEqual([QUIZ_DECK[0].id]);
+  });
+
+  it("activeQuizRatings drops retired and unknown ids", () => {
+    expect(activeQuizRatings({ oral: 1, handedge: 2, nope: 3 })).toEqual({ oral: 1 });
+  });
+});
+
+describe("quiz-deck: overlap by category", () => {
+  it("ranks categories by shared cards and ignores unknown ids", () => {
+    const overlap = quizOverlapByCategory(
+      [{ cardId: "oral" }, { cardId: "sixtynine" }, { cardId: "frombehind" }, { cardId: "handedge" }],
+      [{ cardId: "facesitting" }, { cardId: "analsex" }],
+    );
+    expect(overlap.map((c) => [c.category, c.matches, c.curious])).toEqual([
+      ["mouths", 2, 1],
+      ["positions", 1, 0],
+      ["anal", 0, 1],
+    ]);
+  });
+});
+
+describe("blind reveal questions", () => {
+  it("opens on the default and cycles through every question", () => {
+    expect(DEFAULT_BLIND_REVEAL_QUESTION).toBe(BLIND_REVEAL_QUESTIONS[0]);
+    const seen = new Set<string>();
+    let current = DEFAULT_BLIND_REVEAL_QUESTION;
+    for (let i = 0; i < BLIND_REVEAL_QUESTIONS.length; i += 1) {
+      seen.add(current);
+      current = nextBlindRevealQuestion(current);
+    }
+    expect(seen.size).toBe(BLIND_REVEAL_QUESTIONS.length);
+    expect(current).toBe(DEFAULT_BLIND_REVEAL_QUESTION);
+    expect(nextBlindRevealQuestion("my own question")).toBe(BLIND_REVEAL_QUESTIONS[0]);
   });
 });
 

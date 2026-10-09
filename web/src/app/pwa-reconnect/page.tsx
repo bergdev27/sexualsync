@@ -9,6 +9,7 @@ import {
 import { clearIntentionalSignOut, markIntentionalSignOut } from "@/lib/auth-state";
 import { markLaunchAuthenticated } from "@/lib/launch-auth";
 import { getPwaEnvironment } from "@/lib/pwa-environment";
+import "./pwa-reconnect.css";
 
 const HANDOFF_STORAGE_KEY = "ss:pwa-browser-handoff";
 const APPROVAL_SECRET_PREFIX = "ss:pwa-browser-approval:";
@@ -640,7 +641,7 @@ function ReconnectShell({
   children: ReactNode;
 }) {
   return (
-    <main className="pwa-reconnect min-h-screen">
+    <main id="app-main" tabIndex={-1} className="pwa-reconnect min-h-screen">
       <div className="pwa-reconnect-glow" aria-hidden="true" />
       <section className="pwa-reconnect-card" aria-labelledby="pwa-reconnect-title">
         <BrandWordmark className="pwa-reconnect-wordmark" />

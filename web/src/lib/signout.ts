@@ -16,6 +16,8 @@ import { clearRoomE2eeKeyCache } from "./room-crypto";
 import { clearVaultKeyCache } from "./vault-crypto";
 import { clearResourceCache } from "./resource-cache";
 import { clearAppBadge } from "./app-badge";
+import { confirmAction } from "./confirm-dialog";
+import { PRIVATE_NOTES_STORAGE_KEY, privateNoteCount } from "./private-notes";
 
 // The offline write queue (web/src/lib/offline-queue.ts) persists plaintext
 // request bodies for queueable composes to IndexedDB so they survive a PWA
@@ -47,7 +49,50 @@ export function broadcastSignedOut(): void {
   }
 }
 
-export function prepareSignOut(): void {
+type SignOutClick = {
+  preventDefault?: () => void;
+  currentTarget?: EventTarget | null;
+};
+
+function mayHoldPrivateNotes(): boolean {
+  try {
+    return Boolean(window.localStorage.getItem(PRIVATE_NOTES_STORAGE_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run from a sign-out link's onClick (or with no event, from code). Private
+ * notes live only on this device and the wipe deletes them, so when there
+ * are any, a link click first asks to confirm, and only then wipes and
+ * follows the link.
+ */
+export function prepareSignOut(event?: SignOutClick): void {
+  const link = event?.currentTarget as HTMLAnchorElement | null | undefined;
+  const href = link && typeof link.href === "string" ? link.href : "";
+  if (href && event?.preventDefault && typeof window !== "undefined" && mayHoldPrivateNotes()) {
+    event.preventDefault();
+    void (async () => {
+      const count = await privateNoteCount().catch(() => 0);
+      if (count > 0) {
+        const ok = await confirmAction({
+          title: "Sign out of this device?",
+          body: `Your ${count === 1 ? "private note lives" : `${count} private notes live`} only on this device. Signing out deletes ${count === 1 ? "it" : "them"} for good. Download your data first if you want to keep ${count === 1 ? "it" : "them"}.`,
+          confirmLabel: "Sign out",
+          destructive: true,
+        });
+        if (!ok) return;
+      }
+      wipeForSignOut();
+      window.location.assign(href);
+    })();
+    return;
+  }
+  wipeForSignOut();
+}
+
+function wipeForSignOut(): void {
   clearAllNamespacedLocalState();
   clearRoomE2eeKeyCache();
   clearVaultKeyCache();

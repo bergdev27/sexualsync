@@ -1,0 +1,559 @@
+/* Styles only /space renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.switch-thumb {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: var(--cream-muted);
+  transition: transform 340ms var(--ease-press, ease), background 220ms var(--ease-settle, ease);
+}
+
+.switch.is-on .switch-thumb {
+  transform: translateX(20px);
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-fog);
+}
+
+/* Reduced motion: the toggle must still show its state, but jump instead of
+   sliding. */
+
+@media (prefers-reduced-motion: reduce) {
+  .switch-thumb {
+    transition: none;
+  }
+}
+
+.settings-room-encryption-section {
+  margin-top: -2px;
+}
+
+/* A plain settings card — the toggle row carries it, no oversized gradient
+   box. A faint accent edge appears only once encryption is on. */
+
+.room-encryption-card.is-enabled {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--hairline));
+}
+
+.room-encryption-row {
+  cursor: default;
+}
+
+.room-encryption-reveal {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.room-encryption-hint {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.48;
+}
+
+.room-encryption-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(86px, 0.34fr);
+  gap: 10px;
+}
+
+.room-encryption-input {
+  min-width: 0;
+}
+
+.room-encryption-primary {
+  min-height: 44px;
+  width: 100%;
+}
+
+.room-encryption-lock {
+  width: 100%;
+}
+
+.room-encryption-message {
+  margin: 0;
+  padding: 12px 16px 16px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.48;
+}
+
+.settings-feedback {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  overflow: visible;
+}
+
+.settings-feedback-head {
+  display: grid;
+  gap: 3px;
+}
+
+.settings-feedback-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-feedback-chip.is-active {
+  border-color: transparent;
+  background: var(--accent-a16);
+  box-shadow: var(--ring-accent-fog);
+  color: var(--cream);
+}
+
+.settings-feedback-input {
+  min-height: 116px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.settings-feedback-followup input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.settings-feedback-actions {
+  display: grid;
+  gap: 9px;
+}
+
+.settings-feedback-status {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+}
+
+.settings-feedback-status.is-error {
+  color: rgb(var(--no-rgb));
+}
+
+.settings-beta-note {
+  margin-top: -2px;
+}
+
+.settings-beta-card {
+  padding: 14px 16px;
+  border-color: color-mix(in srgb, var(--gold) 26%, transparent);
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--gold) 10%, transparent), transparent 48%),
+    var(--cream-a04);
+}
+
+.settings-beta-card p {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.48;
+}
+
+.settings-row-stack {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.settings-actions {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 380px) {
+
+  .room-encryption-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+.settings-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 0 0;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+}
+
+.settings-version {
+  padding: 2px 8px;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  color: var(--cream-faint);
+}
+
+/* ── Us (/space) and its Settings sheet. Us holds the couple's shared things
+   as two short lists; everything that configures the app moved into a
+   native <dialog> sheet opened from the gear in the header. ────────────── */
+
+.us-stage {
+  padding-bottom: calc(var(--tabbar-height) + var(--space-8));
+}
+
+.us-stage .settings-section h2.eyebrow,
+.us-settings-body h3.eyebrow {
+  margin: 0 0 10px;
+}
+
+.us-settings-trigger {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--cream-a06);
+  box-shadow: var(--ring-hairline);
+  color: var(--cream);
+  cursor: pointer;
+}
+
+.us-settings-trigger[aria-expanded="true"] {
+  color: var(--accent);
+}
+
+.us-settings-sheet {
+  position: fixed;
+  inset: auto 0 0 0;
+  width: 100%;
+  max-width: 440px;
+  height: min(94dvh, 900px);
+  max-height: min(94dvh, 900px);
+  margin: 0 auto;
+  padding: 0;
+  overflow: hidden;
+  border: none;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: var(--bg-tilt);
+  box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.34), var(--ring-hairline-strong);
+  color: var(--cream);
+  z-index: var(--z-sheet);
+}
+
+.us-settings-sheet[open] {
+  display: flex;
+  flex-direction: column;
+  animation: us-sheet-in 260ms var(--ease-enter, ease-out) both;
+}
+
+.us-settings-sheet::backdrop {
+  background: rgb(var(--bg-rgb) / 0.72);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .us-settings-sheet[open] { animation: none; }
+}
+
+.us-settings-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.us-settings-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-3);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.us-settings-title {
+  margin: 0;
+  font-family: var(--display);
+  font-size: var(--fs-30);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+.us-settings-head .done-pill {
+  border: 0;
+  cursor: pointer;
+  font-family: var(--body);
+}
+
+.us-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-5) var(--space-5) calc(var(--space-8) + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.us-settings-body .settings-section {
+  margin-bottom: var(--space-7);
+}
+
+.us-settings-body .settings-coffee-link {
+  margin: 0 auto;
+}
+
+/* Notification presets: a radio group of three, then "Customize". */
+
+.us-settings-presets {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.us-preset.is-active {
+  background: var(--accent-mist);
+  box-shadow: inset 0 0 0 1.5px rgb(var(--accent-rgb) / 0.7);
+}
+
+.us-preset-dot {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1.5px var(--cream-faint);
+  transition: box-shadow var(--dur-state, 240ms) var(--ease-settle, ease);
+}
+
+.us-preset.is-active .us-preset-dot {
+  box-shadow: inset 0 0 0 6px var(--accent);
+}
+
+.us-preset-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.us-preset-title {
+  font-size: var(--fs-15);
+  font-weight: 500;
+}
+
+.us-preset-sub {
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+}
+
+.us-customize {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  margin-top: var(--space-2);
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--fs-15);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.us-customize-chev {
+  font-size: var(--fs-20);
+  line-height: 1;
+}
+
+.us-push-tags {
+  margin-top: var(--space-2);
+}
+
+.settings-coffee-link {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  margin-top: 3px;
+  padding: 7px 13px 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--gold) 36%, var(--hairline));
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(circle at 17px 14px, color-mix(in srgb, var(--gold) 24%, transparent), transparent 38px),
+    linear-gradient(135deg, color-mix(in srgb, var(--gold) 12%, transparent), rgba(35, 17, 26, 0.76)),
+    var(--cream-a04);
+  color: var(--cream);
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 var(--cream-a08);
+  letter-spacing: 0;
+  text-decoration: none;
+  text-transform: none;
+}
+
+.settings-coffee-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, transparent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--gold) 16%, transparent);
+  color: var(--gold);
+  font-family: var(--display);
+  font-size: var(--fs-20);
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: none;
+}
+
+.settings-coffee-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  text-align: left;
+}
+
+.settings-coffee-copy span {
+  color: var(--cream);
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.settings-coffee-copy small {
+  overflow: hidden;
+  color: var(--cream-faint);
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* /space — Your room link section */
+
+.space-invite-card {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.space-invite-loading,
+.space-invite-empty {
+  margin: 0;
+  font-family: var(--body);
+  font-size: var(--fs-15);
+  color: var(--cream-muted);
+}
+
+.space-invite-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.space-invite-url {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: var(--fs-12);
+  color: var(--cream);
+  word-break: break-all;
+  user-select: all;
+}
+
+.space-invite-status {
+  flex-shrink: 0;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--accent-mist);
+  border: 1px solid var(--accent-fog);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.space-invite-meta {
+  margin: 0;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  color: var(--cream-faint);
+}
+
+.space-invite-error {
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  color: var(--no);
+  background: rgba(201, 138, 130, 0.12);
+  border: 1px solid rgba(201, 138, 130, 0.32);
+  border-radius: var(--r-xs);
+}
+
+.space-invite-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.space-invite-pill {
+  padding: 7px 14px;
+  font-family: var(--body);
+  font-size: var(--fs-12);
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  background: var(--accent-mist);
+  color: var(--accent);
+  background-clip: padding-box;
+  border-color: transparent;
+  box-shadow: var(--ring-accent-fog);
+  cursor: pointer;
+}
+
+.space-invite-pill:hover { background: var(--accent-fog); }
+
+.space-invite-pill:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.space-invite-pill-ghost {
+  background: transparent;
+  color: var(--cream-muted);
+  border-color: transparent;
+  box-shadow: var(--ring-hairline-strong);
+}
+
+.space-invite-pill-ghost:hover { background: var(--surface-2); color: var(--cream); }
+
+.space-invite-hint {
+  margin: 0;
+  font-family: var(--body);
+  font-size: var(--fs-13);
+  color: var(--cream-muted);
+  line-height: 1.45;
+}
+
+.settings-feedback-followup {
+  display: flex;
+  gap: 9px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.3;
+  min-height: 44px;
+  align-items: center;
+  cursor: pointer;
+}
+
+@keyframes us-sheet-in {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

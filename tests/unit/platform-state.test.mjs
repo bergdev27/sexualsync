@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import { onRequest as invite } from "../../functions/api/invite.js";
 import { onRequest as workspace } from "../../functions/api/workspace.js";
 import { authorizeWorkspaceAccess, mutatePlatformState, readPlatformState } from "../../functions/api/_workspaces.js";
+import { mutateKey, readKey } from "../../functions/api/_state.js";
+import { MOOD_STORE_NAME, moodKey } from "../../functions/api/mood.js";
 import { makeStateEnv } from "./helpers.mjs";
 
 const ME = "local-preview@example.test"; // the local-preview identity
@@ -146,4 +148,21 @@ test("workspace leave marks the member removed", async () => {
 
   const { workspaces } = await readPlatformState(e);
   assert.equal(workspaces[0].members.find((m) => m.email === ME).status, "removed");
+});
+
+test("workspace leave drops the leaver's mood light and keeps the partner's", async () => {
+  const e = env();
+  await seed(e, { workspaces: [ws({ members: [member("owner@example.test", "owner", "active"), member(ME, "partner", "active")] })] });
+  const until = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const since = new Date().toISOString();
+  await mutateKey(e, MOOD_STORE_NAME, moodKey("w1"), () => ({
+    value: { v: 1, byEmail: { [ME]: { since, until }, "owner@example.test": { since, until } } },
+  }));
+
+  const res = await workspace({ request: post("/api/workspace", { action: "leave", workspaceId: "w1" }), env: e });
+  assert.equal(res.status, 200);
+
+  const record = await readKey(e, MOOD_STORE_NAME, moodKey("w1"));
+  assert.equal(record.byEmail[ME], undefined, "the leaver's mood entry is gone");
+  assert.deepEqual(record.byEmail["owner@example.test"], { since, until }, "the partner's entry is untouched");
 });

@@ -130,9 +130,15 @@ should use the built-in local account form instead.
 ## Run it (Docker)
 
 ```bash
+mkdir sexualsync && cd sexualsync
+curl -fsSLO https://raw.githubusercontent.com/bergdev27/sexualsync/main/docker-compose.yml
 docker compose version   # requires Docker Compose v2.24+
-docker compose up --build
+docker compose up -d
 ```
+
+This pulls the published multi-arch image (`ghcr.io/bergdev27/sexualsync`), so no
+clone is needed. To build from a clone instead:
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up --build`.
 
 If Docker says `compose` is not a command, install Docker Desktop or the Docker
 Compose plugin first. `docker --version` alone is not enough; it only confirms
@@ -207,9 +213,12 @@ Vault survive untouched.
 **Docker:**
 
 ```bash
-git pull
-docker compose up --build
+docker compose pull
+docker compose up -d
 ```
+
+(From a source clone: `git pull` then
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up --build`.)
 
 **Node (no Docker):**
 

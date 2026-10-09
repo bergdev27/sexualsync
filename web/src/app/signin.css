@@ -1,3 +1,443 @@
+/* ── Route styles moved from globals.css. They come first because they loaded
+   before this file's own rules when they lived in globals.css. ── */
+
+/* While bootstrap is still in flight on a non-PWA visit we keep the
+   candlelight atmosphere visible but hide the hero copy and CTA. Signed-in
+   users no longer see the marketing hero flash before being redirected to
+   /sexboard; signed-out users see the hero appear as soon as bootstrap
+   resolves (typically < 300 ms). */
+
+.signin-cl.is-bootstrap-loading .cl-headline,
+.signin-cl.is-bootstrap-loading .cl-sub,
+.signin-cl.is-bootstrap-loading .cl-actions {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.signin-b .signin-eyebrow em { font-style: normal; color: var(--ss-rose); }
+
+/* ============================================================================
+   SIGN-IN · Candlelight edition
+   Scoped to .signin-cl so no other screen is affected. Consumes existing
+   brand tokens; adds no variables. Source order intentional: these rules
+   win over the prior .signin-b block above.
+   ============================================================================ */
+
+.signin.signin-cl {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 36px 26px 34px;
+  /* Cinematic base: a warm rose crown bleeding into wine-black, not a flat
+     fill — gives the candlelight something to sit on top of. */
+  background:
+    radial-gradient(125% 78% at 50% -12%,
+      color-mix(in srgb, var(--bg-tilt) 96%, var(--accent)) 0%,
+      color-mix(in srgb, var(--bg) 88%, black) 46%,
+      color-mix(in srgb, var(--bg) 42%, black) 100%),
+    color-mix(in srgb, var(--bg) 40%, black);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+}
+
+/* Hairline of light across the very top edge — the kind of crafted finish
+   that reads as "premium" before you can name why. */
+
+.signin-cl::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 12%; right: 12%;
+  height: 1px;
+  z-index: calc(var(--z-raised-4) + 2);
+  background: linear-gradient(90deg,
+    transparent,
+    var(--cream-a22) 28%,
+    rgb(var(--cream-rgb) / 0.32) 50%,
+    var(--cream-a22) 72%,
+    transparent);
+  pointer-events: none;
+}
+
+.signin-cl .ribbon,
+.signin-cl > h1:not(.cl-headline),
+.signin-cl > .sub,
+.signin-cl > .pa-eyebrow,
+.signin-cl > .copy { display: none; }
+
+.cl-candle {
+  position: absolute; inset: 0;
+  /* Two stacked blooms: a tight luminous core + a wide warm wash. The
+     layered falloff reads as real candlelight depth rather than one flat
+     radial. */
+  background:
+    radial-gradient(ellipse 56% 36% at 50% 32%,
+      rgba(245,196,205,0.52) 0%,
+      rgb(var(--accent-rgb) / 0.32) 15%,
+      rgba(212,130,138,0.13) 37%,
+      transparent 64%),
+    radial-gradient(ellipse 96% 64% at 50% 42%,
+      rgba(150,66,88,0.14) 0%,
+      rgba(120,50,72,0.05) 40%,
+      transparent 72%);
+  mix-blend-mode: screen;
+  animation: cl-breathe 4.8s ease-in-out infinite;
+  pointer-events: none; z-index: var(--z-base);
+}
+
+.cl-floor {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 64%;
+  background: radial-gradient(ellipse 84% 62% at 50% 112%,
+    rgba(150,58,84,0.40) 0%,
+    rgba(110,40,64,0.14) 42%,
+    transparent 66%);
+  mix-blend-mode: screen;
+  pointer-events: none; z-index: var(--z-base);
+}
+
+.cl-wave {
+  position: absolute;
+  left: -12%; right: -12%;
+  top: 38%;
+  height: 286px;
+  z-index: var(--z-raised);
+  opacity: 0;
+  transform: scaleY(0.98);
+  transform-origin: 50% 50%;
+  /* Keeps the scaleY breath on one fixed-scale raster; without it the
+     browser re-rasterises the glowing wave (three drop-shadows) as the
+     scale changes. */
+  will-change: transform;
+  animation:
+    cl-wave-in     1.4s var(--ss-ease-bloom, cubic-bezier(0.16, 1, 0.3, 1)) 0.4s forwards,
+    cl-wave-breath 5.6s ease-in-out 1.8s infinite;
+  pointer-events: none;
+}
+
+/* Soft luminous plate behind the filament so the wave glows out of the dark
+   instead of looking like a thin drawn line. This is the brand mark, given
+   the presence to actually anchor the composition. */
+
+.cl-wave::before {
+  content: "";
+  position: absolute;
+  left: 18%; right: 18%; top: 50%;
+  height: 150px;
+  transform: translateY(-50%);
+  background: radial-gradient(ellipse 60% 50% at 50% 50%,
+    var(--accent-a22) 0%,
+    var(--accent-a08) 42%,
+    transparent 78%);
+  pointer-events: none;
+}
+
+.cl-wave svg { position: relative; width: 100%; height: 100%; display: block; overflow: visible; }
+
+.cl-wave path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 60%, var(--cream));
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+  animation: cl-wave-draw 2.4s var(--ss-ease-settle, cubic-bezier(0.22, 1, 0.36, 1)) 0.6s forwards;
+  filter:
+    drop-shadow(0 0 4px rgba(245,200,208,0.85))
+    drop-shadow(0 0 22px rgb(var(--accent-rgb) / 0.6))
+    drop-shadow(0 0 44px rgba(216,120,140,0.34));
+}
+
+.cl-grain {
+  position: absolute; inset: 0; z-index: calc(var(--z-raised-4) + 4);
+  opacity: 0.085;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 320 320'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  pointer-events: none;
+}
+
+.cl-vignette {
+  position: absolute; inset: 0; z-index: calc(var(--z-raised-4) + 5);
+  background:
+    radial-gradient(ellipse 115% 92% at 50% 46%,
+      transparent 30%,
+      rgba(6,2,4,0.42) 72%,
+      rgba(5,1,3,0.82) 100%),
+    linear-gradient(180deg, transparent 60%, rgba(5,1,3,0.5) 100%);
+  pointer-events: none;
+}
+
+.cl-wordmark {
+  position: relative; z-index: var(--z-raised-4);
+  margin-top: 46px;
+  font-family: var(--ss-font-display, var(--display));
+  font-style: italic; font-weight: 500;
+  font-size: var(--fs-20); line-height: 1;
+  letter-spacing: 0.005em;
+  color: rgb(var(--cream-rgb) / 0.74);
+  opacity: 0;
+  animation: cl-up 0.8s ease-out 0.2s forwards;
+}
+
+.cl-wordmark .brand-mark { filter: drop-shadow(0 0 10px var(--accent-a40)); }
+
+.cl-wordmark .brand-dot {
+  background: var(--accent);
+  box-shadow:
+    0 0 8px rgba(245,200,208,0.85),
+    0 0 18px rgb(var(--accent-rgb) / 0.45);
+}
+
+.cl-tagline {
+  margin: 0 auto 6px;
+  font-family: var(--ss-font-display, var(--display));
+  font-style: italic;
+  font-weight: 500;
+  font-size: var(--fs-20);
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+  color: rgb(var(--cream-rgb) / 0.72);
+  text-align: center;
+}
+
+.cl-tagline .glow {
+  color: var(--accent);
+  text-shadow: 0 0 18px rgb(var(--accent-rgb) / 0.45);
+}
+
+.cl-headline {
+  position: relative; z-index: var(--z-raised-4);
+  margin: 48px auto 0;
+  max-width: 16ch;
+  font-family: var(--ss-font-display, var(--display));
+  font-style: italic; font-weight: 500;
+  font-size: var(--fs-48);
+  line-height: 0.98;
+  letter-spacing: -0.018em;
+  color: var(--cream);
+  /* Soft depth so the cream stays crisp where it crosses the luminous wave,
+     plus the faintest warm halo — reads as candlelit, not flat print. */
+  text-shadow:
+    0 1px 1px rgba(8,3,6,0.5),
+    0 0 30px var(--accent-a12);
+  text-wrap: balance;
+  opacity: 0;
+  animation: cl-up 1.0s var(--ss-ease-bloom, cubic-bezier(0.16, 1, 0.3, 1)) 1.0s forwards;
+}
+
+.cl-headline em {
+  font-style: italic;
+  color: color-mix(in srgb, var(--cream) 70%, white);
+  text-shadow: 0 0 26px rgba(245,200,208,0.28);
+}
+
+.cl-headline .quiet { color: var(--cream-faint); text-shadow: 0 1px 1px rgba(8,3,6,0.45); }
+
+.cl-headline .glow {
+  color: color-mix(in srgb, var(--accent) 75%, var(--cream));
+  text-shadow:
+    0 0 10px rgba(245,200,208,0.55),
+    0 0 34px rgb(var(--accent-rgb) / 0.6);
+}
+
+/* Honor reduced-motion + prefers-contrast: more so the candlelight headline
+   meets WCAG AA contrast for users who request it. Disable the bloom
+   animations and bump the muted spans to opaque cream against the dark
+   surface. */
+
+@media (prefers-contrast: more) {
+  .cl-headline .quiet,
+  .cl-sub,
+  .cl-foot,
+  .cl-tagline {
+    color: var(--cream);
+  }
+  .cl-headline .glow,
+  .cl-tagline .glow {
+    color: color-mix(in srgb, var(--accent) 70%, white);
+    text-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-headline,
+  .cl-sub,
+  .cl-actions,
+  .cl-wave,
+  .cl-grain {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
+
+.cl-sub {
+  position: relative; z-index: var(--z-raised-4);
+  margin: 40px auto 0;
+  max-width: 24ch;
+  font-family: var(--ss-font-display, var(--display));
+  font-style: italic; font-weight: 400;
+  font-size: var(--fs-20); line-height: 1.38;
+  letter-spacing: 0.005em;
+  color: rgb(var(--cream-rgb) / 0.64);
+  opacity: 0;
+  animation: cl-up 0.9s ease-out 1.6s forwards;
+}
+
+.signin-cl .cl-actions {
+  position: relative; z-index: var(--z-raised-4);
+  margin-top: auto;
+  width: 100%;
+  display: flex; flex-direction: column; gap: 14px;
+  padding-top: 28px;
+  opacity: 0;
+  animation: cl-up 0.9s ease-out 2.2s forwards;
+}
+
+.signin-cl .pa-cta {
+  appearance: none; border: 0;
+  width: 100%; min-height: 62px;
+  border-radius: var(--r-pill);
+  /* Lit-from-above rose: a brighter crest melting into a deeper base, with a
+     warm under-shadow inside the pill so it feels like a solid, dimensional
+     object catching the candlelight — not a flat swatch. */
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 45%, var(--cream)) 0%,
+      color-mix(in srgb, var(--accent) 75%, var(--cream)) 47%,
+      var(--accent) 100%);
+  color: var(--ink);
+  font: 600 var(--fs-15)/1 var(--body, system-ui);
+  letter-spacing: 0.002em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 11px;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    inset 0 -11px 18px rgba(150,58,86,0.2),
+    0 2px 6px rgba(0,0,0,0.34),
+    0 12px 30px rgb(var(--accent-rgb) / 0.34);
+  position: relative;
+}
+
+/* Breathe = opacity pulse of a glow overlay (compositor-only). The old
+   keyframes animated box-shadow + filter:brightness, repainting the CTA for
+   the whole life of the sign-in screen. */
+
+.signin-cl .pa-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 16px 46px rgb(var(--accent-rgb) / 0.5);
+  opacity: 0;
+  pointer-events: none;
+  animation: cl-cta-breathe 5.6s ease-in-out 2.6s infinite;
+}
+
+.signin-cl.public-preview .public-preview-primary::after,
+.signin-cl .pa-cta.is-disabled::after {
+  animation: none;
+  opacity: 0;
+}
+
+.signin-cl.public-preview .public-preview-primary {
+  animation: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.signin-cl .pa-cta.is-disabled {
+  opacity: 0.54;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+  animation: none;
+}
+
+.signin-cl .pa-cta:hover {
+  filter: brightness(1.04);
+}
+
+.signin-cl .pa-cta-glyph {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 32%, color-mix(in srgb, var(--bg) 84%, var(--accent-deep)), var(--bg));
+  color: color-mix(in srgb, var(--accent) 55%, var(--cream));
+  display: inline-grid; place-items: center;
+  font: 700 var(--fs-12)/1 var(--body, system-ui);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    0 1px 2px rgba(0,0,0,0.42);
+}
+
+.cl-foot {
+  margin: 8px 0 0;
+  font: 500 var(--fs-12)/1.4 var(--body, system-ui);
+  color: var(--cream-faint);
+  display: inline-flex; justify-content: center; align-items: center; gap: 9px;
+}
+
+.cl-foot a {
+  /* A row of standalone links, not prose: each gets a 44px-tall hit area. */
+  display: inline-flex; align-items: center;
+  min-height: 44px; min-width: 44px; justify-content: center; padding-inline: 4px;
+  color: inherit; text-decoration: none;
+  transition: color var(--dur-state, 320ms) var(--ease-settle, ease);
+}
+
+.cl-foot a:hover { color: var(--cream); }
+
+.cl-foot .sep { opacity: 0.4; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cl-candle,
+  .cl-wave,
+  .cl-wave path,
+  .signin-cl .pa-cta {
+    animation: none !important;
+  }
+  .cl-wave { opacity: 0.5 !important; }
+  .cl-wave path { stroke-dashoffset: 0 !important; }
+
+  .cl-wordmark,
+  .cl-tagline,
+  .cl-headline,
+  .cl-sub,
+  .signin-cl .cl-actions {
+    opacity: 1 !important;
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+@keyframes cl-breathe {
+  0%, 100% { opacity: 0.74; transform: scale(0.95); }
+  50%      { opacity: 1;    transform: scale(1.07); }
+}
+
+@keyframes cl-wave-draw    { to { stroke-dashoffset: 0; } }
+
+@keyframes cl-wave-in      { to { opacity: 0.5; transform: scaleY(0.98); } }
+
+@keyframes cl-wave-breath  {
+  0%,100% { opacity: 0.46; transform: scaleY(0.98); }
+  50%     { opacity: 0.62; transform: scaleY(1.03); }
+}
+
+@keyframes cl-up {
+  0%   { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cl-cta-breathe {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+
+/* ── signin.css ── */
+
 /* ───────────────────────────────────────────────────────────────
    Sign-in (live). Direction A — hushed & intimate.
    The header was removed per design, so .pa-stage handles the
@@ -9,7 +449,7 @@
 
 .pa-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   width: 100%;
   min-width: 0;
   min-height: 100dvh;
@@ -43,10 +483,8 @@
 
 .pa-eyebrow {
   display: inline-block;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
+  font-family: var(--body);
+  font-size: var(--fs-13);
   color: var(--gold);
   opacity: 0.78;
   margin: 0 0 14px;
@@ -54,7 +492,7 @@
 
 .pa-headline {
   margin: 0 auto;
-  font-size: 52px;
+  font-size: var(--fs-48);
   line-height: 0.96;
   letter-spacing: -0.01em;
   text-wrap: balance;
@@ -67,10 +505,9 @@
   margin: 18px auto 0;
   max-width: 32ch;
   color: var(--cream-muted);
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 400;
-  font-size: 17px;
+  font-size: var(--fs-17);
   line-height: 1.45;
 }
 
@@ -91,12 +528,12 @@
   border: 1px solid transparent;
   background:
     linear-gradient(180deg,
-      rgba(243, 220, 217, 0.07) 0%,
-      rgba(243, 220, 217, 0.02) 100%);
+      var(--cream-a08) 0%,
+      var(--cream-a02) 100%);
   background-clip: padding-box;
   color: var(--cream);
   font-family: var(--body);
-  font-size: 15px;
+  font-size: var(--fs-15);
   font-weight: 500;
   letter-spacing: 0.005em;
   display: inline-flex;
@@ -117,8 +554,8 @@
 .pa-cta:hover {
   background:
     linear-gradient(180deg,
-      rgba(243, 220, 217, 0.10) 0%,
-      rgba(243, 220, 217, 0.03) 100%);
+      var(--cream-a10) 0%,
+      var(--cream-a02) 100%);
   border-color: transparent;
   box-shadow:
     var(--ring-accent-fog, inset 0 0 0 1px var(--accent-fog)),
@@ -127,15 +564,21 @@
 }
 .pa-cta:active { transform: scale(0.985); }
 
+/* The whole row is the hit area (a <label> toggles its checkbox): at least
+   44px tall, box centred against the copy, so the one tap that gates the
+   app is never the smallest target on screen. */
 .legal-acceptance {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 11px;
-  align-items: start;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
   width: 100%;
+  min-height: 44px;
+  padding-block: 10px;
+  cursor: pointer;
   color: var(--cream-muted);
   font-family: var(--body);
-  font-size: 12px;
+  font-size: var(--fs-12);
   line-height: 1.4;
   text-align: left;
 }
@@ -146,12 +589,12 @@
 .legal-acceptance input {
   appearance: none;
   -webkit-appearance: none;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   margin: 0;
-  border-radius: 6px;
-  border: 1px solid rgba(243, 220, 217, 0.3);
-  background: linear-gradient(180deg, rgba(243, 220, 217, 0.07), rgba(243, 220, 217, 0.02));
+  border-radius: var(--r-xs);
+  border: 1px solid rgb(var(--cream-rgb) / 0.3);
+  background: linear-gradient(180deg, var(--cream-a08), var(--cream-a02));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   cursor: pointer;
   transition:
@@ -161,23 +604,23 @@
 }
 
 .legal-acceptance input:hover {
-  border-color: rgba(233, 168, 179, 0.5);
+  border-color: rgb(var(--accent-rgb) / 0.5);
 }
 
 .legal-acceptance input:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(232, 155, 166, 0.22);
+  box-shadow: 0 0 0 3px var(--accent-a22);
 }
 
 .legal-acceptance input:checked {
   border-color: transparent;
   background:
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.4 8.4l3 3 6-7' fill='none' stroke='%232a0e17' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 13px 13px no-repeat,
-    linear-gradient(180deg, #f3b6c0, #e7a3ae);
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M3.4 8.4l3 3 6-7' fill='none' stroke='%23170a10' stroke-width='2.3' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / 15px 15px no-repeat,
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 75%, var(--cream)), var(--accent));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.45),
-    0 3px 10px rgba(233, 168, 179, 0.4);
+    0 3px 10px var(--accent-a40);
 }
 
 .legal-acceptance a {
@@ -206,7 +649,7 @@
   background: transparent;
   color: var(--cream-muted);
   font-family: var(--body);
-  font-size: 13px;
+  font-size: var(--fs-13);
   text-decoration: none;
   cursor: pointer;
 }
@@ -215,11 +658,11 @@
    than a second button competing with the rose CTA. Still a 44px tap target. */
 .email-auth-toggle {
   min-height: 44px;
-  color: rgba(243, 220, 217, 0.62);
+  color: rgb(var(--cream-rgb) / 0.62);
   letter-spacing: 0.01em;
   text-underline-offset: 4px;
   text-decoration: underline;
-  text-decoration-color: rgba(243, 220, 217, 0.18);
+  text-decoration-color: var(--cream-faint);
   transition:
     color var(--dur-state, 320ms) var(--ease-settle, ease),
     text-decoration-color var(--dur-state, 320ms) var(--ease-settle, ease);
@@ -240,11 +683,11 @@
   width: 100%;
   min-width: 0;
   height: 50px;
-  border-radius: 16px;
+  border-radius: var(--r-md);
   border: 1px solid var(--hairline-strong);
   background: rgba(16, 7, 11, 0.66);
   color: var(--cream);
-  font: 500 15px/1 var(--body);
+  font: 500 var(--fs-15)/1 var(--body);
   padding: 0 15px;
   outline: none;
   box-shadow:
@@ -261,7 +704,7 @@
   background: rgba(20, 9, 14, 0.72);
   box-shadow:
     0 0 0 3px rgba(232, 155, 166, 0.18),
-    0 6px 18px rgba(233, 168, 179, 0.12),
+    0 6px 18px var(--accent-a12),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
@@ -274,13 +717,13 @@
   height: 50px;
   min-width: 104px;
   padding: 0 17px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #f4bfc7, #e7a3ae);
-  color: #2a0e17;
+  border-radius: var(--r-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 65%, var(--cream)), var(--accent));
+  color: var(--ink);
   font-weight: 700;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    0 6px 16px rgba(233, 168, 179, 0.26);
+    0 6px 16px var(--accent-a28);
 }
 
 .email-auth-submit:disabled,
@@ -305,7 +748,7 @@
 .email-auth-error {
   margin: 0;
   font-family: var(--body);
-  font-size: 12.5px;
+  font-size: var(--fs-13);
   line-height: 1.35;
   text-align: center;
 }
@@ -331,22 +774,22 @@
   gap: 6px;
   padding: 4px;
   border: 1px solid var(--hairline);
-  border-radius: 17px;
+  border-radius: var(--r-md);
   background: rgba(16, 7, 11, 0.45);
 }
 
 .local-auth-tabs button {
   min-height: 40px;
   border: 0;
-  border-radius: 13px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--cream-muted);
-  font: 750 12px/1 var(--body);
+  font: 750 var(--fs-12)/1 var(--body);
   cursor: pointer;
 }
 
 .local-auth-tabs button.is-active {
-  background: rgba(243, 220, 217, 0.12);
+  background: var(--cream-a12);
   color: var(--cream);
 }
 
@@ -389,7 +832,7 @@
 
 .public-preview-copy {
   position: relative;
-  z-index: 4;
+  z-index: var(--z-raised-4);
   display: grid;
   justify-items: center;
   width: 100%;
@@ -399,23 +842,21 @@
 
 .public-preview-kicker {
   margin: 42px 0 0;
-  color: rgba(243, 220, 217, 0.56);
-  font: 800 10px/1 var(--mono);
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
+  color: var(--cream-faint);
+  font: 500 var(--fs-13)/1 var(--body);
 }
 
 .public-preview .cl-headline {
   margin-top: 20px;
   max-width: 11ch;
-  font-size: clamp(46px, 12vw, 68px);
+  font-size: var(--fs-48);
 }
 
 .public-preview .cl-sub {
   margin-top: 30px;
   max-width: 32ch;
   font-family: var(--body);
-  font-size: clamp(15px, 4vw, 17px);
+  font-size: var(--fs-15);
   font-style: normal;
   line-height: 1.55;
 }
@@ -428,31 +869,7 @@
 
 .public-preview .public-preview-primary {
   min-height: 62px;
-  font-size: 15px;
-}
-
-.public-preview-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 52px;
-  border: 1px solid rgba(243, 220, 217, 0.16);
-  border-radius: var(--r-pill);
-  background:
-    linear-gradient(180deg, rgba(243, 220, 217, 0.075), rgba(243, 220, 217, 0.025)),
-    rgba(13, 5, 9, 0.34);
-  color: rgba(243, 220, 217, 0.88);
-  font: 700 14px/1 var(--body);
-  text-decoration: none;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 14px 34px rgba(0, 0, 0, 0.24);
-  cursor: pointer;
-}
-
-.public-preview-secondary:active {
-  transform: scale(0.985);
+  font-size: var(--fs-15);
 }
 
 /* ── Marketing landing: scroll + screenshots + a real GitHub button ──────────
@@ -483,16 +900,16 @@
 
 .cl-sub-soft {
   margin-top: 12px;
-  font-size: 13.5px;
+  font-size: var(--fs-13);
   line-height: 1.55;
-  color: rgba(243, 220, 217, 0.6);
+  color: var(--cream-faint);
 }
-.cl-sub-soft strong { color: rgba(243, 220, 217, 0.92); font-weight: 700; }
+.cl-sub-soft strong { color: rgb(var(--cream-rgb) / 0.92); font-weight: 700; }
 
 /* Inline screenshots — a horizontal, snap-scrolling peek at the real app. */
 .pp-shots {
   position: relative;
-  z-index: 1;
+  z-index: var(--z-raised);
   width: min(600px, 96vw);
   margin: 22px auto 4px;
 }
@@ -508,14 +925,19 @@
   mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
 }
 .pp-shots-track::-webkit-scrollbar { display: none; }
+.pp-shots-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-md);
+}
 .pp-shot {
   flex: 0 0 auto;
   scroll-snap-align: center;
   width: 156px;
   margin: 0;
-  border-radius: 24px;
+  border-radius: var(--r-lg);
   overflow: hidden;
-  border: 1px solid rgba(243, 220, 217, 0.16);
+  border: 1px solid var(--cream-a16);
   background: rgba(6, 2, 4, 0.5);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
@@ -526,6 +948,7 @@
 .pp-shot:nth-child(3) { animation-delay: 0.14s; }
 .pp-shot:nth-child(4) { animation-delay: 0.21s; }
 .pp-shot:nth-child(5) { animation-delay: 0.28s; }
+.pp-shot picture { display: contents; }
 .pp-shot img {
   display: block;
   width: 100%;
@@ -551,12 +974,12 @@
   width: 100%;
   min-height: 54px;
   border-radius: var(--r-pill);
-  border: 1px solid rgba(243, 220, 217, 0.24);
+  border: 1px solid var(--cream-a22);
   background:
-    radial-gradient(130% 180% at 50% -60%, rgba(243, 220, 217, 0.16), transparent 62%),
+    radial-gradient(130% 180% at 50% -60%, var(--cream-a16), transparent 62%),
     linear-gradient(180deg, rgba(30, 13, 20, 0.92), rgba(13, 5, 9, 0.9));
-  color: #f3dcd9;
-  font: 700 14px/1 var(--body);
+  color: var(--cream);
+  font: 700 var(--fs-15)/1 var(--body);
   letter-spacing: 0.01em;
   text-decoration: none;
   box-shadow:
@@ -565,7 +988,7 @@
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 .pp-github:hover {
-  border-color: rgba(243, 220, 217, 0.42);
+  border-color: rgb(var(--cream-rgb) / 0.42);
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.1),
@@ -580,72 +1003,14 @@
   gap: 8px;
   width: 100%;
   padding: 8px;
-  border: 1px solid rgba(243, 220, 217, 0.16);
-  border-radius: 22px;
+  border: 1px solid var(--cream-a16);
+  border-radius: var(--r-lg);
   background:
-    linear-gradient(180deg, rgba(243, 220, 217, 0.075), rgba(243, 220, 217, 0.025)),
+    linear-gradient(180deg, var(--cream-a08), var(--cream-a02)),
     rgba(13, 5, 9, 0.42);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
     0 16px 38px rgba(0, 0, 0, 0.26);
-}
-
-.public-preview-beta-input {
-  min-width: 0;
-  height: 44px;
-  border: 0;
-  border-radius: 16px;
-  background: rgba(6, 2, 4, 0.42);
-  color: rgba(243, 220, 217, 0.96);
-  font: 650 15px/1 var(--body);
-  outline: none;
-  padding: 0 14px;
-}
-
-.public-preview-beta-input::placeholder {
-  color: rgba(243, 220, 217, 0.38);
-}
-
-.public-preview-beta-input:focus {
-  box-shadow:
-    0 0 0 1px rgba(232, 155, 166, 0.52),
-    0 0 0 5px rgba(232, 155, 166, 0.10);
-}
-
-.public-preview-beta-submit {
-  min-width: 92px;
-  height: 44px;
-  border: 0;
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(232, 155, 166, 0.96), rgba(217, 164, 65, 0.92));
-  color: #170b10;
-  cursor: pointer;
-  font: 900 13px/1 var(--body);
-  padding: 0 16px;
-}
-
-.public-preview-beta-submit:disabled,
-.public-preview-beta-input:disabled {
-  cursor: default;
-  opacity: 0.72;
-}
-
-.public-preview-beta-message,
-.public-preview-beta-error {
-  grid-column: 1 / -1;
-  margin: 1px 4px 3px;
-  font-family: var(--body);
-  font-size: 12.5px;
-  line-height: 1.35;
-  text-align: center;
-}
-
-.public-preview-beta-message {
-  color: rgba(243, 220, 217, 0.74);
-}
-
-.public-preview-beta-error {
-  color: var(--no);
 }
 
 .public-preview-signin {
@@ -653,11 +1018,9 @@
   justify-content: center;
   min-height: 44px;
   align-items: center;
-  color: rgba(243, 220, 217, 0.46);
-  font: 750 11px/1 var(--body);
-  letter-spacing: 0.12em;
+  color: var(--cream-faint);
+  font: 750 var(--fs-12)/1 var(--body);
   text-decoration: none;
-  text-transform: uppercase;
 }
 
 .public-preview-foot {
@@ -671,7 +1034,7 @@
   }
 
   .public-preview .cl-headline {
-    font-size: clamp(42px, 11vw, 58px);
+    font-size: var(--fs-38);
   }
 
   .public-preview .cl-sub {
@@ -682,10 +1045,6 @@
 @media (max-width: 360px) {
   .public-preview-beta-form {
     grid-template-columns: 1fr;
-  }
-
-  .public-preview-beta-submit {
-    width: 100%;
   }
 }
 
@@ -710,29 +1069,10 @@
   }
 }
 
-.pa-google-mark-wrap {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: inline-grid;
-  flex: 0 0 auto;
-  place-items: center;
-  background: rgba(243, 220, 217, 0.94);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 6px 16px rgba(0, 0, 0, 0.18);
-}
-
-.pa-google-mark {
-  display: block;
-  width: 14px;
-  height: 14px;
-}
-
 .pa-foot {
   margin: 26px 0 0;
   color: var(--cream-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-12);
   letter-spacing: 0.02em;
   text-align: center;
 }
@@ -748,7 +1088,7 @@
 
 .invite-preview-stage {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-raised-2);
   width: min(100%, 440px);
   margin: 0 auto;
   min-height: 100dvh;
@@ -764,7 +1104,7 @@
   font-family: var(--display);
   font-style: italic;
   font-weight: 500;
-  font-size: 36px;
+  font-size: var(--fs-38);
   line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 8px 0 14px;
@@ -773,10 +1113,9 @@
 }
 
 .invite-preview-sub {
-  font-family: var(--display);
-  font-style: italic;
+  font-family: var(--body);
   font-weight: 400;
-  font-size: 16px;
+  font-size: var(--fs-17);
   line-height: 1.5;
   color: var(--cream-muted);
   margin: 0 0 22px;
@@ -799,9 +1138,9 @@
   padding: 11px 14px;
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 12px;
+  border-radius: var(--r-sm);
   font-family: var(--body);
-  font-size: 13px;
+  font-size: var(--fs-13);
   color: var(--cream-muted);
 }
 
@@ -811,24 +1150,24 @@
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--r-xs);
   background: var(--accent-mist);
   border: 1px solid var(--accent-fog);
   color: var(--accent);
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--fs-12);
   flex-shrink: 0;
 }
 
 .invite-preview-error {
   margin: 0 0 14px;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--r-xs);
   border: 1px solid rgba(201, 138, 130, 0.4);
   background: rgba(201, 138, 130, 0.12);
   color: var(--no);
   font-family: var(--body);
-  font-size: 13px;
+  font-size: var(--fs-13);
   text-align: center;
 }
 
@@ -842,15 +1181,15 @@
 .invite-preview-cta {
   width: 100%;
   min-height: 52px;
-  font-size: 15px;
-  border-radius: 999px;
+  font-size: var(--fs-15);
+  border-radius: var(--r-pill);
 }
 
 .invite-preview-decline {
   width: 100%;
   min-height: 48px;
-  font-size: 13.5px;
-  border-radius: 999px;
+  font-size: var(--fs-13);
+  border-radius: var(--r-pill);
 }
 
 .invite-preview-foot {
@@ -897,9 +1236,8 @@
 
 /* iOS no-zoom-on-focus: text-entry controls >= 16px on phones. */
 @media (max-width: 480px) {
-  .email-auth-input,
-  .public-preview-beta-input {
-    font-size: 16px;
+  .email-auth-input {
+    font-size: var(--fs-17);
   }
 }
 
@@ -913,8 +1251,7 @@
   .email-auth-toggle {
     transition: none;
   }
-  .pa-cta:active,
-  .public-preview-secondary:active {
+  .pa-cta:active {
     transform: none;
   }
 }

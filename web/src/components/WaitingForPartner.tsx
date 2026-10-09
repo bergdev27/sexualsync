@@ -38,7 +38,7 @@ export default function WaitingForPartner({
       </p>
       <div className="sexboard-waiting-actions">
         <Link href="/onboarding" className="btn-primary sexboard-waiting-cta">Share the link</Link>
-        <Link href="/space" className="btn-ghost sexboard-waiting-secondary">Manage in Space</Link>
+        <Link href="/space" className="btn-ghost sexboard-waiting-secondary">Manage in Us</Link>
       </div>
     </div>
   );

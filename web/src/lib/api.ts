@@ -42,6 +42,7 @@ import type {
   SexQuizRating,
   GreenLightsResponse,
   GreenLightAnswer,
+  MoodResponse,
   ChatMessage,
   ChatMedia,
   ChatThreadResponse,
@@ -116,10 +117,13 @@ export class ApiUnauthorizedError extends Error {
 
 export class ApiFailureError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Parsed JSON error body, when the server sent one (e.g. a `retryAt`). */
+  data: unknown;
+  constructor(status: number, message: string, data: unknown = null) {
     super(message);
     this.name = "ApiFailureError";
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -548,7 +552,7 @@ async function request<T>(url: string, init: RequestInit = {}, timeoutMs = DEFAU
 
     if (!response.ok) {
       const message = (data as ApiError | null)?.error || response.statusText || "Request failed";
-      throw new ApiFailureError(response.status, message);
+      throw new ApiFailureError(response.status, message, data);
     }
     return data as T;
   }
@@ -889,6 +893,19 @@ export async function updateRequestAction(payload: {
   }));
 }
 
+// "Plan it" — pin an approved Ask to a time (ISO string), or clear the plan
+// with "". Either partner can do it; the Ask's status does not change.
+export async function planAsk(payload: {
+  workspaceId: string;
+  id: string;
+  plannedFor: string;
+}): Promise<{ request?: RequestRecord } & RequestBoardResponse> {
+  return decryptRequestBoardResponse(await request<{ request?: RequestRecord } & RequestBoardResponse>("/api/request-board", {
+    method: "PATCH",
+    body: JSON.stringify({ ...payload, action: "plan" }),
+  }));
+}
+
 // Manual "Remind" — nudge your partner to come look at a pending Ask you sent.
 // Sends a push (email fallback) and stamps lastReminderAt. A too-soon tap throws
 // (server enforces a short cooldown); the UI also disables the button meanwhile.
@@ -1027,8 +1044,14 @@ export async function sendChatMessage(payload: {
   // same key here so the server derives the matching id.
   idempotencyKey?: string;
   media?: { mediaId: string; mediaType: string; mediaSize: number; key: string; iv: string };
+  // Text sends may wait in the offline queue (ApiOfflineQueuedError) and replay
+  // with the same idempotency key, so the server derives the same message id
+  // and a replay can't double-post. Photo sends are not queueable (the upload
+  // has to happen first).
+  queueable?: boolean;
 }): Promise<{ workspaceId: string; message: ChatMessage }> {
   const e2eeOn = payload.e2ee && hasUnlockedRoomE2eeKey(payload.workspaceId);
+  const idempotencyKey = payload.idempotencyKey || generateIdempotencyKey();
   const mediaSecret = payload.media ? { key: payload.media.key, iv: payload.media.iv } : undefined;
   const body = await prepareChatBody(payload.workspaceId, payload.text, payload.e2ee, mediaSecret);
   // Always send the non-secret media pointer; include key/iv inline only when
@@ -1043,9 +1066,9 @@ export async function sendChatMessage(payload: {
     : undefined;
   const response = await request<{ workspaceId: string; message: ChatMessage }>("/api/chat", {
     method: "POST",
-    headers: { "idempotency-key": payload.idempotencyKey || generateIdempotencyKey() },
+    headers: { "idempotency-key": idempotencyKey },
     body: JSON.stringify({ workspaceId: payload.workspaceId, replyToId: payload.replyToId, ...body, ...(media ? { media } : {}) }),
-  });
+  }, undefined, payload.queueable && !media ? { queueable: true, intent: "chat:send", idempotencyKey } : {});
   return { ...response, message: await decryptChatMessage(response.message, response.workspaceId) };
 }
 
@@ -1903,6 +1926,60 @@ export function retakeGreenLights(workspaceId: string): Promise<GreenLightsRespo
   return request<GreenLightsResponse>("/api/green-lights", {
     method: "POST",
     body: JSON.stringify({ workspaceId, action: "retake" }),
+  });
+}
+
+// ---------- Mood light (double-blind) ----------
+
+/**
+ * Thrown by setMood when the caller switched their light off less than five
+ * minutes ago. `retryAt` is when switching on is allowed again; `mood` is the
+ * caller's current (blind) state so the UI can render without a refetch.
+ */
+export class MoodCooldownError extends Error {
+  readonly retryAt: string;
+  readonly mood: MoodResponse | null;
+  constructor(message: string, retryAt: string, mood: MoodResponse | null) {
+    super(message);
+    this.name = "MoodCooldownError";
+    this.retryAt = retryAt;
+    this.mood = mood;
+  }
+}
+
+export function getMood(workspaceId: string): Promise<MoodResponse> {
+  return request<MoodResponse>(`/api/mood?workspaceId=${encodeURIComponent(workspaceId)}`);
+}
+
+/**
+ * Switch my mood light on (or move its end time) until an absolute time. The
+ * server rejects a past time, clamps to at most 24h from now and at least 15
+ * minutes. Not offline-queued: a mood signal replayed later would be stale.
+ */
+export async function setMood(workspaceId: string, until: Date | string): Promise<MoodResponse> {
+  const untilIso = typeof until === "string" ? until : until.toISOString();
+  try {
+    return await request<MoodResponse>("/api/mood", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId, action: "on", until: untilIso }),
+    });
+  } catch (error) {
+    if (error instanceof ApiFailureError && error.status === 429) {
+      const body = (error.data || {}) as Partial<MoodResponse> & { retryAt?: string; code?: string };
+      if (body.code === "mood_cooldown" && body.retryAt) {
+        const mood = body.mine ? (body as MoodResponse) : null;
+        throw new MoodCooldownError(error.message, body.retryAt, mood);
+      }
+    }
+    throw error;
+  }
+}
+
+/** Switch my mood light off. Ends any match for both partners. */
+export function clearMood(workspaceId: string): Promise<MoodResponse> {
+  return request<MoodResponse>("/api/mood", {
+    method: "POST",
+    body: JSON.stringify({ workspaceId, action: "off" }),
   });
 }
 

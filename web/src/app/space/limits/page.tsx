@@ -29,6 +29,18 @@ import type {
   BoundaryType,
   Workspace,
 } from "@/lib/types";
+import { radioGroupKeyDown, radioTabIndex } from "@/lib/radio-group";
+import "./limits.css";
+
+// Common first limits, offered as one-tap starters on an empty composer.
+const LIMIT_STARTERS = [
+  "No marks where people can see",
+  "Nothing filmed without asking",
+  "Nothing when either of us is drunk",
+  "No choking",
+  "No anal",
+  "No other people",
+];
 
 const TYPES: { value: BoundaryType; label: string; helper: string }[] = [
   { value: "Hard No",              label: "Hard No",              helper: "Blocking. Never sent." },
@@ -36,6 +48,7 @@ const TYPES: { value: BoundaryType; label: string; helper: string }[] = [
   { value: "Soft Limit",           label: "Soft Limit",           helper: "Possible, but flag." },
   { value: "Yes With Conditions",  label: "Yes With Conditions",  helper: "Green light with notes." },
 ];
+const TYPE_VALUES = TYPES.map((t) => t.value);
 
 type LoadState =
   | { kind: "loading" }
@@ -112,7 +125,7 @@ export default function LimitsPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/space" className="text-ink-3">‹ Space</Link>}
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Limits"
         subtitle="The shape of yes."
@@ -164,7 +177,7 @@ function Body({
       <ErrorState
         title="No partner space yet"
         body="Limits are shared. You need a paired workspace."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -268,14 +281,23 @@ function BoundaryRow({
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="input"
+          aria-label="Limit"
           maxLength={160}
           autoFocus
         />
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div
+          className="mt-3 flex flex-wrap gap-1.5"
+          role="radiogroup"
+          aria-label="Limit type"
+          onKeyDown={(event) => radioGroupKeyDown(event, TYPE_VALUES, type, setType)}
+        >
           {TYPES.map((t) => (
             <button
               key={t.value}
               type="button"
+              role="radio"
+              aria-checked={t.value === type}
+              tabIndex={radioTabIndex(TYPE_VALUES, type, t.value)}
               onClick={() => setType(t.value)}
               className={[
                 "limit-type-chip",
@@ -301,7 +323,7 @@ function BoundaryRow({
   return (
     <li className="card p-4">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[15px] leading-snug text-ink">{boundary.text}</p>
+        <p className="text-body leading-snug text-ink">{boundary.text}</p>
         {mine && (
           <div className="flex shrink-0 gap-1">
             <button
@@ -358,7 +380,7 @@ function Composer({
 
   return (
     <div className="card p-4">
-      <p className="font-display text-base text-ink">New limit</p>
+      <p className="font-display text-title text-ink">New limit</p>
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -368,11 +390,28 @@ function Composer({
         maxLength={160}
         autoFocus
       />
-      <div className="mt-3 grid grid-cols-2 gap-1.5">
+      {!text.trim() && (
+        <div className="limit-starters" aria-label="Common limits">
+          {LIMIT_STARTERS.map((starter) => (
+            <button key={starter} type="button" className="limit-starter pressable" onClick={() => setText(starter)}>
+              {starter}
+            </button>
+          ))}
+        </div>
+      )}
+      <div
+        className="mt-3 grid grid-cols-2 gap-1.5"
+        role="radiogroup"
+        aria-label="Limit type"
+        onKeyDown={(event) => radioGroupKeyDown(event, TYPE_VALUES, type, setType)}
+      >
         {TYPES.map((t) => (
           <button
             key={t.value}
             type="button"
+            role="radio"
+            aria-checked={t.value === type}
+            tabIndex={radioTabIndex(TYPE_VALUES, type, t.value)}
             onClick={() => setType(t.value)}
             className={[
               "rounded-xl border px-3 py-2 text-left text-xs transition",
@@ -387,7 +426,7 @@ function Composer({
         ))}
       </div>
       {error && (
-        <p className="mt-2 text-sm" style={{ color: "rgb(var(--no-rgb))" }}>{error}</p>
+        <p className="mt-2 text-sm" role="alert" style={{ color: "rgb(var(--no-rgb))" }}>{error}</p>
       )}
       <div className="mt-3 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="btn-ghost text-sm" disabled={busy}>

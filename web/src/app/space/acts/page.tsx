@@ -99,8 +99,8 @@ export default function ActsLibraryPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow="Acts"
         showBrand={false}
+        back={{ href: "/space", label: "Us" }}
         title="Your acts library"
         subtitle={subtitleFor(state)}
       />
@@ -177,8 +177,8 @@ function Body({
     return (
       <ErrorState
         title="No partner space yet"
-        body="Acts are scoped to a shared space."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        body="Acts are scoped to a shared room."
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -286,6 +286,7 @@ function ActRow({
           value={label}
           onChange={(event) => setLabel(event.target.value)}
           className="input"
+          aria-label="Act name"
           maxLength={100}
           autoFocus
           autoCapitalize="none"
@@ -373,7 +374,7 @@ function ActLibraryComposer({
 
   return (
     <div className="card p-4">
-      <p className="font-display text-base text-ink">New Act</p>
+      <p className="font-display text-title text-ink">New Act</p>
       <p className="mt-1 text-sm leading-relaxed text-ink-2">
         Keep it concrete: a thing someone can do, not a whole fantasy or Kink.
       </p>

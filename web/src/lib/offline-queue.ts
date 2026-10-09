@@ -5,8 +5,9 @@
  * `fn(request)` when online. If the network fails, the request is enqueued
  * to IndexedDB. Whenever the browser comes back online (or the PWA is
  * focused), `flushOfflineQueue()` retries every queued write in arrival
- * order. Successful writes are dropped; failures stay queued for the next
- * attempt with a small backoff.
+ * order. Successful writes are dropped; transient failures stay queued for
+ * the next attempt with a small backoff, and writes the server refuses
+ * outright (a terminal 4xx) are dropped with a notice.
  *
  * Why IndexedDB instead of localStorage: blobs, JSON-incompatible bodies,
  * and the fact that this state needs to survive PWA cold launches. The
@@ -241,7 +242,9 @@ export async function enqueueWrite(record: Omit<QueuedWriteRecord, "id" | "enque
     attempts: 0,
   };
   full.body = await encryptQueuedBody(full);
-  return runTransaction("readwrite", (store) => store.add(full)) as Promise<number>;
+  const id = await (runTransaction("readwrite", (store) => store.add(full)) as Promise<number>);
+  announceQueueChange();
+  return id;
 }
 
 export async function listQueuedWrites(): Promise<QueuedWriteRecord[]> {
@@ -250,6 +253,56 @@ export async function listQueuedWrites(): Promise<QueuedWriteRecord[]> {
 
 export async function removeQueuedWrite(id: number): Promise<void> {
   await runTransaction("readwrite", (store) => store.delete(id));
+  announceQueueChange();
+}
+
+// Fired whenever the queue gains or loses a write, so screens that show
+// "Waiting to send" rows can re-read it without polling.
+export const OFFLINE_QUEUE_CHANGE_EVENT = "ss:offline-queue-change";
+
+function announceQueueChange() {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new Event(OFFLINE_QUEUE_CHANGE_EVENT));
+  } catch { /* announcement is best-effort */ }
+}
+
+export interface QueuedWritePreview {
+  id: number;
+  intent: string;
+  idempotencyKey: string;
+  enqueuedAt: number;
+  body: unknown;
+}
+
+/**
+ * Queued writes for one intent, with their bodies decrypted for display
+ * (e.g. a "Waiting to send" row). Records that can't be read are skipped;
+ * the flush path still owns them. Resolves to [] when IndexedDB is blocked.
+ */
+export async function listQueuedWritePreviews(intent: string): Promise<QueuedWritePreview[]> {
+  let records: QueuedWriteRecord[];
+  try {
+    records = await listQueuedWrites();
+  } catch {
+    return [];
+  }
+  const previews: QueuedWritePreview[] = [];
+  for (const record of records) {
+    if (record.intent !== intent || record.id === undefined) continue;
+    try {
+      previews.push({
+        id: record.id,
+        intent: record.intent,
+        idempotencyKey: record.idempotencyKey,
+        enqueuedAt: record.enqueuedAt,
+        body: await decryptQueuedBody(record),
+      });
+    } catch {
+      // Unreadable (key rotated, storage cleared mid-read): leave it to flush.
+    }
+  }
+  return previews.sort((a, b) => a.enqueuedAt - b.enqueuedAt);
 }
 
 async function updateQueuedWrite(record: QueuedWriteRecord): Promise<void> {
@@ -279,15 +332,29 @@ export const OFFLINE_WRITE_DROPPED_EVENT = "ss:offline-write-dropped";
 export interface DroppedOfflineWriteDetail {
   intent: string;
   reason: string;
+  // Lets the screen that showed a "Waiting to send" row settle that exact row.
+  idempotencyKey: string;
+  // The server's own refusal text, when the drop came from a terminal 4xx.
+  serverError?: string;
 }
 
-function announceDroppedWrite(record: QueuedWriteRecord, reason: string) {
+function announceDroppedWrite(record: QueuedWriteRecord, reason: string, serverError = "") {
   if (typeof window === "undefined") return;
   try {
     window.dispatchEvent(new CustomEvent<DroppedOfflineWriteDetail>(OFFLINE_WRITE_DROPPED_EVENT, {
-      detail: { intent: record.intent, reason },
+      detail: { intent: record.intent, reason, idempotencyKey: record.idempotencyKey, ...(serverError ? { serverError } : {}) },
     }));
   } catch { /* announcement is best-effort */ }
+}
+
+/**
+ * A 4xx the same request can never get past on a later retry (validation,
+ * forbidden, gone, too large). 401 is handled separately (signed out); 408,
+ * 425 and 429 are about timing and stay queued for the backoff.
+ */
+export function isTerminalQueueStatus(status: number): boolean {
+  if (status < 400 || status >= 500) return false;
+  return status !== 401 && status !== 408 && status !== 425 && status !== 429;
 }
 
 // Backoff: 0 attempts → retry immediately; 1 → wait 5s; 2 → 15s; 3 → 60s.
@@ -346,6 +413,20 @@ export async function flushOfflineQueue(): Promise<{ flushed: number; failed: nu
           // saved change didn't make it.
           announceDroppedWrite(record, "You were signed out before a saved change could send.");
           if (record.id !== undefined) await removeQueuedWrite(record.id);
+          continue;
+        }
+        if (isTerminalQueueStatus(response.status)) {
+          // The server refused this write outright (room encryption turned on
+          // since it was queued, removed from the room, invalid body). Retrying
+          // can't change the answer, so drop it and pass the server's reason on.
+          const refusal = await response.json().catch(() => null) as { error?: unknown } | null;
+          const serverReason = refusal && typeof refusal.error === "string" ? refusal.error.trim() : "";
+          const reason = serverReason
+            ? `A saved change wasn't sent: ${serverReason}`
+            : "A saved change was refused and wasn't sent.";
+          announceDroppedWrite(record, reason, serverReason);
+          if (record.id !== undefined) await removeQueuedWrite(record.id);
+          failed += 1;
           continue;
         }
         await updateQueuedWrite({

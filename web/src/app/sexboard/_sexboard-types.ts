@@ -25,7 +25,7 @@ import type {
 
 export type LoadState =
   | { kind: "loading" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; error?: unknown }
   | { kind: "unauthorized" }
   | { kind: "no-workspace"; auth: AuthInfo; pendingInvites: PendingInvite[] }
   | {
@@ -60,6 +60,8 @@ export type HandoffItem = {
   removeSessionId?: string;
   dismissOnViewSessionId?: string;
   dismissOnViewRevealId?: string;
+  // Approved-match rows morph into the /mutual hero (View Transitions).
+  morph?: boolean;
 };
 
 export type HandoffSummary = {
@@ -69,7 +71,9 @@ export type HandoffSummary = {
   activeGamesCount: number;
   kinksNeedingMe: KinkIdea[];
   kinksWaitingOnPartner: KinkIdea[];
-  handoffs: { needsYou: HandoffItem[]; waiting: HandoffItem[]; locked: HandoffItem[] };
+  // `replies`: Asks that got a final answer that isn't a yes (a pass, a
+  // maybe-for-now, "let's talk"). Shown as outcomes, never counted as waiting.
+  handoffs: { needsYou: HandoffItem[]; waiting: HandoffItem[]; locked: HandoffItem[]; planned: HandoffItem[]; replies: HandoffItem[] };
   needsCount: number;
   waitingCount: number;
   partnerName: string;

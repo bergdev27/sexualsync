@@ -36,6 +36,15 @@ test("GET logout clears cookies and redirects to the signed-out page", async () 
   assert(cookies.some((cookie) => /^sxs-oauth=;/.test(cookie) && cookie.includes("Path=/api/auth/google")));
 });
 
+test("a launch reauth logout lands on the calm sign-in variant, and only that reason is honoured", async () => {
+  const launch = await onRequest({ env: undefined, request: new Request("https://sexualsync.test/api/auth/logout?reason=launch") });
+  assert.equal(launch.status, 303);
+  assert.equal(launch.headers.get("location"), "/signed-out?reason=launch");
+  assert(setCookies(launch).some((cookie) => /^sxs-session=;/.test(cookie)), "still a real logout");
+  const other = await onRequest({ env: undefined, request: new Request("https://sexualsync.test/api/auth/logout?reason=https://evil.test") });
+  assert.equal(other.headers.get("location"), "/signed-out");
+});
+
 test("POST logout keeps the JSON API response", async () => {
   const response = await onRequest(context("POST"));
   assert.equal(response.status, 200);

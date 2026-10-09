@@ -1,16 +1,9 @@
 /* Lock overlay — sits above the entire app when locked. */
 
-.app-lock-gate-holding {
-  position: fixed;
-  inset: 0;
-  background: var(--bg);
-  z-index: 9998;
-}
-
 .lock-overlay {
   position: fixed;
   inset: 0;
-  z-index: 9999;
+  z-index: var(--z-lock);
   background: var(--bg);
   color: var(--cream);
   display: grid;
@@ -29,7 +22,7 @@
   position: absolute;
   inset: -20% -10% auto -10%;
   height: 60%;
-  background: radial-gradient(60% 50% at 50% 30%, rgba(233,168,179,0.18), transparent 70%);
+  background: radial-gradient(60% 50% at 50% 30%, var(--accent-a16), transparent 70%);
   filter: blur(40px);
 }
 
@@ -38,15 +31,15 @@
   inset: 0;
   opacity: 0.06;
   background-image:
-    repeating-radial-gradient(circle at 25% 25%, rgba(243,220,217,0.4) 0, rgba(243,220,217,0.4) 0.5px, transparent 0.5px, transparent 2px),
-    repeating-radial-gradient(circle at 75% 65%, rgba(243,220,217,0.3) 0, rgba(243,220,217,0.3) 0.5px, transparent 0.5px, transparent 2.5px);
+    repeating-radial-gradient(circle at 25% 25%, rgb(var(--cream-rgb) / 0.4) 0, rgb(var(--cream-rgb) / 0.4) 0.5px, transparent 0.5px, transparent 2px),
+    repeating-radial-gradient(circle at 75% 65%, rgb(var(--cream-rgb) / 0.3) 0, rgb(var(--cream-rgb) / 0.3) 0.5px, transparent 0.5px, transparent 2.5px);
   mix-blend-mode: overlay;
   pointer-events: none;
 }
 
 .lock-overlay-card {
   position: relative;
-  z-index: 2;
+  z-index: var(--z-lock);
   width: min(100%, 360px);
   display: flex;
   flex-direction: column;
@@ -58,15 +51,14 @@
   font-family: var(--display);
   font-style: italic;
   font-weight: 500;
-  font-size: 36px;
+  font-size: var(--fs-38);
   line-height: 1.05;
   margin: 0 0 8px;
 }
 
 .lock-overlay-sub {
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 15px;
+  font-family: var(--body);
+  font-size: var(--fs-15);
   color: var(--cream-muted);
   margin: 0 0 18px;
 }
@@ -74,12 +66,12 @@
 .lock-overlay-error {
   margin: 12px 0 0;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--r-xs);
   border: 1px solid rgba(201, 138, 130, 0.4);
   background: rgba(201, 138, 130, 0.12);
   color: var(--no);
   font-family: var(--body);
-  font-size: 13px;
+  font-size: var(--fs-13);
   width: 100%;
   text-align: center;
 }
@@ -87,13 +79,13 @@
 .lock-overlay-cta {
   min-width: 200px;
   padding: 13px 22px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   border: 1px solid transparent;
   background: var(--accent);
   color: var(--ink);
   font-family: var(--body);
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--fs-15);
   cursor: pointer;
   box-shadow: 0 8px 24px var(--accent-fog), inset 0 1px 0 rgba(255,255,255,0.18);
 }
@@ -116,7 +108,7 @@
 
 .lock-overlay-room {
   background:
-    radial-gradient(120% 80% at 50% 18%, rgba(233, 168, 179, 0.10), transparent 60%),
+    radial-gradient(120% 80% at 50% 18%, var(--accent-a12), transparent 60%),
     radial-gradient(ellipse 70% 50% at 50% 50%, #1f0d16 0%, transparent 70%),
     var(--bg);
   perspective: 1000px;
@@ -125,7 +117,7 @@
 .lock-overlay-room .lock-overlay-bloom {
   inset: -28% -10% auto -10%;
   height: 66%;
-  background: radial-gradient(58% 52% at 50% 28%, rgba(233, 168, 179, 0.26), transparent 72%);
+  background: radial-gradient(58% 52% at 50% 28%, var(--accent-a28), transparent 72%);
   filter: blur(46px);
   animation: lock-bg-breath 7.2s ease-in-out infinite alternate;
 }
@@ -178,8 +170,8 @@
   transform: translate(-50%, -50%) scale(0.2);
   background: radial-gradient(
     circle,
-    rgba(233, 168, 179, 0.5) 0%,
-    rgba(233, 168, 179, 0.14) 42%,
+    rgb(var(--accent-rgb) / 0.5) 0%,
+    var(--accent-a16) 42%,
     transparent 70%
   );
   filter: blur(2px);
@@ -202,7 +194,7 @@
   height: 150px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(233, 168, 179, 0.16), transparent 62%);
+  background: radial-gradient(circle, var(--accent-a16), transparent 62%);
   opacity: 0;
   pointer-events: none;
   animation: lock-pulse 4.8s ease-in-out 1.8s infinite;
@@ -245,9 +237,10 @@
     lock-ring-glow 5.2s ease-in-out 2s infinite;
 }
 
+/* Static drop-shadow on the ring; the glow breath is opacity only. */
 @keyframes lock-ring-glow {
-  0%, 100% { opacity: 0.62; filter: drop-shadow(0 0 6px var(--accent-fog)); }
-  50%      { opacity: 1;    filter: drop-shadow(0 0 16px var(--accent-fog)); }
+  0%, 100% { opacity: 0.62; }
+  50%      { opacity: 1; }
 }
 
 /* stacked brand waves — identical timing, perfect lockstep */
@@ -265,14 +258,14 @@
 .lock-hero-wave {
   stroke: var(--accent);
   stroke-width: 3;
-  filter: drop-shadow(0 0 12px rgba(233, 168, 179, 0.55));
+  filter: drop-shadow(0 0 12px var(--accent-a55));
   animation:
     lock-draw 1.2s var(--ease-settle, cubic-bezier(0.22, 1, 0.36, 1)) 0.5s forwards,
     lock-wave-breath 5s ease-in-out 2.2s infinite;
 }
 
 .lock-hero-wave-back {
-  stroke: rgba(233, 168, 179, 0.34);
+  stroke: rgb(var(--accent-rgb) / 0.34);
   stroke-width: 2.6;
   opacity: 0.7;
   animation:
@@ -296,7 +289,7 @@
   stroke-dasharray: 26 240;
   stroke-dashoffset: 266;
   opacity: 0;
-  filter: drop-shadow(0 0 8px rgba(243, 220, 217, 0.9));
+  filter: drop-shadow(0 0 8px rgb(var(--cream-rgb) / 0.9));
   animation: lock-sweep 3.6s cubic-bezier(0.4, 0, 0.6, 1) 2.6s infinite;
 }
 
@@ -322,7 +315,7 @@
 
 /* ── COPY — staggered entrance ─────────────────────────────────────────── */
 .lock-overlay-room .lock-overlay-title {
-  font-size: 40px;
+  font-size: var(--fs-38);
   letter-spacing: -0.012em;
   margin: 0 0 10px;
 }
@@ -359,7 +352,7 @@
 /* ── PASSPHRASE — premium focus ────────────────────────────────────────── */
 .lock-overlay-room .lock-overlay-passphrase {
   min-height: 52px;
-  border-radius: 14px;
+  border-radius: var(--r-md);
   letter-spacing: 0.02em;
   margin: 0 0 12px;
   opacity: 0;
@@ -415,9 +408,7 @@
   align-items: center;
   gap: 8px;
   margin: 22px 0 0;
-  font: 500 9px/1 var(--mono, ui-monospace, monospace);
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
+  font: 500 var(--fs-12)/1 var(--body);
   color: var(--cream-faint);
   opacity: 0;
   animation: lock-fade-up 0.7s ease-out 1.6s forwards;
@@ -425,9 +416,9 @@
 .lock-room-meter .dot {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(233, 168, 179, 0.85);
+  box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.85);
   animation: lock-meter-dot 2.6s ease-in-out infinite;
 }
 

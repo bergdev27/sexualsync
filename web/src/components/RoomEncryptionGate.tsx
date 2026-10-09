@@ -4,7 +4,14 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { ApiUnauthorizedError, recoverRoomE2eeFromServerData, updateWorkspaceSettings } from "@/lib/api";
 import { markIntentionalSignOut } from "@/lib/auth-state";
-import { ensureLaunchAuthenticated, launchReauthRecentlyAttempted, markLaunchAuthenticated, recordLaunchReauthAttempt } from "@/lib/launch-auth";
+import {
+  ensureLaunchAuthenticated,
+  isLaunchAuthenticated,
+  launchReauthRecentlyAttempted,
+  markLaunchAuthenticated,
+  recordLaunchReauthAttempt,
+} from "@/lib/launch-auth";
+import { readLaunchHint, writeLaunchHint, type LaunchHint } from "@/lib/launch-hint";
 import { getProfileCached } from "@/lib/profile-cache";
 import {
   clearRoomE2eeKeyCache,
@@ -23,6 +30,7 @@ import {
 } from "@/lib/room-crypto";
 import type { Workspace } from "@/lib/types";
 import { clearVaultKeyCache } from "@/lib/vault-crypto";
+import { AppShellSkeleton } from "./AppShell";
 import "./lock-overlay.css";
 
 const PROTECTED_PREFIXES = [
@@ -47,8 +55,43 @@ type GateState =
   | { kind: "open" }
   | { kind: "locked"; workspace: Workspace };
 
+function matchesPrefix(pathname: string, prefixes: string[]) {
+  return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
 function isProtectedPath(pathname: string) {
-  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return matchesPrefix(pathname, PROTECTED_PREFIXES);
+}
+
+/**
+ * Whether a cold launch may open the screen before /api/profile answers.
+ *
+ * The rule: a protected screen never renders decrypted room content before
+ * the room key is on this device.
+ *  - The launch must already be authenticated on this device (the per-launch
+ *    marker or the server's one-shot launch cookie). A launch that is about to
+ *    be sent back to sign-in never paints the app first.
+ *  - If the last-known room is end-to-end encrypted, its key must already be
+ *    in memory. (The device session in IndexedDB is restored asynchronously
+ *    in the check below, in parallel with the profile fetch.)
+ *  - A room that needs no passphrase has no room key to protect; the server
+ *    still authorizes every read, so opening early only starts those reads
+ *    sooner.
+ * If the hint turns out stale, the full check that follows still flips to the
+ * lock screen or sign-in exactly as before.
+ */
+function canOpenBeforeProfile(hint: LaunchHint | null): boolean {
+  if (!hint || !isLaunchAuthenticated()) return false;
+  if (hint.roomLocked || isRoomE2eeEnabled(hint.workspaceId)) return hasUnlockedRoomE2eeKey(hint.workspaceId);
+  return true;
+}
+
+// RoomEncryptionGate never renders on the server (MobileAccessGate holds a
+// placeholder until it has evaluated access on the client), so the initial
+// state can read storage without a hydration mismatch.
+function initialGateState(pathname: string): GateState {
+  if (!isProtectedPath(pathname)) return { kind: "open" };
+  return canOpenBeforeProfile(readLaunchHint()) ? { kind: "open" } : { kind: "checking" };
 }
 
 function roomRequiresUnlock(workspace: Workspace | null | undefined) {
@@ -60,12 +103,12 @@ function beginLaunchReauth() {
   clearRoomE2eeKeyCache();
   clearVaultKeyCache();
   markIntentionalSignOut();
-  window.location.replace("/api/auth/logout");
+  window.location.replace("/api/auth/logout?reason=launch");
 }
 
 export default function RoomEncryptionGate({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/";
-  const [state, setState] = useState<GateState>({ kind: "checking" });
+  const [state, setState] = useState<GateState>(() => initialGateState(pathname));
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -73,7 +116,7 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
   const awayStartedAtRef = useRef<number | null>(null);
   const heroStageRef = useRef<HTMLDivElement | null>(null);
   const heroSvgRef = useRef<SVGSVGElement | null>(null);
-  const hasResolvedRef = useRef(false);
+  const hasResolvedRef = useRef(state.kind === "open");
 
   useEffect(() => {
     let cancelled = false;
@@ -90,12 +133,28 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
       // room socket per nav. Staying on the current state while this check
       // runs keeps children mounted; a failed check still flips to "locked"
       // (and the visibility/relock listeners cover key drops between navs).
-      if (!hasResolvedRef.current) setState({ kind: "checking" });
+      if (!hasResolvedRef.current) {
+        setState({ kind: "checking" });
+        // Encrypted room on a device that unlocked it recently: restore the
+        // room key from the device session while the profile loads, and open
+        // as soon as the key is in memory instead of waiting for both in turn.
+        const hint = readLaunchHint();
+        if (hint && isLaunchAuthenticated() && (hint.roomLocked || isRoomE2eeEnabled(hint.workspaceId))) {
+          restoreRoomE2eeSession(hint.workspaceId)
+            .then((restored) => {
+              if (cancelled || !restored || hasResolvedRef.current) return;
+              hasResolvedRef.current = true;
+              setState({ kind: "open" });
+            })
+            .catch(() => {});
+        }
+      }
       try {
         const profile = await getProfileCached();
         if (cancelled) return;
         const workspace = profile.activeWorkspace;
         workspaceRef.current = workspace;
+        writeLaunchHint(workspace?.id ? { workspaceId: workspace.id, roomLocked: roomRequiresUnlock(workspace) } : null);
         if (!ensureLaunchAuthenticated()) {
           // Reauth at most once per launch — never loop. If we already forced a
           // reauth moments ago (the launch marker didn't survive in this PWA,
@@ -122,6 +181,7 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
         if (cancelled) return;
         hasResolvedRef.current = true;
         if (caught instanceof ApiUnauthorizedError) {
+          writeLaunchHint(null);
           setState({ kind: "open" });
           return;
         }
@@ -325,7 +385,7 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
   }
 
   if (state.kind === "checking") {
-    return <div className="app-lock-gate-holding" aria-hidden="true" />;
+    return <AppShellSkeleton />;
   }
 
   if (state.kind === "locked") {
@@ -412,7 +472,7 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
               maxWidth: "30ch",
               color: "var(--cream-faint)",
               fontFamily: "var(--body)",
-              fontSize: "12.5px",
+              fontSize: "var(--fs-13)",
               lineHeight: 1.5,
             }}
           >
@@ -431,7 +491,7 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
               minHeight: "44px",
               color: "var(--cream-muted)",
               fontFamily: "var(--body)",
-              fontSize: "13px",
+              fontSize: "var(--fs-13)",
               textDecoration: "underline",
               textUnderlineOffset: "4px",
               cursor: busy ? "wait" : "pointer",

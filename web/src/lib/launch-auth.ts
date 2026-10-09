@@ -23,13 +23,24 @@ export function hasLaunchAuthenticated(): boolean {
   }
 }
 
-export function consumeLaunchCookie(): boolean {
+function hasLaunchCookie(): boolean {
   if (typeof document === "undefined") return false;
-  const hasCookie = document.cookie
+  return document.cookie
     .split(";")
     .map((part) => part.trim())
     .some((part) => part === `${LAUNCH_COOKIE}=1`);
-  if (!hasCookie) return false;
+}
+
+/**
+ * Read-only version of ensureLaunchAuthenticated(): true when this launch is
+ * already authenticated on this device, without consuming the one-shot cookie.
+ */
+export function isLaunchAuthenticated(): boolean {
+  return hasLaunchAuthenticated() || hasLaunchCookie();
+}
+
+export function consumeLaunchCookie(): boolean {
+  if (!hasLaunchCookie()) return false;
   markLaunchAuthenticated();
   document.cookie = `${LAUNCH_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax; Secure`;
   return true;

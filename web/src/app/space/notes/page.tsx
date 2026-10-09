@@ -70,7 +70,7 @@ export default function NotesPage() {
   return (
     <AppShell>
       <ScreenHeader
-        eyebrow={<Link href="/space" className="text-ink-3">‹ Space</Link>}
+        back={{ href: "/space", label: "Us" }}
         showBrand={false}
         title="Private notes"
         subtitle="Keep it just for you."
@@ -110,7 +110,9 @@ export default function NotesPage() {
           ))}
         </section>
 
-        <p className="text-center text-xs text-ink-3">Stored on this device. Never synced.</p>
+        <p className="text-center text-xs text-ink-3">
+          Stored only on this device, never synced. Signing out of this device deletes them, so download your data first (Account and data) if you want to keep them.
+        </p>
       </div>
     </AppShell>
   );
@@ -150,7 +152,7 @@ function PrivateNoteCard({
     <article className="card p-4">
       <textarea
         ref={noteInputRef}
-        className="min-h-11 w-full resize-none overflow-hidden bg-transparent font-display text-[19px] italic leading-relaxed text-ink outline-none"
+        className="min-h-11 w-full resize-none overflow-hidden bg-transparent font-display text-title italic leading-relaxed text-ink outline-none"
         value={note.text}
         onChange={(event) => onChange(note.id, event.target.value)}
         rows={1}
@@ -160,8 +162,8 @@ function PrivateNoteCard({
         spellCheck
         inputMode="text"
       />
-      <p className="mt-3 font-mono text-[10px] uppercase text-ink-3">
-        private · {new Date(note.createdAt).toLocaleDateString()}
+      <p className="mt-3 text-caption text-ink-3">
+        Private · {new Date(note.createdAt).toLocaleDateString()}
       </p>
       <div className="mt-3 grid grid-cols-3 gap-2">
         <Link

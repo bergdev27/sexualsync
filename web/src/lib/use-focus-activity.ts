@@ -46,6 +46,12 @@ export function useFocusActivity({
     let accumulatedMs = 0;
     let lastTick = performance.now();
     let sampleWritten = false;
+    // Whether the span since lastTick counted as focused. Tracked explicitly
+    // because by the time visibilitychange fires the state has already flipped.
+    let wasActive = false;
+    // One timeout for the remaining focus time instead of a 1 Hz poll; nothing
+    // runs while the page is hidden or the element is off screen.
+    let timer: number | null = null;
 
     const target = elementRef?.current || null;
     let observer: IntersectionObserver | null = null;
@@ -54,6 +60,8 @@ export function useFocusActivity({
         const entry = entries[0];
         settle();
         elementVisible = Boolean(entry?.isIntersecting && entry.intersectionRatio >= 0.55);
+        wasActive = activeNow();
+        reschedule();
       }, { threshold: [0, 0.55, 0.8] });
       observer.observe(target);
     } else if (needsElementVisibility) {
@@ -66,13 +74,26 @@ export function useFocusActivity({
 
     function settle() {
       const now = performance.now();
-      if (activeNow()) accumulatedMs += now - lastTick;
+      if (wasActive) accumulatedMs += now - lastTick;
       lastTick = now;
+      wasActive = activeNow();
     }
 
-    function tick() {
-      settle();
-      if (accumulatedMs >= thresholdMs) sendFocus();
+    function reschedule() {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = null;
+      if (sentRef.current || !wasActive) return;
+      const remaining = thresholdMs - accumulatedMs;
+      if (remaining <= 0) {
+        sendFocus();
+        return;
+      }
+      timer = window.setTimeout(() => {
+        timer = null;
+        settle();
+        if (accumulatedMs >= thresholdMs) sendFocus();
+        else reschedule();
+      }, remaining + 50);
     }
 
     function sendFocus() {
@@ -101,14 +122,16 @@ export function useFocusActivity({
 
     function onVisibilityChange() {
       settle();
+      reschedule();
     }
 
-    const interval = window.setInterval(tick, 1000);
+    wasActive = activeNow();
+    reschedule();
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", writeSampleOnce);
 
     return () => {
-      window.clearInterval(interval);
+      if (timer !== null) window.clearTimeout(timer);
       observer?.disconnect();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", writeSampleOnce);

@@ -12,11 +12,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ImageLightbox from "./_ImageLightbox";
+import Composer, { type ComposerHandle } from "./_Composer";
 import ScreenHeader from "@/components/ScreenHeader";
 import PartnerTurnOns from "@/components/PartnerTurnOns";
-import { ErrorState, SkeletonList } from "@/components/States";
+import { ErrorState, LoadErrorState, SkeletonList } from "@/components/States";
 import WaitingForPartner from "@/components/WaitingForPartner";
 import {
+  ApiOfflineQueuedError,
   ApiUnauthorizedError,
   editChatMessage,
   generateIdempotencyKey,
@@ -30,18 +32,21 @@ import {
   searchRedgifs,
   type RedgifsSearchResult,
   sendChatMessage,
-  sendChatTyping,
   unsendChatMessage,
   uploadChatImage,
 } from "@/lib/api";
 import { getProfileCached } from "@/lib/profile-cache";
 import { getCachedResource, setCachedResource, useColdStart } from "@/lib/resource-cache";
+import { describeLoadError, useOnlineStatus, useRecoverOnReconnect } from "@/lib/network-status";
+import { useQueuedWrites } from "@/lib/use-queued-writes";
+import { OFFLINE_WRITE_DROPPED_EVENT, type DroppedOfflineWriteDetail } from "@/lib/offline-queue";
 import { normalizeImageForUpload } from "@/lib/image-normalize";
 import { useInView } from "@/lib/use-in-view";
 import { LIVE_ROOM_EVENT, LIVE_ROOM_PRESENCE, useLiveRoomReload, type LiveRoomEventDetail, type LiveRoomPresenceDetail } from "@/lib/use-live-room";
 import { partnerOf } from "@/lib/workspace";
 import { redgifsIdFromUrl } from "@/lib/shelf-source";
 import type { AuthInfo, ChatMedia, ChatMessage, ChatReaction, ProfileResponse, Workspace } from "@/lib/types";
+import "./chat.css";
 
 // Same vocabulary as Kink reactions (functions/api/fantasy-backlog.js
 // KINK_REACTIONS) so a reaction means the same thing across the app. Shown in
@@ -65,21 +70,6 @@ const GIF_ORDERS: { key: string; label: string }[] = [
   { key: "latest", label: "Latest" },
 ];
 
-// Persist the composer draft per workspace so a half-typed message survives a
-// reload / navigating away (e.g. to check a notification) instead of vanishing.
-const sextDraftKey = (workspaceId: string) => `ss:sext:draft:${workspaceId}`;
-function readPersistedDraft(workspaceId: string): string {
-  if (typeof window === "undefined" || !workspaceId) return "";
-  try { return window.localStorage.getItem(sextDraftKey(workspaceId)) || ""; } catch { return ""; }
-}
-function writePersistedDraft(workspaceId: string, value: string): void {
-  if (typeof window === "undefined" || !workspaceId) return;
-  try {
-    if (value.trim()) window.localStorage.setItem(sextDraftKey(workspaceId), value);
-    else window.localStorage.removeItem(sextDraftKey(workspaceId));
-  } catch { /* storage blocked — the draft just won't persist, no harm */ }
-}
-const TYPING_THROTTLE_MS = 3000;
 const TYPING_CLEAR_MS = 5000;
 // Render window: a years-long thread can hold up to the server's 2000-message
 // ring buffer; mounting all of it is 16k-30k DOM nodes. Render the recent
@@ -110,11 +100,19 @@ function relativeAgo(iso: string): string {
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
-const MAX_INPUT = 4000;
+// A failed send in plain words: transport failures ("Failed to fetch") read
+// as a connection problem; a written server reason is shown as-is.
+function sendErrorCopy(error: unknown, fallback: string): string {
+  const copy = describeLoadError(error, "");
+  if (copy.tone === "offline" || copy.tone === "network") return "Couldn't send. Check your connection and try again.";
+  if (copy.tone === "busy") return "Too many tries. Give it a few seconds.";
+  if (copy.tone === "server") return `${fallback} Try again in a moment.`;
+  return error instanceof Error && error.message ? error.message : fallback;
+}
 
 type LoadState =
   | { kind: "loading" }
-  | { kind: "error"; message: string }
+  | { kind: "error"; message: string; error?: unknown }
   | { kind: "unauthorized" }
   | { kind: "no-workspace" }
   | {
@@ -130,44 +128,63 @@ export default function ChatPage() {
   const [state, setState] = useState<LoadState>(() => getCachedResource<LoadState>("chat") ?? { kind: "loading" });
   useColdStart("chat", setState);
   useEffect(() => { if (state.kind === "ready") setCachedResource("chat", state); }, [state]);
-  const [reloadKey, setReloadKey] = useState(0);
+  // The thread on screen (memory or cold snapshot) survives a failed load:
+  // ChatRoom keeps it plus the composer, shows an offline line, and refetches
+  // on reconnect. Only a first-ever load with nothing cached shows the retry
+  // card.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const mountedRef = useRef(true);
+  async function load() {
+    try {
+      const profile: ProfileResponse = await getProfileCached();
+      if (!mountedRef.current) return;
+      if (!profile.activeWorkspace) {
+        setState({ kind: "no-workspace" });
+        return;
+      }
+      const thread = await getChat(profile.activeWorkspace.id);
+      if (!mountedRef.current) return;
+      setLoadFailed(false);
+      setState((current) => ({
+        kind: "ready",
+        auth: profile.auth,
+        workspace: profile.activeWorkspace!,
+        // Keep sends still waiting in the offline queue on screen.
+        messages: current.kind === "ready"
+          ? mergeThreadMessages(current.messages, thread.messages, false)
+          : thread.messages,
+        readCursors: thread.readCursors,
+        readAt: thread.readAt || {},
+      }));
+    } catch (error) {
+      if (!mountedRef.current) return;
+      if (error instanceof ApiUnauthorizedError) {
+        setState({ kind: "unauthorized" });
+        return;
+      }
+      setLoadFailed(true);
+      setState((current) => (current.kind === "ready"
+        ? current
+        : { kind: "error", message: error instanceof Error ? error.message : "", error }));
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const profile: ProfileResponse = await getProfileCached();
-        if (cancelled) return;
-        if (!profile.activeWorkspace) {
-          setState({ kind: "no-workspace" });
-          return;
-        }
-        const thread = await getChat(profile.activeWorkspace.id);
-        if (cancelled) return;
-        setState({
-          kind: "ready",
-          auth: profile.auth,
-          workspace: profile.activeWorkspace,
-          messages: thread.messages,
-          readCursors: thread.readCursors,
-          readAt: thread.readAt || {},
-        });
-      } catch (error) {
-        if (cancelled) return;
-        if (error instanceof ApiUnauthorizedError) {
-          setState({ kind: "unauthorized" });
-          return;
-        }
-        setState({ kind: "error", message: error instanceof Error ? error.message : "Couldn't load sexts." });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [reloadKey]);
+    mountedRef.current = true;
+    void load();
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  const onLoadRecovered = useCallback(() => setLoadFailed(false), []);
+
+  // Same slim header in every state, so the screen doesn't swap headers when
+  // the thread arrives (or fails to).
+  const header = <ScreenHeader showBrand={false} title="Sext" compact />;
 
   if (state.kind === "loading") {
     return (
       <AppShell>
-        <ScreenHeader eyebrow="Sext" showBrand={false} backHref="/sexboard" title="Just between you two." subtitle="Loading your thread." />
+        {header}
         <SkeletonList count={4} />
       </AppShell>
     );
@@ -175,7 +192,7 @@ export default function ChatPage() {
   if (state.kind === "unauthorized") {
     return (
       <AppShell>
-        <ScreenHeader eyebrow="Sext" showBrand={false} backHref="/sexboard" title="Just between you two." subtitle="Sign in again to open your thread." />
+        <ScreenHeader showBrand={false} title="Just between you two." subtitle="Sign in again to open your thread." />
         <ErrorState title="Session expired" body="Sign in again to open your sexts." action={<Link href="/" className="btn-ghost">Back to sign-in</Link>} />
       </AppShell>
     );
@@ -183,28 +200,28 @@ export default function ChatPage() {
   if (state.kind === "no-workspace") {
     return (
       <AppShell>
-        <ScreenHeader eyebrow="Sext" showBrand={false} backHref="/sexboard" title="Just between you two." subtitle="You need a paired room before you can sext." />
-        <ErrorState title="No partner space yet" body="You need a paired room before you can sext." action={<Link href="/space" className="btn-ghost">Open Space</Link>} />
+        <ScreenHeader showBrand={false} title="Just between you two." subtitle="You need a paired room before you can sext." />
+        <ErrorState title="No partner space yet" body="You need a paired room before you can sext." action={<Link href="/space" className="btn-ghost">Open Us</Link>} />
       </AppShell>
     );
   }
   if (state.kind === "error") {
     return (
       <AppShell>
-        <ScreenHeader eyebrow="Sext" showBrand={false} backHref="/sexboard" title="Just between you two." subtitle="What do you want to say?" />
-        <ErrorState title="Couldn't load sexts" body={state.message} action={<button className="btn-ghost" onClick={() => setReloadKey((v) => v + 1)}>Try again</button>} />
+        {header}
+        <LoadErrorState what="your sexts" error={state.error ?? state.message} onRetry={load} />
       </AppShell>
     );
   }
   if (!hasJoinedPartner(state.workspace, state.auth.email)) {
     return (
       <AppShell>
-        <ScreenHeader eyebrow="Sext" showBrand={false} backHref="/sexboard" title="Just between you two." subtitle="Once your partner joins, this is where you talk." />
+        <ScreenHeader showBrand={false} title="Just between you two." subtitle="Once your partner joins, this is where you talk." />
         <WaitingForPartner workspace={state.workspace} intent="Sexting" />
       </AppShell>
     );
   }
-  return <ChatRoom state={state} setState={setState} />;
+  return <ChatRoom state={state} setState={setState} loadFailed={loadFailed} onLoadRecovered={onLoadRecovered} />;
 }
 
 function hasJoinedPartner(workspace: Workspace, myEmail: string): boolean {
@@ -215,9 +232,13 @@ function hasJoinedPartner(workspace: Workspace, myEmail: string): boolean {
 function ChatRoom({
   state,
   setState,
+  loadFailed,
+  onLoadRecovered,
 }: {
   state: Extract<LoadState, { kind: "ready" }>;
   setState: React.Dispatch<React.SetStateAction<LoadState>>;
+  loadFailed: boolean;
+  onLoadRecovered: () => void;
 }) {
   const { workspace, auth } = state;
   const myEmail = auth.email.toLowerCase();
@@ -226,7 +247,8 @@ function ChatRoom({
   const partnerEmail = (partner?.email || "").toLowerCase();
   const partnerName = partner?.displayName?.split(" ")[0] || "your partner";
 
-  const [draft, setDraft] = useState(() => readPersistedDraft(workspace.id));
+  // The draft lives in <Composer> so typing re-renders only the field.
+  const composerRef = useRef<ComposerHandle | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState("");
   const [activeId, setActiveId] = useState("");
@@ -238,7 +260,9 @@ function ChatRoom({
   const [gifSearchEnabled, setGifSearchEnabled] = useState(false);
   const [gifQuery, setGifQuery] = useState("");
   const [gifResults, setGifResults] = useState<RedgifsSearchResult[]>([]);
-  const [gifLoading, setGifLoading] = useState(false);
+  // Which search the results on screen belong to. Loading is derived from it:
+  // results for a different query/order than the one typed mean a fetch is due.
+  const [gifResultsKey, setGifResultsKey] = useState("");
   const [gifOrder, setGifOrder] = useState("trending");
   const [gifPage, setGifPage] = useState(1);
   const [gifPages, setGifPages] = useState(1);
@@ -246,27 +270,11 @@ function ChatRoom({
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [partnerPresence, setPartnerPresence] = useState<{ online: boolean; at: string } | null>(null);
   const [lightboxMedia, setLightboxMedia] = useState<ChatMedia | null>(null);
+  const closeLightbox = useCallback(() => setLightboxMedia(null), []);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const gifGridRef = useRef<HTMLDivElement | null>(null);
-  const lastTypingSentRef = useRef(0);
   const typingClearRef = useRef<number | null>(null);
-
-  // Grow the composer to fit what you're typing (iMessage-style), capped so it
-  // never eats the thread; past the cap it scrolls. Runs on every draft change
-  // — typing, clearing after send, and populating it to edit a message.
-  useEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    // Defer the scrollHeight read/write off the keystroke's critical path so a
-    // forced reflow doesn't land on every character (rAF coalesces it).
-    const raf = requestAnimationFrame(() => {
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [draft]);
 
   const messages = state.messages;
   const readCursors = state.readCursors;
@@ -304,7 +312,7 @@ function ChatRoom({
     return () => window.removeEventListener(LIVE_ROOM_EVENT, onChatEvent);
   }, []);
 
-  const reloadThread = useCallback(async () => {
+  const reloadThread = useCallback(async (): Promise<boolean> => {
     const incremental = incrementalSafeRef.current && !needsFullFetchRef.current;
     incrementalSafeRef.current = false;
     needsFullFetchRef.current = false;
@@ -322,14 +330,71 @@ function ChatRoom({
             readAt: thread.readAt || {},
           }
         : current));
+      return true;
     } catch {
       // Transient — the next live event or visibility change retries. Require
       // a full fetch then so a failed incremental can't drop events.
       needsFullFetchRef.current = true;
+      return false;
     }
   }, [workspace.id, setState]);
 
-  useLiveRoomReload({ workspaceId: workspace.id, actorEmail: auth.email, resources: ["chat"], onReload: reloadThread });
+  useLiveRoomReload({ workspaceId: workspace.id, actorEmail: auth.email, resources: ["chat"], onReload: async () => { await reloadThread(); } });
+
+  // Offline / failed-load recovery: the thread stays on screen; once the
+  // connection is back (or the app returns to the foreground) do a full
+  // refetch, which also picks up anything missed while away.
+  const online = useOnlineStatus();
+  const recoverThread = useCallback(async () => {
+    needsFullFetchRef.current = true;
+    if (await reloadThread()) onLoadRecovered();
+  }, [reloadThread, onLoadRecovered]);
+  useRecoverOnReconnect(recoverThread, loadFailed || !online);
+
+  // Sends that went to the offline queue replay on their own when the
+  // connection returns; refetch once the queue drains so each "Waiting to
+  // send" bubble is replaced by the delivered message.
+  const queuedSends = useQueuedWrites("chat:send");
+  const queuedSendCountRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!queuedSends) return;
+    const previous = queuedSendCountRef.current;
+    queuedSendCountRef.current = queuedSends.length;
+    const stillQueued = new Set(queuedSends.map((item) => item.idempotencyKey));
+    // The queue only lets go of a write once the server accepted it (or it
+    // was dropped, which the activity toast announces), so a bubble whose
+    // write left the queue is done waiting, even one restored from the
+    // cached thread after the queue flushed while this screen was closed.
+    const settle = () => setState((current) => {
+      if (current.kind !== "ready") return current;
+      const messages = current.messages.filter((m) => !(m.queued && m.queueKey && !stillQueued.has(m.queueKey)));
+      return messages.length === current.messages.length ? current : { ...current, messages };
+    });
+    if (previous !== null && queuedSends.length < previous) void recoverThread().then(settle);
+    else settle();
+  }, [queuedSends, recoverThread, setState]);
+
+  // A queued send the server refused for good (Room Encryption switched on
+  // since it was written, removed from the room): settle its "Waiting to send"
+  // bubble the way a failed live send does. Drop the bubble, put the text back
+  // in the composer and say why.
+  useEffect(() => {
+    function onDroppedWrite(event: Event) {
+      const detail = (event as CustomEvent<DroppedOfflineWriteDetail>).detail;
+      if (detail?.intent !== "chat:send" || !detail.idempotencyKey) return;
+      const dropped = messagesRef.current.find((m) => m.queued && m.queueKey === detail.idempotencyKey);
+      if (!dropped) return;
+      setState((current) => (current.kind === "ready"
+        ? { ...current, messages: current.messages.filter((m) => m.id !== dropped.id) }
+        : current));
+      if (dropped.text) composerRef.current?.restore(dropped.text);
+      setSendError(detail.serverError
+        ? `Couldn't send a waiting message: ${detail.serverError} It's back in the box below.`
+        : "Couldn't send a waiting message. It's back in the box below.");
+    }
+    window.addEventListener(OFFLINE_WRITE_DROPPED_EVENT, onDroppedWrite);
+    return () => window.removeEventListener(OFFLINE_WRITE_DROPPED_EVENT, onDroppedWrite);
+  }, [setState]);
 
   // Typing is delivered as a passive room event; surface it transiently.
   useEffect(() => {
@@ -369,9 +434,10 @@ function ChatRoom({
     if (!showGifSearch) return;
     const query = gifQuery.trim();
     // Nothing until the user actually searches — no default feed on open.
-    if (!query) { setGifResults([]); setGifLoading(false); return; }
+    // An empty box shows nothing; the render derives that, so no state to clear.
+    if (!query) return;
     let cancelled = false;
-    setGifLoading(true);
+    const key = `${query}|${gifOrder}`;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       searchRedgifs(query, gifOrder, 1, controller.signal).then(({ results, pages }) => {
@@ -379,11 +445,19 @@ function ChatRoom({
         setGifResults(results);
         setGifPages(pages);
         setGifPage(1);
-        setGifLoading(false);
+        setGifResultsKey(key);
+      }).catch(() => {
+        // A failed search used to leave the spinner up for good. Show the empty
+        // state instead; typing again retries.
+        if (cancelled) return;
+        setGifResults([]);
+        setGifResultsKey(key);
       });
     }, 280);
     return () => { cancelled = true; controller.abort(); window.clearTimeout(timer); };
   }, [showGifSearch, gifQuery, gifOrder]);
+
+  const gifLoading = Boolean(gifQuery.trim()) && gifResultsKey !== `${gifQuery.trim()}|${gifOrder}`;
 
   // Only offer the GIF button where RedGifs is actually reachable: self-host (a
   // normal IP) or a Cloudflare deploy with REDGIFS_PROXY set. /api/config carries
@@ -393,13 +467,6 @@ function ChatRoom({
     getConfig().then((config) => { if (!cancelled) setGifSearchEnabled(Boolean(config.gifSearch)); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
-
-  // Persist the draft as it changes so a reload / tab-away doesn't lose it. Skip
-  // while editing an existing message (that text isn't a new-message draft).
-  useEffect(() => {
-    if (editingId) return;
-    writePersistedDraft(workspace.id, draft);
-  }, [draft, editingId, workspace.id]);
 
   // Pin the chat surface to the *visual* viewport so the composer always sits at
   // the bottom of what's actually visible — above the tab bar when idle, above the
@@ -413,6 +480,13 @@ function ChatRoom({
     if (!vv) return;
     const root = document.documentElement;
     let maxHeight = vv.height;
+    // resize and scroll fire many times per keyboard animation frame; write
+    // the CSS vars at most once per frame.
+    let frame = 0;
+    const schedule = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; apply(); });
+    };
     const apply = () => {
       if (vv.height > maxHeight) maxHeight = vv.height;
       // Keyboard is up when the visible height drops well below the tallest seen.
@@ -431,12 +505,13 @@ function ChatRoom({
     // Re-baseline on rotation so landscape's shorter height isn't read as a keyboard.
     const reset = () => { maxHeight = vv.height; apply(); };
     apply();
-    vv.addEventListener("resize", apply);
-    vv.addEventListener("scroll", apply);
+    vv.addEventListener("resize", schedule);
+    vv.addEventListener("scroll", schedule);
     window.addEventListener("orientationchange", reset);
     return () => {
-      vv.removeEventListener("resize", apply);
-      vv.removeEventListener("scroll", apply);
+      if (frame) cancelAnimationFrame(frame);
+      vv.removeEventListener("resize", schedule);
+      vv.removeEventListener("scroll", schedule);
       window.removeEventListener("orientationchange", reset);
       root.style.removeProperty("--chat-vh");
       root.style.removeProperty("--chat-top");
@@ -467,15 +542,7 @@ function ChatRoom({
       .catch(() => {});
   }, [latestSeq, readCursors, myEmail, workspace.id, setState]);
 
-  function emitTyping() {
-    const now = Date.now();
-    if (now - lastTypingSentRef.current < TYPING_THROTTLE_MS) return;
-    lastTypingSentRef.current = now;
-    void sendChatTyping(workspace.id);
-  }
-
-  async function handleSend() {
-    const text = draft.trim();
+  async function handleSend(text: string) {
     if (!text) return;
 
     // Editing is infrequent and the message is already on screen, so it stays a
@@ -490,9 +557,9 @@ function ChatRoom({
           ? { ...current, messages: current.messages.map((m) => (m.id === message.id ? message : m)) }
           : current));
         setEditingId("");
-        setDraft("");
+        composerRef.current?.clear();
       } catch (error) {
-        setSendError(error instanceof Error ? error.message : "Couldn't send.");
+        setSendError(sendErrorCopy(error, "Couldn't save that edit."));
       } finally {
         setSending(false);
       }
@@ -512,7 +579,7 @@ function ChatRoom({
     const replyToMsg = replyingTo;
     const baseSeq = messages.reduce((max, m) => Math.max(max, m.seq), 0) + 1;
     setSendError("");
-    setDraft("");
+    composerRef.current?.clear();
     setReplyingTo(null);
 
     const key = generateIdempotencyKey();
@@ -534,20 +601,29 @@ function ChatRoom({
       : current));
     try {
       const { message } = await sendChatMessage({
-        workspaceId: workspace.id, text, e2ee, replyToId: replyToMsg?.id, idempotencyKey: key,
+        workspaceId: workspace.id, text, e2ee, replyToId: replyToMsg?.id, idempotencyKey: key, queueable: true,
       });
       setState((current) => (current.kind === "ready"
         ? { ...current, messages: mergeMessage(current.messages.filter((m) => m.id !== optimisticId), message) }
         : current));
     } catch (error) {
+      // Offline: the send is safe in the offline queue and replays with the
+      // same idempotency key (so the same message id) on reconnect. Keep the
+      // bubble, marked "Waiting to send", instead of rolling it back.
+      if (error instanceof ApiOfflineQueuedError) {
+        setState((current) => (current.kind === "ready"
+          ? { ...current, messages: current.messages.map((m) => (m.id === optimisticId ? { ...m, queued: true, queueKey: key } : m)) }
+          : current));
+        return;
+      }
       // Roll back so nothing is silently lost: drop the bubble, restore the draft
       // and any reply target.
       setState((current) => (current.kind === "ready"
         ? { ...current, messages: current.messages.filter((m) => m.id !== optimisticId) }
         : current));
-      setDraft(text);
+      composerRef.current?.set(text);
       if (replyToMsg) setReplyingTo(replyToMsg);
-      setSendError(error instanceof Error ? error.message : "Couldn't send.");
+      setSendError(sendErrorCopy(error, "Couldn't send."));
     }
   }
 
@@ -598,7 +674,7 @@ function ChatRoom({
         : current));
       if (navigator.vibrate) navigator.vibrate([6, 16, 8]);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Couldn't send that image.");
+      setSendError(sendErrorCopy(error, "Couldn't send that image."));
     } finally {
       setSending(false);
     }
@@ -637,8 +713,23 @@ function ChatRoom({
   function startEdit(message: ChatMessage) {
     setActiveId("");
     setEditingId(message.id);
-    setDraft(message.text);
+    composerRef.current?.set(message.text);
   }
+
+  // Stable callbacks for the memoised <Composer>: they always call the latest
+  // handlers without re-rendering the field when the thread changes.
+  const latestRef = useRef({ handleSend, handleSendImage, sendGif, startEdit });
+  useEffect(() => { latestRef.current = { handleSend, handleSendImage, sendGif, startEdit }; });
+  const onSendGif = useCallback((gifId: string) => { void latestRef.current.sendGif(gifId); }, []);
+  const onStartEdit = useCallback((message: ChatMessage) => { latestRef.current.startEdit(message); }, []);
+  const onComposerSend = useCallback((text: string) => { void latestRef.current.handleSend(text); }, []);
+  const onComposerPasteImage = useCallback((file: File) => { void latestRef.current.handleSendImage(file); }, []);
+  const onComposerFocus = useCallback(() => {
+    // Once the keyboard finishes animating in (it lifts the composer via
+    // :root[data-kb]), re-pin to the newest message so it stays in view.
+    // In the column-reverse thread the bottom (newest) is scrollTop 0.
+    window.setTimeout(() => { if (threadRef.current) threadRef.current.scrollTop = 0; }, 300);
+  }, []);
 
   // Render in canonical seq order so an optimistic message that reconciles after
   // a mid-flight reload still lands in the right place (the array itself is kept
@@ -660,26 +751,27 @@ function ChatRoom({
 
   return (
     <AppShell>
-      {/* Slim header — back + "Sext" only, so the messages own the screen. No
-          name title, no static E2EE tagline; just a quiet live-presence line
-          when the partner is actually around. */}
+      {/* A top-level tab: the serif headline like Home, Play and Us (compact,
+          so the thread keeps the height), no back control, no static E2EE
+          tagline; just a quiet live-presence line when the partner is around.
+          The h1 reads "Sext with <partner>" to assistive tech. */}
       <ScreenHeader
-        eyebrow="Sext"
         showBrand={false}
-        backHref="/sexboard"
+        compact
+        title={<>Sext<span className="sr-only"> with {partnerName}</span></>}
         subtitle={partnerPresence
           ? (partnerPresence.online ? "Active now" : `Active ${relativeAgo(partnerPresence.at)}`)
           : undefined}
       />
       <PartnerTurnOns workspaceId={workspace.id} variant="strip" />
       <div className="chat-stage">
-        <div className="chat-thread" role="log" aria-label="Messages" aria-live="polite" ref={threadRef}>
+        <div className="chat-thread" role="log" aria-label="Messages" ref={threadRef}>
           {/* column-reverse: the DOM-first child renders at the visual BOTTOM, so
               the typing row sits just under the newest message, and the groups are
               emitted newest-first below so they land chronological top-to-bottom. */}
           {partnerTyping && (
-            <div className="chat-row is-theirs chat-typing-row" aria-live="polite">
-              <div className="chat-typing-bubble" role="status" aria-label={`${partnerName} is typing`}>
+            <div className="chat-row is-theirs chat-typing-row">
+              <div className="chat-typing-bubble" role="img" aria-label={`${partnerName} is typing`}>
                 <span className="chat-typing-dot" /><span className="chat-typing-dot" /><span className="chat-typing-dot" />
               </div>
             </div>
@@ -695,8 +787,8 @@ function ChatRoom({
             </div>
           ) : (
             grouped.slice().reverse().map((group) => (
-              <div key={group.day} className="chat-day-group">
-                <div className="chat-day-divider"><span>{group.day}</span></div>
+              <div key={group.day} className="chat-day-group" role="group" aria-label={group.day}>
+                <div className="chat-day-divider" aria-hidden="true"><span>{group.day}</span></div>
                 {group.items.map((message, i) => {
                   const sender = message.email.toLowerCase();
                   const mine = sender === myEmail;
@@ -748,7 +840,7 @@ function ChatRoom({
                           void navigator.clipboard.writeText(txt).catch(() => {});
                         }
                       }}
-                      onEdit={() => startEdit(message)}
+                      onEdit={() => onStartEdit(message)}
                       onUnsend={() => handleUnsend(message.id)}
                       onOpenImage={setLightboxMedia}
                     />
@@ -772,12 +864,19 @@ function ChatRoom({
           )}
         </div>
 
+        {(!online || loadFailed) && (
+          <p className="chat-offline-banner" role="status">
+            {!online
+              ? "You're offline. Texts you send now wait here and go out when you reconnect. Photos and GIFs need a connection."
+              : "Couldn't refresh. You're seeing your last messages."}
+          </p>
+        )}
         {sendError && <p className="chat-error" role="alert">{sendError}</p>}
 
         {showEmoji && (
           <div className="chat-emoji-palette" role="group" aria-label="Quick emojis">
             {XXX_EMOJIS.map((emoji) => (
-              <button key={emoji} type="button" className="chat-emoji pressable" onClick={() => setDraft((d) => (d + emoji).slice(0, MAX_INPUT))}>
+              <button key={emoji} type="button" className="chat-emoji pressable" onClick={() => composerRef.current?.append(emoji)}>
                 {emoji}
               </button>
             ))}
@@ -794,11 +893,13 @@ function ChatRoom({
               aria-label="Search GIFs"
               autoFocus
             />
-            <div className="chat-gif-chips">
+            <div className="chat-gif-chips" role="radiogroup" aria-label="Sort GIFs">
               {GIF_ORDERS.map((opt) => (
                 <button
                   key={opt.key}
                   type="button"
+                  role="radio"
+                  aria-checked={gifOrder === opt.key}
                   className={`chat-gif-chip pressable ${gifOrder === opt.key ? "is-on" : ""}`}
                   onClick={() => setGifOrder(opt.key)}
                 >
@@ -816,9 +917,9 @@ function ChatRoom({
             >
               {!gifQuery.trim() ? (
                 <p className="chat-gif-hint">Search for a GIF.</p>
-              ) : gifLoading && gifResults.length === 0 ? (
+              ) : gifQuery.trim() && gifLoading && gifResults.length === 0 ? (
                 <p className="chat-gif-hint">Searching…</p>
-              ) : gifResults.length === 0 ? (
+              ) : !gifQuery.trim() || gifResults.length === 0 ? (
                 <p className="chat-gif-hint">No GIFs — try another word.</p>
               ) : (
                 [0, 1].map((col) => (
@@ -828,7 +929,7 @@ function ChatRoom({
                         key={gif.id}
                         gif={gif}
                         gridRef={gifGridRef}
-                        onSend={() => void sendGif(gif.id)}
+                        onSend={() => onSendGif(gif.id)}
                       />
                     ))}
                   </div>
@@ -839,12 +940,12 @@ function ChatRoom({
         )}
         <form
           className="chat-composer"
-          onSubmit={(e) => { e.preventDefault(); void handleSend(); }}
+          onSubmit={(e) => { e.preventDefault(); composerRef.current?.submit(); }}
         >
           {editingId && (
             <div className="chat-editing-banner">
               Editing message
-              <button type="button" className="chat-editing-cancel" onClick={() => { setEditingId(""); setDraft(""); }}>Cancel</button>
+              <button type="button" className="chat-editing-cancel" onClick={() => { setEditingId(""); composerRef.current?.clear(); }}>Cancel</button>
             </div>
           )}
           {replyingTo && !editingId && (
@@ -869,8 +970,8 @@ function ChatRoom({
               <button
                 type="button"
                 className="chat-attach pressable"
-                aria-label="Send a photo"
-                disabled={sending}
+                aria-label={online ? "Send a photo" : "Send a photo (needs a connection)"}
+                disabled={sending || !online}
                 onClick={() => { setShowEmoji(false); setShowGifSearch(false); fileInputRef.current?.click(); }}
               >
                 <svg width="21" height="21" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -892,8 +993,9 @@ function ChatRoom({
                 <button
                   type="button"
                   className={`chat-attach chat-gif-toggle pressable ${showGifSearch ? "is-on" : ""}`}
-                  aria-label="Search GIFs"
+                  aria-label={online ? "Search GIFs" : "Search GIFs (needs a connection)"}
                   aria-pressed={showGifSearch}
+                  disabled={!online}
                   onClick={() => { setShowGifSearch((v) => !v); setShowEmoji(false); }}
                 >
                   GIF
@@ -901,56 +1003,23 @@ function ChatRoom({
               )}
             </>
           )}
-          <textarea
+          <Composer
             ref={composerRef}
-            value={draft}
-            onChange={(e) => { setDraft(e.target.value); emitTyping(); }}
-            onPaste={(e) => {
-              const item = Array.from(e.clipboardData?.items || []).find((it) => it.type.startsWith("image/"));
-              if (item) { const file = item.getAsFile(); if (file) { e.preventDefault(); void handleSendImage(file); } }
-            }}
-            onKeyDown={(e) => {
-              // Enter sends only with a real keyboard (desktop / non-touch). On a
-              // phone the Return key must insert a newline so you can write more
-              // than one sentence — sending is the dedicated send button. (A
-              // hardware Shift+Enter always inserts a newline regardless.)
-              const coarsePointer = typeof window !== "undefined"
-                && typeof window.matchMedia === "function"
-                && window.matchMedia("(pointer: coarse)").matches;
-              if (e.key === "Enter" && !e.shiftKey && !coarsePointer) { e.preventDefault(); void handleSend(); }
-            }}
-            onFocus={() => {
-              // Once the keyboard finishes animating in (it lifts the composer via
-              // :root[data-kb]), re-pin to the newest message so it stays in view.
-              // In the column-reverse thread the bottom (newest) is scrollTop 0.
-              window.setTimeout(() => { if (threadRef.current) threadRef.current.scrollTop = 0; }, 300);
-            }}
-            placeholder={`Message ${partnerName}…`}
-            rows={1}
-            className="chat-input"
-            maxLength={MAX_INPUT}
-            autoCapitalize="sentences"
-            autoCorrect="on"
-            spellCheck
-            inputMode="text"
+            workspaceId={workspace.id}
+            partnerName={partnerName}
+            editing={Boolean(editingId)}
+            sending={sending}
+            onSend={onComposerSend}
+            onPasteImage={onComposerPasteImage}
+            onFocus={onComposerFocus}
           />
-          <button
-            type="submit"
-            className="chat-send pressable"
-            disabled={!draft.trim() || sending}
-            aria-label={editingId ? "Save edit" : "Send message"}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M12 19.5V5M12 5l-6.5 6.5M12 5l6.5 6.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
         </form>
       </div>
       {lightboxMedia && (
         <ImageLightbox
           workspaceId={workspace.id}
           media={lightboxMedia}
-          onClose={() => setLightboxMedia(null)}
+          onClose={closeLightbox}
         />
       )}
     </AppShell>
@@ -1073,9 +1142,35 @@ function ChatBubble({
   // Suppress the iOS long-press text/image selection callout on the bubble.
   const noCallout = { WebkitTouchCallout: "none" as const };
 
+  // Opening the actions moves focus into them; Escape closes and hands focus
+  // back to the control that opened them (the bubble or its More button).
+  const actionsRef = useRef<HTMLDivElement | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!reacting) return;
+    if (!returnFocusRef.current && document.activeElement instanceof HTMLElement) {
+      returnFocusRef.current = document.activeElement;
+    }
+    const first = actionsRef.current?.querySelector<HTMLElement>("button");
+    first?.focus({ preventScroll: true });
+  }, [reacting]);
+  const closeActions = useCallback(() => {
+    onCloseReact();
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    if (target && document.contains(target)) target.focus({ preventScroll: true });
+  }, [onCloseReact]);
+  const canAct = !message.deletedAt && !message.pending;
+  const hasMedia = Boolean(message.media && !message.deletedAt && !message.e2eeLocked);
+
   return (
-    <div id={`msg-${message.id}`} className={`chat-row ${mine ? "is-mine" : "is-theirs"}${firstInRun ? " run-start" : ""}${lastInRun ? " run-end" : ""}${message.pending ? " is-pending" : ""}`}>
-      <div className={`chat-bubble-wrap ${reacting ? "is-reacting" : ""}`}>
+    <div id={`msg-${message.id}`} className={`chat-row ${mine ? "is-mine" : "is-theirs"}${firstInRun ? " run-start" : ""}${lastInRun ? " run-end" : ""}${message.pending ? " is-pending" : ""}${active ? " is-active" : ""}`}>
+      <div
+        className={`chat-bubble-wrap ${reacting ? "is-reacting" : ""}`}
+        onKeyDown={(e) => {
+          if (reacting && e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeActions(); }
+        }}
+      >
         {quote && (
           <button
             type="button"
@@ -1105,23 +1200,49 @@ function ChatBubble({
           >
             <ChatGif gifId={gifId} sourceUrl={(message.text || "").trim()} />
           </div>
+        ) : hasMedia && message.media ? (
+          // A photo bubble is a plain container: the image opens through its
+          // own button, and hold / More still open the actions.
+          <div
+            className={`chat-bubble has-media${message.e2eeLocked ? " is-locked" : ""}`}
+            style={noCallout}
+            onClick={handleTap}
+            {...pressHandlers}
+          >
+            <ChatImage
+              workspaceId={workspaceId}
+              media={message.media}
+              onOpen={() => { if (!longPressed.current && message.media) onOpenImage(message.media); }}
+            />
+            {body ? <span className="chat-bubble-text">{body}</span> : null}
+          </div>
         ) : (
           <button
             type="button"
-            className={`chat-bubble ${message.deletedAt ? "is-unsent" : ""} ${message.e2eeLocked ? "is-locked" : ""} ${message.media && !message.deletedAt && !message.e2eeLocked ? "has-media" : ""} pressable`}
+            className={`chat-bubble ${message.deletedAt ? "is-unsent" : ""} ${message.e2eeLocked ? "is-locked" : ""} pressable`}
             style={noCallout}
             onClick={handleTap}
             disabled={Boolean(message.deletedAt)}
+            aria-expanded={canAct ? active : undefined}
             {...pressHandlers}
           >
-            {message.media && !message.deletedAt && !message.e2eeLocked && (
-              <ChatImage
-                workspaceId={workspaceId}
-                media={message.media}
-                onOpen={() => { if (!longPressed.current && message.media) onOpenImage(message.media); }}
-              />
-            )}
             {body ? <span className="chat-bubble-text">{body}</span> : null}
+          </button>
+        )}
+        {canAct && (
+          <button
+            type="button"
+            className="chat-more-btn pressable"
+            aria-label="Message actions"
+            aria-haspopup="true"
+            aria-expanded={reacting}
+            onClick={(e) => { returnFocusRef.current = e.currentTarget; onLongPress(); }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="5.5" cy="12" r="1.7" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+              <circle cx="18.5" cy="12" r="1.7" fill="currentColor" />
+            </svg>
           </button>
         )}
         {reacting && !message.deletedAt && (
@@ -1130,9 +1251,11 @@ function ChatBubble({
               type="button"
               className="chat-react-backdrop"
               aria-label="Dismiss reactions"
-              onClick={onCloseReact}
+              tabIndex={-1}
+              onClick={closeActions}
             />
-            <div className={`chat-react-picker ${mine ? "is-mine" : "is-theirs"}`} role="menu" aria-label="React to message">
+            <div ref={actionsRef} className="chat-message-actions">
+            <div className={`chat-react-picker ${mine ? "is-mine" : "is-theirs"}`} role="group" aria-label="React to message">
               {REACTION_CHOICES.map(({ glyph, label }) => (
                 <button
                   key={glyph}
@@ -1146,7 +1269,7 @@ function ChatBubble({
                 </button>
               ))}
             </div>
-            <div className={`chat-context-menu ${mine ? "is-mine" : "is-theirs"}`} role="menu" aria-label="Message actions">
+            <div className={`chat-context-menu ${mine ? "is-mine" : "is-theirs"}`} role="group" aria-label="Message actions">
               <button type="button" className="chat-context-item" onClick={() => { onCloseReact(); onReply(); }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 8V5l-7 7 7 7v-3.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" /></svg>
                 Reply
@@ -1170,6 +1293,7 @@ function ChatBubble({
                 </button>
               )}
             </div>
+            </div>
           </>
         )}
         {reactionCounts.length > 0 && (
@@ -1180,7 +1304,7 @@ function ChatBubble({
           </div>
         )}
         {message.pending ? (
-          <span className="chat-bubble-meta">Sending…</span>
+          <span className={`chat-bubble-meta${message.queued ? " is-queued" : ""}`}>{message.queued ? "Waiting to send" : "Sending…"}</span>
         ) : !message.deletedAt && (lastInRun || active) ? (
           <span className="chat-bubble-meta">
             {timeLabel(message.at)}{message.editedAt ? " · edited" : ""}
@@ -1443,6 +1567,8 @@ function ChatImage({ workspaceId, media, onOpen }: { workspaceId: string; media:
       })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+    // Keyed on the media's identity fields, not the object (see _ImageLightbox).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inView, workspaceId, media.mediaId, media.key, media.iv]);
 
   if (failed) return <span className="chat-image-status">Image unavailable</span>;
@@ -1454,14 +1580,15 @@ function ChatImage({ workspaceId, media, onOpen }: { workspaceId: string; media:
   // tap from also toggling the bubble's action row. The lightbox reads the same
   // blob through the LRU, so revoking this URL on unmount stays safe.
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt="Shared image"
-      className="chat-image"
-      decoding="async"
+    <button
+      type="button"
+      className="chat-image-open"
+      aria-label="Open image"
       onClick={(e) => { if (onOpen) { e.stopPropagation(); onOpen(); } }}
-    />
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="Shared image" className="chat-image" decoding="async" />
+    </button>
   );
 }
 
@@ -1492,6 +1619,7 @@ function sameRenderedMessage(a: ChatMessage, b: ChatMessage): boolean {
     && (a.deletedAt || "") === (b.deletedAt || "")
     && Boolean(a.e2eeLocked) === Boolean(b.e2eeLocked)
     && Boolean(a.pending) === Boolean(b.pending)
+    && Boolean(a.queued) === Boolean(b.queued)
     && (a.replyToId || "") === (b.replyToId || "")
     && (a.media?.mediaId || "") === (b.media?.mediaId || "")
     && sameReactions(a.reactions, b.reactions);
@@ -1513,10 +1641,17 @@ function mergeThreadMessages(prev: ChatMessage[], fetched: ChatMessage[], increm
     return next;
   }
   const prevById = new Map(prev.map((m) => [m.id, m]));
+  const fetchedIds = new Set(fetched.map((m) => m.id));
   const merged = fetched.map((message) => {
     const old = prevById.get(message.id);
     return old && sameRenderedMessage(old, message) ? old : message;
   });
+  // A full fetch is the server's list, which can't include my own sends still
+  // waiting in the offline queue. Keep those bubbles until the delivered
+  // message (same id) replaces them.
+  for (const message of prev) {
+    if (message.queued && !fetchedIds.has(message.id)) merged.push(message);
+  }
   const identical = merged.length === prev.length && merged.every((m, i) => m === prev[i]);
   return identical ? prev : merged;
 }

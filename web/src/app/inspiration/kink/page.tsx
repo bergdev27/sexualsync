@@ -4,6 +4,7 @@ import { FormEvent, KeyboardEvent, Suspense, useCallback, useEffect, useState } 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import ScreenHeader from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
 import {
   ApiUnauthorizedError,
@@ -31,6 +32,7 @@ import type {
 import { useFocusActivity } from "@/lib/use-focus-activity";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { normalizeEmail, partnerOf } from "@/lib/workspace";
+import "./kink-detail.css";
 
 type LoadState =
   | { kind: "loading" }
@@ -134,7 +136,7 @@ function KinkByQuery() {
       cancelled = true;
       controller.abort();
     };
-  }, [id, reloadKey]);
+  }, [id, reloadKey, resourceKey]);
 
   return (
     <KinkShell>
@@ -151,16 +153,8 @@ function KinkByQuery() {
 
 function KinkShell({ children }: { children: React.ReactNode }) {
   return (
-    <AppShell hideTabBar>
-      <header className="sheet-header">
-        <Link href="/inspiration" className="fd-back pressable" aria-label="Back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </Link>
-        <span className="sheet-title">Kink</span>
-        <span className="sheet-header-spacer" aria-hidden="true" />
-      </header>
+    <AppShell>
+      <ScreenHeader variant="bar" back={{ href: "/inspiration", label: "Inspiration" }} title="Kink" />
       {children}
     </AppShell>
   );
@@ -271,9 +265,9 @@ function Body({
   if (state.kind === "no-workspace") {
     return (
       <EmptyState
-        title="Set up your space"
-        body="You're signed in, but you don't have a partner-paired space yet."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        title="Set up your room"
+        body="You're signed in, but you don't have a partner-paired room yet."
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -694,10 +688,6 @@ function CommentBubble({
   const [draft, setDraft] = useState(entry.text);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!editing) setDraft(entry.text);
-  }, [editing, entry.text]);
 
   function startEditing() {
     if (!own || editing || busy) return;

@@ -23,6 +23,7 @@ import {
 } from "./_workspaces.js";
 import { appendAudit } from "./_audit.js";
 import { notifyWorkspaceEvent } from "./_notification_policy.js";
+import { broadcastRoomEvent } from "./_live_room.js";
 
 const STORE_NAME = "sexualsync-sex-quiz";
 function quizKey(workspaceId) { return `sexQuiz:${workspaceId}`; }
@@ -364,6 +365,17 @@ export async function onRequest(context) {
       tag: "game-ready",
       url: "/games/sex-quiz",
     }));
+    // Live hint so the partner's Play hub and "locked in" screen refetch (and
+    // move to the reveal) without a reload. It carries no answers, and the
+    // activity feed ignores this resource, so nothing about the round leaks.
+    broadcastRoomEvent(context, workspace.id, {
+      resource: "sex-quiz",
+      action: "submitted",
+      entityId: workspace.id,
+      actorEmail,
+      actorName,
+      passive: true,
+    });
     return jsonResponse(200, publicQuiz(result.next, workspace, actorEmail));
   }
 
@@ -376,6 +388,9 @@ export async function onRequest(context) {
       delete fullReveal[actorEmail];
       const next = { ...record, entries, fullReveal, status: "open", revealedAt: "", updatedAt: now };
       return { value: next, result: { next } };
+    });
+    broadcastRoomEvent(context, workspace.id, {
+      resource: "sex-quiz", action: "retake", entityId: workspace.id, actorEmail, actorName, passive: true,
     });
     return jsonResponse(200, publicQuiz(result.next, workspace, actorEmail));
   }

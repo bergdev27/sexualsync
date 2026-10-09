@@ -1,0 +1,433 @@
+/* Styles only /space/vault renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+/* Private Vault */
+
+.vault-stage {
+  display: grid;
+  gap: 20px;
+  padding: 0 22px 28px;
+}
+
+.vault-section {
+  display: grid;
+  gap: 12px;
+}
+
+.vault-upload {
+  padding: 16px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-xs);
+  background: rgb(var(--surface-rgb) / 0.74);
+  box-shadow: inset 0 1px 0 var(--cream-a04);
+}
+
+.vault-upload-form {
+  display: grid;
+  gap: 10px;
+}
+
+.vault-file-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 92px;
+  padding: 14px;
+  border: 1px dashed var(--cream-a28);
+  border-radius: var(--r-xs);
+  background: var(--cream-a04);
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 650;
+  text-align: center;
+}
+
+.vault-file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.vault-upload-submit {
+  width: 100%;
+}
+
+.vault-list {
+  display: grid;
+  gap: 16px;
+}
+
+.vault-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-xs);
+  background:
+    linear-gradient(180deg, rgb(var(--surface-2-rgb) / 0.84), rgb(var(--surface-rgb) / 0.74));
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.24), inset 0 1px 0 var(--cream-a06);
+}
+
+/* Dynamic-import placeholder for the code-split VaultCard: reserve card
+   height so the list doesn't shift (CLS) while the chunk loads. */
+
+.vault-card-placeholder {
+  min-height: 320px;
+}
+
+.vault-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vault-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.vault-card-title {
+  margin: 0;
+  color: var(--cream);
+  font-size: var(--fs-17);
+  font-weight: 720;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.vault-title-edit-trigger {
+  appearance: none;
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--cream);
+  text-align: left;
+  cursor: pointer;
+}
+
+.vault-title-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.vault-title-actions,
+.vault-moment-title-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.vault-card-meta,
+.vault-status,
+.vault-passphrase-hint {
+  margin: 4px 0 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-12);
+  line-height: 1.45;
+}
+
+.vault-passphrase-hint {
+  color: var(--cream-muted);
+  opacity: 0.85;
+}
+
+.vault-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+
+.vault-progress {
+  flex: 1;
+  height: 6px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--cream-a12);
+  overflow: hidden;
+  appearance: none;
+}
+
+.vault-progress::-webkit-progress-bar { background: var(--cream-a12); border-radius: 3px; }
+
+.vault-progress::-webkit-progress-value { background: var(--ss-rose, #e89ba6); border-radius: 3px; }
+
+.vault-progress::-moz-progress-bar { background: var(--ss-rose, #e89ba6); border-radius: 3px; }
+
+.vault-progress-percent {
+  font-size: var(--fs-12);
+  letter-spacing: 0.04em;
+  color: var(--cream-muted);
+  min-width: 36px;
+  text-align: right;
+}
+
+.vault-status-stack {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vault-status-past {
+  opacity: 0.45;
+  font-size: var(--fs-12);
+}
+
+.vault-status-current {
+  opacity: 1;
+}
+
+.vault-player {
+  display: grid;
+  min-height: 232px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  background:
+    radial-gradient(circle at 50% 20%, var(--accent-a12), transparent 48%),
+    rgb(var(--ink-rgb) / 0.58);
+}
+
+.vault-video-shell {
+  position: relative;
+  display: grid;
+  min-height: 232px;
+}
+
+.vault-player video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 232px;
+  object-fit: contain;
+  background: #050204;
+  cursor: zoom-in;
+}
+
+.vault-player-open {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: var(--z-raised-2);
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  padding: 7px 10px;
+  color: var(--cream);
+  font-size: var(--fs-12);
+  font-weight: 720;
+  line-height: 1;
+  background: rgb(var(--ink-rgb) / 0.72);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 0 1px var(--cream-a22);
+  backdrop-filter: blur(10px);
+}
+
+.vault-clip-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -6px;
+}
+
+.vault-remove-clip {
+  border: 0;
+  padding: 0;
+  color: rgb(var(--no-rgb));
+  font-size: var(--fs-12);
+  font-weight: 650;
+  line-height: 1.35;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+}
+
+.vault-remove-clip:disabled {
+  opacity: 0.55;
+}
+
+.vault-locked {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  min-height: 232px;
+  padding: 18px;
+}
+
+/* Large or released clip: one line of context and the load button. */
+
+.vault-load-copy {
+  margin: 0;
+  color: var(--cream-muted);
+  font-size: var(--fs-15);
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.vault-lock-mark {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--accent-a22);
+  border-radius: 50%;
+  color: var(--accent);
+  font-family: var(--mono);
+  letter-spacing: 0;
+  background: var(--accent-a08);
+}
+
+.vault-moment-tools {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  background: var(--cream-a04);
+}
+
+.vault-moments,
+.vault-comments {
+  display: grid;
+  gap: 10px;
+}
+
+.vault-moment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.vault-moment {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-xs);
+  background: var(--cream-a04);
+}
+
+.vault-moment-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: #050204;
+  cursor: zoom-in;
+}
+
+.vault-moment-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vault-moment figcaption {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 8px;
+  color: var(--cream-muted);
+  font-size: var(--fs-12);
+  line-height: 1.35;
+}
+
+.vault-moment figcaption em {
+  min-width: 0;
+  flex: 1;
+  color: var(--cream);
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.vault-moment-delete {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 8px 6px;
+  min-height: 24px;
+  color: rgb(var(--no-rgb));
+  font-size: var(--fs-12);
+  line-height: 1.35;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+}
+
+.vault-moment-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.vault-moment-delete:disabled {
+  opacity: 0.55;
+}
+
+.vault-moment-title-editor {
+  display: grid;
+  gap: 8px;
+  padding: 0 8px 8px;
+}
+
+.vault-moment-lightbox-delete {
+  color: rgb(var(--no-rgb));
+}
+
+.vault-moment-zoom {
+  position: relative;
+  display: block;
+  width: min(100%, 1040px);
+  max-height: min(76vh, 820px);
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  border-radius: var(--r-xs);
+  background: #050204;
+  cursor: zoom-in;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.vault-moment-zoom img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(76vh, 820px);
+  object-fit: contain;
+  background: #050204;
+  pointer-events: none;
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.vault-moment-zoom.is-zoomed {
+  cursor: grab;
+}
+
+.vault-moment-zoom.is-zoomed:active {
+  cursor: grabbing;
+}
+
+.vault-moment-zoom:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}

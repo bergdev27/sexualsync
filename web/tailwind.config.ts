@@ -9,7 +9,6 @@ const config: Config = {
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
   ],
-  darkMode: "media",
   theme: {
     extend: {
       colors: {
@@ -39,18 +38,36 @@ const config: Config = {
         mono: ["var(--font-mono)", "JetBrains Mono", "ui-monospace", "monospace"],
       },
       fontSize: {
-        // 13px floor per the brief — never go below this in UI text.
-        xs: ["13px", { lineHeight: "1.4" }],
-        // Editorial display ramp — mirrors brand-tokens.css --ss-display-*.
-        "display-xs": "18px",
-        "display-sm": "22px",
-        "display-md": "26px",
-        "display-lg": "32px",
-        "display-xl": "42px",
+        // The v2 type ramp (DESIGN.md "Hierarchy"), read from the --fs-*
+        // tokens in globals.css. Legacy keys are pinned onto the ramp so
+        // existing utilities can't introduce off-scale sizes.
+        caption: ["var(--fs-12)", { lineHeight: "1.35" }],
+        label: ["var(--fs-13)", { lineHeight: "1.35" }],
+        body: ["var(--fs-15)", { lineHeight: "1.5" }],
+        "body-lg": ["var(--fs-17)", { lineHeight: "1.45" }],
+        title: ["var(--fs-20)", { lineHeight: "1.25" }],
+        "headline-sm": ["var(--fs-24)", { lineHeight: "1.15" }],
+        headline: ["var(--fs-30)", { lineHeight: "1.1" }],
+        display: ["var(--fs-38)", { lineHeight: "1" }],
+        xs: ["var(--fs-13)", { lineHeight: "1.4" }],
+        sm: ["var(--fs-15)", { lineHeight: "1.45" }],
+        base: ["var(--fs-17)", { lineHeight: "1.5" }],
+        lg: ["var(--fs-17)", { lineHeight: "1.45" }],
+        xl: ["var(--fs-20)", { lineHeight: "1.3" }],
+        "2xl": ["var(--fs-24)", { lineHeight: "1.2" }],
+        // Editorial display sizes (serif only, never below 20px).
+        "display-xs": "var(--fs-20)",
+        "display-sm": "var(--fs-24)",
+        "display-md": "var(--fs-24)",
+        "display-lg": "var(--fs-30)",
+        "display-xl": "var(--fs-38)",
       },
       borderRadius: {
-        card: "20px",
-        pill: "999px",
+        card: "var(--r-lg)",
+        pill: "var(--r-pill)",
+      },
+      zIndex: {
+        "skip-link": "var(--z-skip-link)",
       },
       maxWidth: {
         // Mobile-first: design at 390px, max out around tablet width.

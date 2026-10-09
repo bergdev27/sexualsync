@@ -21,6 +21,7 @@ const AUDIT_METADATA_ALLOWLIST = new Set([
   "noCount",
   "nudgeCount",
   "overlapCount",
+  "plannedFor",
   "reauthOnLaunch",
   "reason",
   "reminderCount",
@@ -38,6 +39,7 @@ const AUDIT_METADATA_STRING_KEYS = new Set([
   "boundaryType",
   "delivery",
   "fromStatus",
+  "plannedFor",
   "reason",
   "source"
 ]);
@@ -90,6 +92,8 @@ const ALLOWED_TYPES = new Set([
   "request_reviewed",
   "request_reminder_sent",
   "request_on_deck",
+  "request_planned",
+  "request_unplanned",
   "request_archived",
   "request_revoked",
   "request_counter_accepted",

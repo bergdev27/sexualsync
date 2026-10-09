@@ -1,0 +1,187 @@
+/* Styles only /games/green-lights renders, split out of globals.css so other routes
+   don't download them. Tokens, primitives, the app shell and anything two or
+   more routes share stay in globals.css. */
+
+.rg-chip.is-gold {
+  background: rgb(var(--gold-rgb) / 0.12);
+  color: var(--gold);
+  cursor: default;
+}
+
+.rg-chip.is-green {
+  background: rgb(var(--yes-rgb) / 0.14);
+  color: var(--yes);
+  cursor: default;
+}
+
+.rg-chip.is-no {
+  background: rgb(var(--no-rgb) / 0.12);
+  color: rgb(var(--no-rgb));
+  cursor: default;
+}
+
+.rg-card-title.is-question {
+  margin-top: 14px;
+  font-size: var(--fs-20);
+  line-height: 1.4;
+}
+
+.rg-note-input {
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: var(--cream-a06);
+  box-shadow: var(--ring-hairline);
+  color: var(--cream);
+  font-size: var(--fs-17);
+}
+
+.rg-note-input::placeholder { color: var(--cream-faint); }
+
+.rg-link {
+  appearance: none;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: var(--fs-13);
+}
+
+.rg-answers.is-stack {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rg-answer.is-tone { font-weight: 600; }
+
+.rg-answer.is-tone-pos {
+  background: rgb(var(--yes-rgb) / 0.16);
+  color: var(--yes);
+}
+
+.rg-answer.is-tone-mid {
+  background: rgb(var(--gold-rgb) / 0.16);
+  color: var(--gold);
+}
+
+.rg-answer.is-tone-neg {
+  background: rgb(var(--no-rgb) / 0.16);
+  color: rgb(var(--no-rgb));
+}
+
+.rg-answer.is-tone-pole {
+  background: rgb(var(--accent-rgb) / 0.14);
+  color: var(--accent);
+}
+
+.rg-section { width: 100%; text-align: left; }
+
+.rg-list-group {
+  padding: 12px 0 2px;
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  font-weight: 500;
+}
+
+.rg-list-quote {
+  padding-bottom: 8px;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  line-height: 1.4;
+}
+
+.rg-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rg-compare-card {
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: var(--ring-hairline-strong);
+}
+
+.rg-compare-card.is-compact { padding: 12px 14px; }
+
+.rg-compare-q {
+  margin-bottom: 12px;
+  color: var(--cream-muted);
+  font-size: var(--fs-13);
+  line-height: 1.4;
+  text-align: center;
+}
+
+.rg-compare-sides {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.rg-compare-side {
+  flex: 1;
+  text-align: center;
+}
+
+.rg-compare-who {
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+  font-weight: 500;
+}
+
+.rg-compare-answer {
+  margin-top: 4px;
+  color: var(--cream);
+  font-size: var(--fs-15);
+  font-weight: 600;
+}
+
+.rg-compare-rule {
+  width: 1px;
+  background: var(--cream-a12);
+}
+
+.rg-compare-verdict {
+  margin-top: 12px;
+  font-size: var(--fs-13);
+  line-height: 1.45;
+  text-align: center;
+}
+
+.rg-compare-notes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+  color: var(--cream-faint);
+  font-size: var(--fs-12);
+}
+
+.rg-compare-label {
+  color: var(--cream);
+  font-size: var(--fs-15);
+  line-height: 1.4;
+}
+
+.rg-compare-lines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: var(--fs-12);
+}
+
+.rg-compare-tip {
+  margin-top: 8px;
+  color: var(--cream-faint);
+  font-size: var(--fs-13);
+  line-height: 1.45;
+}

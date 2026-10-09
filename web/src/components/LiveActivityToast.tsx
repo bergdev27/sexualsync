@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { clearActivity, dismissActivityItems, getActivity, markActivityRead } from "@/lib/api";
+import { clearActivity, dismissActivityItems, getActivity, getMood, markActivityRead } from "@/lib/api";
 import { OFFLINE_WRITE_DROPPED_EVENT, type DroppedOfflineWriteDetail } from "@/lib/offline-queue";
 import { getProfileCached } from "@/lib/profile-cache";
 import type { ActivityItem, ActivityResource, ActivityResponse } from "@/lib/types";
+import MoodRibbonMark from "@/components/MoodRibbonMark";
 import {
   ACTIVITY_RESOURCE_GLYPHS,
+  MOOD_MATCH_COPY,
+  MOOD_MATCH_HREF,
   activityHref,
+  isMoodActivity,
   compactActivityRows,
   dedupeActivity,
   groupActivityByDay,
@@ -19,12 +23,16 @@ import {
 } from "@/lib/activity";
 import {
   LIVE_ROOM_EVENT,
+  isStaleRoomEvent,
+  moodRoomAction,
   type LiveRoomEventDetail,
 } from "@/lib/use-live-room";
 
 interface Notice {
   id: string;
   text: string;
+  /** Mood match: links to the Sexboard's mood light. */
+  href?: string;
 }
 
 const MAX_ACTIVITY_ROWS = 8;
@@ -43,7 +51,9 @@ export function LiveApprovalSplashRedirect() {
       if (
         detail?.resource === "request-board" &&
         detail?.action === "counter_accepted" &&
-        pathname !== "/mutual"
+        pathname !== "/mutual" &&
+        // Only a counter accepted just now may take over the screen.
+        !isStaleRoomEvent(detail)
       ) {
         router.push(mutualAskHref(detail.entityId || ""));
       }
@@ -70,6 +80,9 @@ export default function LiveActivityToast() {
   // Tracks the last toast time per "resource:entityId:actor" so a burst of
   // updates to the same item collapses into a single toast.
   const recentToastsRef = useRef<Map<string, number>>(new Map());
+  // Mood matches already toasted this session (by formation time), so a
+  // replayed room event after a reconnect doesn't celebrate the same match twice.
+  const toastedMoodMatchesRef = useRef<Set<string>>(new Set());
 
   const refreshSummary = useCallback(async (nextWorkspaceId?: string) => {
     const id = nextWorkspaceId || workspaceIdRef.current;
@@ -79,8 +92,8 @@ export default function LiveActivityToast() {
     return next;
   }, []);
 
-  const pushNotice = useCallback((text: string, ttlMs = 3600) => {
-    const notice = { id: makeId(), text };
+  const pushNotice = useCallback((text: string, ttlMs = 3600, href?: string) => {
+    const notice: Notice = { id: makeId(), text, href };
     // Append without truncating the rendered queue: each notice must survive
     // long enough under its live region to be announced, and removes itself
     // via its own timeout below.
@@ -115,13 +128,32 @@ export default function LiveActivityToast() {
     if (disabled) return;
     function onRoomEvent(event: Event) {
       const detail = (event as CustomEvent<LiveRoomEventDetail>).detail;
-      if (!detail?.passive) {
-        const text = textForActivityEvent(detail?.resource, detail?.action);
+      const moodAction = moodRoomAction(detail);
+      if (moodAction) {
+        // Mood events are refetch hints (they replay after reconnects): only
+        // toast a match the server still confirms. "ended" never toasts.
+        if (moodAction === "match") void toastMoodMatch();
+      } else if (!detail?.passive && !isStaleRoomEvent(detail)) {
+        const text = textForActivityEvent(detail?.resource, detail?.action, detail?.actorName);
         if (text && !recentlyToasted(recentToastsRef.current, detail)) pushNotice(text);
       }
       window.setTimeout(() => {
         refreshSummary().catch(() => {});
       }, 450);
+    }
+
+    async function toastMoodMatch() {
+      const id = workspaceIdRef.current;
+      if (!id) return;
+      try {
+        const mood = await getMood(id);
+        const since = mood?.match?.since || "";
+        if (!since || toastedMoodMatchesRef.current.has(since)) return;
+        toastedMoodMatchesRef.current.add(since);
+        pushNotice(`${MOOD_MATCH_COPY}.`, 6000, MOOD_MATCH_HREF);
+      } catch {
+        // No confirmation, no celebration; the Sexboard shows the truth.
+      }
     }
 
     function onVisibilityChange() {
@@ -152,12 +184,18 @@ export default function LiveActivityToast() {
     };
   }, [pushNotice]);
 
-  if (!notices.length) return null;
-
+  // The live region stays mounted even with nothing to say: VoiceOver skips
+  // a role="status" node that is inserted together with its content, so the
+  // container must already exist when a notice lands inside it.
   return (
-    <div className="live-activity-stack">
-      {notices.map((notice) => (
-        <div className="live-activity-toast" role="status" aria-live="polite" key={notice.id}>
+    <div className="live-activity-stack" role="status" aria-live="polite">
+      {notices.map((notice) => notice.href ? (
+        <Link className="live-activity-toast live-activity-toast--mood pressable" key={notice.id} href={notice.href}>
+          <MoodRibbonMark state="both" size={22} />
+          <span>{notice.text}</span>
+        </Link>
+      ) : (
+        <div className="live-activity-toast" key={notice.id}>
           <span className="live-activity-dot" aria-hidden="true" />
           <span>{notice.text}</span>
         </div>
@@ -269,7 +307,9 @@ export function LiveActivitySection({
   }, [activity?.items, dismissedIds, myEmail]);
   const groupedItems = useMemo(() => groupActivityByDay(items), [items]);
   const unreadTotal = activity?.unreadTotal || 0;
-  const lastActiveLine = activityStatusLine(items[0]?.at || "", partnerLastSeen || "", partnerFirstName);
+  // A mood match has no actor, so it says nothing about when the partner was last active.
+  const lastPartnerItem = items.find((item) => !isMoodActivity(item));
+  const lastActiveLine = activityStatusLine(lastPartnerItem?.at || "", partnerLastSeen || "", partnerFirstName);
 
   // "Mark read" empties the box: mark everything read AND clear every row (not
   // just the unread ones), so a single tap leaves a clean inbox-zero state.
@@ -387,8 +427,13 @@ function ActivityRow({
   const swiped = useRef(false);
   const [dragX, setDragX] = useState(0);
   const [swipeStarted, setSwipeStarted] = useState(false);
-  const actor = sameEmail(item.actorEmail, myEmail) ? "You" : (firstName(item.actorName) || fallbackActorName || "Partner");
-  const meta = item.groupedCount && item.groupedCount > 1
+  const mood = isMoodActivity(item);
+  const actor = mood
+    ? "Both of you"
+    : sameEmail(item.actorEmail, myEmail) ? "You" : (firstName(item.actorName) || fallbackActorName || "Partner");
+  const title = mood ? MOOD_MATCH_COPY : item.label;
+  const meta = mood ? "Mood light"
+    : item.groupedCount && item.groupedCount > 1
     ? `${item.groupedCount} updates - ${item.resourceLabel}`
     : item.action === "focused" ? "heat signal"
     : item.passive ? "quick view" : item.resourceLabel;
@@ -473,9 +518,13 @@ function ActivityRow({
           onOpen();
         }}
       >
-        <span className="live-activity-glyph" aria-hidden="true">{ACTIVITY_RESOURCE_GLYPHS[item.resource]}</span>
+        {mood ? (
+          <span className="live-activity-glyph is-mood" aria-hidden="true"><MoodRibbonMark state="both" size={22} /></span>
+        ) : (
+          <span className="live-activity-glyph" aria-hidden="true">{ACTIVITY_RESOURCE_GLYPHS[item.resource]}</span>
+        )}
         <span className="live-activity-main">
-          <span className="live-activity-title">{item.label}</span>
+          <span className="live-activity-title">{title}</span>
           <span className="live-activity-meta">{actor} - {meta}</span>
         </span>
         <span className="live-activity-time">{timeLabel(item.at)}</span>
@@ -483,7 +532,7 @@ function ActivityRow({
       <button
         type="button"
         className="live-activity-dismiss pressable"
-        aria-label={`Dismiss: ${item.label}`}
+        aria-label={`Dismiss: ${title}`}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation();

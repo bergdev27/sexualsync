@@ -3,7 +3,9 @@
 import { FormEvent, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import AppShell from "@/components/AppShell";
+import AppShell, { useFocusedRun } from "@/components/AppShell";
+import { radioGroupKeyDown, radioTabIndex } from "@/lib/radio-group";
+import ScreenHeader from "@/components/ScreenHeader";
 import WaitingForPartner from "@/components/WaitingForPartner";
 import { combineBuiltInAndSavedActs } from "@/lib/built-in-acts";
 import { EmptyState, ErrorState, SkeletonList } from "@/components/States";
@@ -37,6 +39,7 @@ import { useLiveRoomReload } from "@/lib/use-live-room";
 import { normalizeEmail, partnerOf } from "@/lib/workspace";
 import { splitActLabel } from "@/lib/act-label";
 import { useMarkActivityRead } from "@/lib/use-mark-activity-read";
+import "./pile.css";
 
 const COLLAPSED_PILE_ACT_COUNT = 8;
 
@@ -139,15 +142,12 @@ export default function PilePage() {
 
   return (
     <AppShell>
-      <header className="sheet-header">
-        <Link href="/games" className="fd-back pressable" aria-label="Back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-            <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </Link>
-        <span className="sheet-title">The Pile</span>
-        <span className="status-pill"><span className="dot" />Private drops</span>
-      </header>
+      <ScreenHeader
+        variant="bar"
+        back={{ href: "/games", label: "Play" }}
+        title="The Pile"
+        trailing={<span className="status-pill"><span className="dot" />Private drops</span>}
+      />
       <Body
         state={state}
         onReload={() => reload(state.kind === "ready" ? state.workspace.id : undefined)}
@@ -184,7 +184,7 @@ function Body({
       <ErrorState
         title="No partner space yet"
         body="The Pile needs two active partners."
-        action={<Link href="/space" className="btn-ghost">Open Space</Link>}
+        action={<Link href="/space" className="btn-ghost">Open Us</Link>}
       />
     );
   }
@@ -225,10 +225,15 @@ function StartPile({
   onPileChange: (result: PileResponse) => void;
   highlightedSessionId: string;
 }) {
-  const [revealAt, setRevealAt] = useState(defaultRevealInput());
+  const [preset, setPreset] = useState<RevealPreset>(() => defaultRevealPreset(new Date()));
+  const [customRevealAt, setCustomRevealAt] = useState(defaultRevealInput());
+  const revealAt = preset === "custom" ? customRevealAt : revealPresetInput(preset, new Date());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dropCap = pileDropCapForActCount(state.acts.length);
+
+  // "Tonight" drops out once 9pm is too close; the default follows.
+  const availablePresets = REVEAL_PRESETS.filter((value) => value !== "tonight" || tonightAvailable(new Date()));
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -251,24 +256,51 @@ function StartPile({
   return (
     <div className="pile-stage">
       <div className="pile-hero">
-        <h1 className="h-intimate pile-headline">
+        <h2 className="h-intimate pile-headline">
           Drop what you&apos;re craving. The overlap is tonight.
-        </h1>
+        </h2>
         <p className="pile-sub">
           Be shameless — drop everything you want. Only what you both drop survives the reveal; the rest disappears for good.
         </p>
       </div>
-      <form className="pile-time-card" onSubmit={submit}>
+      <form className="pile-time-card pile-time-card-presets" onSubmit={submit}>
         <div className="pile-time-body">
-          <p className="pile-time-eyebrow">Reveal at</p>
-          <input
-            value={revealAt}
-            onChange={(event) => setRevealAt(event.target.value)}
-            type="datetime-local"
-            className="input pile-time-input"
-          />
-          <p className="pile-time-meta">
-            With {state.acts.length} Acts, this game can allow up to {dropCap} each.
+          <p className="pile-time-eyebrow" id="pile-reveal-label">Reveal</p>
+          <div
+            className="pile-preset-grid"
+            role="radiogroup"
+            aria-labelledby="pile-reveal-label"
+            onKeyDown={(event) => radioGroupKeyDown(event, availablePresets, preset, setPreset)}
+          >
+            {availablePresets.map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={preset === value}
+                tabIndex={radioTabIndex(availablePresets, preset, value)}
+                className={`cadence-chip pile-preset pressable ${preset === value ? "is-picked" : ""}`}
+                onClick={() => setPreset(value)}
+                data-testid={`pile-preset-${value}`}
+              >
+                {REVEAL_PRESET_LABELS[value]}
+              </button>
+            ))}
+          </div>
+          {preset === "custom" && (
+            <div className="pile-custom-time">
+              <label className="pile-time-label" htmlFor="pile-reveal-at">Reveal at</label>
+              <input
+                id="pile-reveal-at"
+                value={customRevealAt}
+                onChange={(event) => setCustomRevealAt(event.target.value)}
+                type="datetime-local"
+                className="input pile-time-input"
+              />
+            </div>
+          )}
+          <p className="pile-time-meta" data-testid="pile-reveal-summary">
+            {revealSummary(revealAt)} With {state.acts.length} Acts, this game can allow up to {dropCap} each.
           </p>
         </div>
         <button type="submit" className="btn-primary shrink-0" disabled={busy}>
@@ -414,6 +446,8 @@ function ActivePile({
   onPileChange: (result: PileResponse) => void;
 }) {
   const pile = state.pile!;
+  // Dropping into a live Pile is a focused run: the tab bar steps away.
+  useFocusedRun(true);
   const partner = partnerOf(state.workspace, state.auth.email);
   const isRequester = normalizeEmail(pile.startedByEmail) === normalizeEmail(state.auth.email);
   const [busyLabel, setBusyLabel] = useState("");
@@ -532,9 +566,9 @@ function ActivePile({
   return (
     <div className="pile-stage">
       <div className="pile-hero">
-        <h1 className="h-intimate pile-headline">
+        <h2 className="h-intimate pile-headline">
           {usesDropLimit ? `Drop up to ${maxDropCount} Acts.` : "Add as many as you want."}
-        </h1>
+        </h2>
         <p className="pile-sub">
           {usesDropLimit
             ? `Reveal opens when the timer is ready and both sides have at least one drop. Any overlap is the match; misses disappear.`
@@ -546,76 +580,15 @@ function ActivePile({
         <p className="text-sm" role="alert" style={{ color: "rgb(var(--no-rgb))" }}>{actionError}</p>
       )}
 
-      <label className="pile-time-card pressable">
-        <div className="pile-time-body">
-          <p className="pile-time-eyebrow">Reveal at</p>
-          <input
-            type="datetime-local"
-            defaultValue={toDatetimeLocal(pile.revealAt)}
-            onBlur={(event) => moveTime(event.target.value)}
-            disabled={!isRequester}
-            className="input pile-time-input"
-          />
-          <p className="pile-time-meta">{activePileTimeMeta(pile, partner?.displayName)}</p>
-        </div>
-      </label>
-
       {waitingOnPartner && (
         <p className="pile-waiting-pill">
           Waiting on {partner?.displayName?.split(" ")[0] || "your partner"}
         </p>
       )}
 
-      <div className="pile-counts">
-        <div className="pile-count pile-count-you">
-          <p className="pile-count-eyebrow">You</p>
-          <p className="pile-count-num">{usesDropLimit ? `${myDropCount}/${maxDropCount}` : myDropCount}</p>
-          <p className="pile-count-meta">
-            {usesDropLimit ? (isAtDropLimit ? "at the cap" : `${remainingDrops} open`) : "visible only to you"}
-          </p>
-        </div>
-        <div className="pile-count pile-count-them">
-          <p className="pile-count-eyebrow">{partner?.displayName || "Partner"}</p>
-          <p className="pile-count-num">{pile.partnerHasDropped ? "in" : "?"}</p>
-          <p className="pile-count-meta">hidden until reveal</p>
-        </div>
-      </div>
-
       <section className="pile-section">
-        <p className="eyebrow">Your drops · <em>private until reveal</em></p>
-        {pile.mine.length ? (
-          <ul className="pile-drops">
-            {pile.mine.map((label) => (
-              <li key={label} className="pile-drop">
-                <span className="pile-drop-emoji">{leadingEmoji(label)}</span>
-                <span className="pile-drop-text">{stripLeadingEmoji(label)}</span>
-                <button
-                  type="button"
-                  className="pile-drop-remove pressable"
-                  aria-label={`Remove ${label}`}
-                  onClick={() => undrop(label)}
-                  disabled={Boolean(busyLabel)}
-                >
-                  x
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="card p-4 text-sm leading-relaxed text-ink-2">
-            {usesDropLimit ? `Drop 1 to ${maxDropCount} Acts to get your side ready.` : "Drop one Act to get your side started."}
-          </div>
-        )}
-        {isAtDropLimit && (
-          <p className="pile-hidden-count">
-            You&apos;re at the cap. Remove one Act if you want to swap before reveal.
-          </p>
-        )}
-      </section>
-
-      <section className="pile-section">
-        <p className="eyebrow">Drop from Acts</p>
-        <div className="ask-act-grid">
+        <p className="eyebrow" id="pile-drop-heading">Drop from Acts</p>
+        <div className="ask-act-grid" role="group" aria-labelledby="pile-drop-heading">
           {visibleActs.map((act) => (
             <button
               key={act.id}
@@ -624,7 +597,6 @@ function ActivePile({
               onClick={() => drop(act.label)}
               disabled={Boolean(busyLabel) || isAtDropLimit}
             >
-              <span className="act-chip-dot" aria-hidden="true" />
               <span className="act-chip-name">{act.label}</span>
             </button>
           ))}
@@ -669,6 +641,69 @@ function ActivePile({
           Drop
         </button>
       </form>
+
+      <section className="pile-section">
+        <p className="eyebrow">Your drops · <em>private until reveal</em></p>
+        {pile.mine.length ? (
+          <ul className="pile-drops">
+            {pile.mine.map((label) => (
+              <li key={label} className="pile-drop">
+                <span className="pile-drop-emoji">{leadingEmoji(label)}</span>
+                <span className="pile-drop-text">{stripLeadingEmoji(label)}</span>
+                <button
+                  type="button"
+                  className="pile-drop-remove pressable"
+                  aria-label={`Remove ${label}`}
+                  onClick={() => undrop(label)}
+                  disabled={Boolean(busyLabel)}
+                >
+                  x
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="card p-4 text-sm leading-relaxed text-ink-2">
+            {usesDropLimit ? `Drop 1 to ${maxDropCount} Acts to get your side ready.` : "Drop one Act to get your side started."}
+          </div>
+        )}
+        {isAtDropLimit && (
+          <p className="pile-hidden-count">
+            You&apos;re at the cap. Remove one Act if you want to swap before reveal.
+          </p>
+        )}
+      </section>
+
+      <div className="pile-counts">
+        <div className="pile-count pile-count-you">
+          <p className="pile-count-eyebrow">You</p>
+          <p className="pile-count-num">{usesDropLimit ? `${myDropCount}/${maxDropCount}` : myDropCount}</p>
+          <p className="pile-count-meta">
+            {usesDropLimit ? (isAtDropLimit ? "At the cap" : `${remainingDrops} open`) : "Visible only to you"}
+          </p>
+        </div>
+        <div className="pile-count pile-count-them">
+          <p className="pile-count-eyebrow">{partner?.displayName || "Partner"}</p>
+          <p className="pile-count-num">{pile.partnerHasDropped ? "in" : "?"}</p>
+          <p className="pile-count-meta">Hidden until reveal</p>
+        </div>
+      </div>
+
+      <div className="pile-time-card">
+        <div className="pile-time-body">
+          <label className="pile-time-eyebrow" htmlFor="pile-active-reveal-at">Reveal at</label>
+          <input
+            id="pile-active-reveal-at"
+            type="datetime-local"
+            defaultValue={toDatetimeLocal(pile.revealAt)}
+            onBlur={(event) => moveTime(event.target.value)}
+            disabled={!isRequester}
+            className="input pile-time-input"
+          />
+          <p className="pile-time-meta">{activePileTimeMeta(pile, partner?.displayName)}</p>
+        </div>
+      </div>
+
 
       {isRequester ? (
         <button type="button" className="btn-ghost w-full" onClick={cancelPile} disabled={Boolean(busyLabel)}>
@@ -814,11 +849,11 @@ function RevealedPile({
         {overlaps.length ? (
           <>
             <p className="eyebrow pile-pulse-eyebrow">
-              the room found · <em>{overlaps.length}</em>
+              The room found · <em>{overlaps.length}</em>
             </p>
-            <h1 className="h-intimate pile-headline pile-pulse-headline">
+            <h2 className="h-intimate pile-headline pile-pulse-headline">
               In <em>sync.</em>
-            </h1>
+            </h2>
             {pile.revealNarration && <p className="pile-sub">{pile.revealNarration}</p>}
 
             <div className="pile-pulse-band" data-count={overlaps.length}>
@@ -845,7 +880,7 @@ function RevealedPile({
                   >
                     <span className="pile-pulse-pip">{leadingEmoji(label)}</span>
                     <span className="pile-pulse-text">{stripLeadingEmoji(label)}</span>
-                    <span className="pile-pulse-tag">tonight</span>
+                    <span className="pile-pulse-tag">Tonight</span>
                   </li>
                 ))}
               </ul>
@@ -940,6 +975,48 @@ function formatWhen(value: string) {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(time);
+}
+
+type RevealPreset = "hour" | "tonight" | "tomorrow" | "custom";
+const REVEAL_PRESETS: RevealPreset[] = ["hour", "tonight", "tomorrow", "custom"];
+const REVEAL_PRESET_LABELS: Record<RevealPreset, string> = {
+  hour: "In an hour",
+  tonight: "Tonight 9pm",
+  tomorrow: "Tomorrow night",
+  custom: "Custom…",
+};
+
+function atLocal(base: Date, dayOffset: number, hours: number, minutes = 0): Date {
+  const date = new Date(base);
+  date.setDate(date.getDate() + dayOffset);
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+}
+
+// Tonight 9pm is offered while it's still at least 15 minutes away.
+function tonightAvailable(now: Date): boolean {
+  return atLocal(now, 0, 21).getTime() >= now.getTime() + 15 * 60 * 1000;
+}
+
+function defaultRevealPreset(now: Date): RevealPreset {
+  return tonightAvailable(now) ? "tonight" : "tomorrow";
+}
+
+function revealPresetInput(preset: Exclude<RevealPreset, "custom"> | RevealPreset, now: Date): string {
+  if (preset === "hour") {
+    const date = new Date(now.getTime() + 60 * 60 * 1000);
+    date.setSeconds(0, 0);
+    return toDatetimeLocal(date.toISOString());
+  }
+  if (preset === "tonight") return toDatetimeLocal(atLocal(now, 0, 21).toISOString());
+  return toDatetimeLocal(atLocal(now, 1, 21).toISOString());
+}
+
+function revealSummary(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Pick a reveal time.";
+  const label = date.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  return `Reveals ${label}.`;
 }
 
 function defaultRevealInput() {
