@@ -29,8 +29,8 @@ commercial or hosted-service use is reserved. See the [license](#license).
 Five tabs: **Home**, **Play**, **Ask**, **Sext** and **Us**.
 
 - **Home** — what needs you, what you're waiting on, what you've planned, and
-  what your partner has been up to. The **mood light** sits on top: switch it
-  on and your partner only finds out if theirs is on too.
+  what your partner has been up to. The **I'm horny** switch sits on top: flip it on
+  and your partner only finds out if theirs is on too.
 - **Ask** — the raised + in the middle of the tab bar. Send a concrete request
   with acts, timing and a filming preference. Your partner answers on one card
   (yes, maybe, pass, or a counter), and when you both say yes either of you can
