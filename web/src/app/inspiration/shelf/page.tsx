@@ -26,6 +26,7 @@ import { useFocusActivity } from "@/lib/use-focus-activity";
 import { useQueryParam } from "@/lib/use-query-param";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { memberByEmail, normalizeEmail, partnerOf } from "@/lib/workspace";
+import { relativeAge } from "@/lib/relative-time";
 import "./shelf.css";
 
 type LoadState =
@@ -905,15 +906,3 @@ function InfinityMark() {
   );
 }
 
-function relativeAge(value: string) {
-  const timestamp = new Date(value || "").getTime();
-  if (!Number.isFinite(timestamp)) return "recently";
-  const diff = Date.now() - timestamp;
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (diff < hour) return "today";
-  if (diff < day) return `${Math.max(1, Math.round(diff / hour))}h ago`;
-  if (diff < 7 * day) return `${Math.max(1, Math.round(diff / day))}d ago`;
-  return "last week";
-}

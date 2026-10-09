@@ -29,6 +29,7 @@ import { normalizeEmail, partnerOf } from "@/lib/workspace";
 import { useLiveRoomReload } from "@/lib/use-live-room";
 import { fireSendPulse } from "@/lib/send-pulse";
 import { fallbackPromptForToday } from "@/lib/inspiration-prompts";
+import { relativeAge } from "@/lib/relative-time";
 import "./inspiration.css";
 
 type LoadState =
@@ -1158,15 +1159,3 @@ function hasLiveAsk(kink: KinkIdea) {
   return Boolean(maybeKink.promotedRequestId || maybeKink.requestId || maybeKink.askId || maybeKink.promotedAt);
 }
 
-function relativeAge(value: string) {
-  const timestamp = new Date(value || "").getTime();
-  if (!Number.isFinite(timestamp)) return "recently";
-  const diff = Date.now() - timestamp;
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (diff < hour) return "today";
-  if (diff < day) return `${Math.max(1, Math.round(diff / hour))}h ago`;
-  if (diff < 7 * day) return `${Math.max(1, Math.round(diff / day))}d ago`;
-  return "last week";
-}

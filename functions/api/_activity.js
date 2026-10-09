@@ -17,7 +17,7 @@ const RESOURCE_LABELS = {
   vault: "Vault",
   pile: "Pile",
   "blind-reveals": "Blind Reveal",
-  mood: "Mood light"
+  mood: "Horny"
 };
 
 const ACTION_LABELS = {
@@ -83,7 +83,7 @@ const ACTION_LABELS = {
   // Only the shared match is ever recorded — never one partner's on/off, which
   // the double-blind mood light must not disclose.
   mood: {
-    match: "You're both in the mood"
+    match: "You're both horny"
   }
 };
 

@@ -203,7 +203,7 @@ test("match forms on the second switch-on, for both, with one actor-less room ev
   const activity = await readKey(e, "sexualsync-activity", `events:${WS}`);
   assert.equal(activity.length, 1, "one activity item for the match");
   assert.equal(activity[0].resource, "mood");
-  assert.equal(activity[0].label, "You're both in the mood");
+  assert.equal(activity[0].label, "You're both horny");
   assert.equal(activity[0].actorEmail, "");
 
   // Extending while matched keeps the match (same since) and emits nothing new.

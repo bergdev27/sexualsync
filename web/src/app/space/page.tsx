@@ -80,7 +80,7 @@ const PUSH_PREF_LABELS: { id: string; title: string; sub: string }[] = [
   { id: "pile-reminder", title: "Pile reminders", sub: "Halfway, 1 hour, and 10 minutes before reveal." },
   { id: "blind-reveal", title: "Blind Reveal ready", sub: "When both answers are ready." },
   { id: "game-ready", title: "Quiz & Green Lights", sub: "When a reveal is ready, or it's your turn." },
-  { id: "mood-match", title: "You're both in the mood", sub: "When you've both switched the mood light on." },
+  { id: "mood-match", title: "You're both horny", sub: "When you've both said you're horny." },
 ];
 
 // Notification presets. Each one is a complete map over every PUSH_PREF_LABELS

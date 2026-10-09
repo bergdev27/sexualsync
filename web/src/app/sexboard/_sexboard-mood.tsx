@@ -8,9 +8,9 @@
  * say anything about the partner unless the match exists. States:
  *
  *  - off:      one quiet row; tapping it opens an inline chooser (no modal).
- *  - on:       "Your light's on until …" and Turn off. Nothing about the partner.
+ *  - on:       "You're horny until …" and Turn off. Nothing about the partner.
  *  - cooldown: switched off a few minutes ago; says when it can go back on.
- *  - match:    "You're both in the mood." with a bloom and quick actions.
+ *  - match:    "You're both horny." with a bloom and quick actions.
  *
  * Times come from the server clock (serverNow skew), expiry is timed out here
  * because the server sends no event when a window simply ends, and mood
@@ -36,7 +36,7 @@ const DAY_MS = 24 * HOUR_MS;
 const TONIGHT_END_HOUR = 4;
 // Bloom runs once per match; keep the attribute a little past the animation.
 const BLOOM_MS = 1400;
-const MATCH_ANNOUNCEMENT = "You're both in the mood.";
+const MATCH_ANNOUNCEMENT = "You're both horny.";
 
 // In-process only (never persisted): a revisit paints the last known state
 // while the GET revalidates. A full reload or sign-out starts clean.
@@ -253,7 +253,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
       setRetryAtMs(0);
       apply(mood);
       if (!mood.match) {
-        announce(`Your light's on until ${moodClock(parseTime(mood.mine.until), deviceNow() + (snapshotFrom(mood)?.skewMs ?? 0))}.`);
+        announce(`You're horny until ${moodClock(parseTime(mood.mine.until), deviceNow() + (snapshotFrom(mood)?.skewMs ?? 0))}.`);
       }
       // The chooser closed under focus; keep it on the control.
       window.requestAnimationFrame(() => rootRef.current?.querySelector<HTMLElement>("[data-mood-focus]")?.focus());
@@ -281,7 +281,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
     try {
       const mood = await clearMood(workspaceId);
       apply(mood);
-      announce("Mood light off.");
+      announce("Turned off.");
       // The off-state trigger may be disabled (cooldown), so land on the
       // control itself rather than losing focus to the page.
       window.requestAnimationFrame(() => {
@@ -302,9 +302,9 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
   const mineUntil = moodClock(parseTime(mine?.until), nowMs);
   const matchUntil = moodClock(parseTime(match?.until), nowMs);
   const cooldownAt = moodClock(Math.max(parseTime(mine?.cooldownUntil), retryAtMs), nowMs);
-  const offlineHint = "You're offline. The mood light needs a connection.";
+  const offlineHint = "You're offline. This needs a connection.";
 
-  let hint = `Only shows if ${partner}'s is on too.`;
+  let hint = `Only shows if ${partner}'s horny too.`;
   if (phase === "cooldown") hint = `You can switch it back on at ${cooldownAt}.`;
   else if (loadFailed && !snapshot) hint = "Couldn't check it just now. It'll catch up when you're back.";
   if (!online && phase !== "match") hint = offlineHint;
@@ -339,7 +339,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
           <div className="mood-light-match">
             <MoodRibbonMark state="both" className="mood-light-mark" size={38} />
             <h2 id={titleId} className="mood-light-match-title" data-mood-focus tabIndex={-1}>
-              You&rsquo;re both in the mood.
+              You&rsquo;re both horny.
             </h2>
             <div className="mood-light-meta">
               <p id={hintId} className="mood-light-hint">
@@ -366,7 +366,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
           <MoodRibbonMark state="mine" className="mood-light-mark" />
           <span className="mood-light-copy">
             <span id={titleId} className="mood-light-title" data-mood-focus tabIndex={-1}>
-              Your light&rsquo;s on <span className="mood-light-nowrap">until {mineUntil}</span>
+              You&rsquo;re horny <span className="mood-light-nowrap">until {mineUntil}</span>
             </span>
             <span id={hintId} className="mood-light-hint">{hint}</span>
           </span>
@@ -403,7 +403,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
           >
             <MoodRibbonMark state="off" className="mood-light-mark" />
             <span className="mood-light-copy">
-              <span id={titleId} className="mood-light-title">Mood light</span>
+              <span id={titleId} className="mood-light-title">I&rsquo;m horny</span>
               <span id={hintId} className="mood-light-hint">{hint}</span>
             </span>
             <span className="mood-light-chevron" aria-hidden="true" />
@@ -412,7 +412,7 @@ export function MoodLight({ workspaceId, partnerName }: { workspaceId: string; p
             id={chooserId}
             className="mood-light-chooser"
             role="group"
-            aria-label="Keep my light on"
+            aria-label="Horny for"
             hidden={!chooserOpen || phase !== "off"}
             onKeyDown={(event) => {
               if (event.key === "Escape") {

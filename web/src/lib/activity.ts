@@ -66,7 +66,7 @@ const ACTION_COPY: Record<string, Record<string, string>> = {
   // Only the shared match is ever an activity item; "ended" is a live-only
   // signal with no copy, so it never toasts.
   mood: {
-    match: "You're both in the mood.",
+    match: "You're both horny.",
   },
 };
 
@@ -108,7 +108,7 @@ export const ACTIVITY_RESOURCE_TAB: Record<ActivityResource, string> = {
 // The mood match has no actor: it is something both of you did. Rows and
 // toasts for it must never read as "{partner} ...".
 export const MOOD_MATCH_HREF = "/sexboard?mood=match";
-export const MOOD_MATCH_COPY = "You're both in the mood";
+export const MOOD_MATCH_COPY = "You're both horny";
 
 export function isMoodActivity(item: Pick<ActivityItem, "resource"> | null | undefined) {
   return item?.resource === "mood";

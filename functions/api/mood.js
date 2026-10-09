@@ -167,7 +167,7 @@ export function publicMood(record, workspace, actorEmail, nowMs = Date.now()) {
  */
 export function clampMoodUntil(value, nowMs = Date.now()) {
   const requested = toMs(value);
-  if (!requested) return { ok: false, error: "Pick when your mood light should turn off." };
+  if (!requested) return { ok: false, error: "Pick how long." };
   if (requested <= nowMs) return { ok: false, error: "That time has already passed." };
   const untilMs = Math.min(nowMs + MOOD_MAX_WINDOW_MS, Math.max(nowMs + MOOD_MIN_WINDOW_MS, requested));
   return { ok: true, untilMs };
@@ -267,7 +267,7 @@ export async function onRequest(context) {
     ));
     if (outcome.status === "cooldown") {
       return jsonResponse(429, {
-        error: "You just switched your mood light off. Give it a few minutes.",
+        error: "You just switched it off. Give it a few minutes.",
         code: "mood_cooldown",
         retryAt: outcome.retryAt,
         ...publicMood(outcome.record, workspace, actorEmail, nowMs),
@@ -319,7 +319,7 @@ function announceMatch(context, workspaceId, actorEmail, match) {
   // optional call lets a bare context (unit tests) skip that without throwing.
   context.waitUntil?.(notifyWorkspaceEvent(context, workspaceId, actorEmail, {
     title: "Sexualsync",
-    body: "You're both in the mood.",
+    body: "You're both horny.",
     tag: MOOD_PUSH_TAG,
     url: "/sexboard?mood=match",
   }).catch(() => null));

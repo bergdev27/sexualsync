@@ -835,7 +835,7 @@ async function mockApi(page, state = {}) {
         if (body.action === "on") {
           if (mood.cooldownUntil && Date.parse(mood.cooldownUntil) > now) {
             return json({
-              error: "You just switched your mood light off. Give it a few minutes.",
+              error: "You just switched it off. Give it a few minutes.",
               code: "mood_cooldown",
               retryAt: mood.cooldownUntil,
               ...view(),
@@ -3219,7 +3219,7 @@ test("Notification presets write the per-device preference map", async ({ page }
   await customize.click();
   await expect(customize).toHaveAttribute("aria-expanded", "true");
   await expect(sheet.locator("[data-push-pref]")).toHaveCount(10);
-  const mood = sheet.getByRole("switch", { name: /You're both in the mood/ });
+  const mood = sheet.getByRole("switch", { name: /You're both horny/ });
   await expect(mood).toHaveAttribute("aria-checked", "true");
   // Flipping one switch leaves no preset matching: a custom mix.
   await sheet.getByRole("switch", { name: /Sext messages/ }).click();
@@ -3347,9 +3347,9 @@ test("Mood light switches on from an inline chooser and shows only my own state"
   await page.goto("/sexboard");
 
   const mood = page.getByTestId("mood-light");
-  const trigger = mood.getByRole("button", { name: "Mood light" });
+  const trigger = mood.getByRole("button", { name: "I’m horny" });
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(mood).toContainText("Only shows if Jordan's is on too.");
+  await expect(mood).toContainText("Only shows if Jordan's horny too.");
 
   // Compact when off: "Needs you" stays above the fold on a 390x844 screen.
   const off = await mood.boundingBox();
@@ -3360,7 +3360,7 @@ test("Mood light switches on from an inline chooser and shows only my own state"
 
   await trigger.click();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  const chooser = page.getByRole("group", { name: "Keep my light on" });
+  const chooser = page.getByRole("group", { name: "Horny for" });
   await expect(chooser.getByRole("button")).toHaveCount(3);
   await expect(chooser.getByRole("button", { name: /For the next hour/ })).toBeVisible();
   await expect(chooser.getByRole("button", { name: /Until I turn it off/ })).toContainText("24 hours at most");
@@ -3370,7 +3370,7 @@ test("Mood light switches on from an inline chooser and shows only my own state"
 
   await chooser.getByRole("button", { name: /Tonight/ }).click();
   await expect(mood).toHaveAttribute("data-phase", "on");
-  await expect(mood).toContainText(/Your light.s on until \d{1,2}:\d{2}/);
+  await expect(mood).toContainText(/You.re horny until \d{1,2}:\d{2}/);
   await expect(mood).not.toContainText(/both|Jordan.s light|Jordan is/i);
   expect(state.moodPosts).toHaveLength(1);
   expect(state.moodPosts[0].action).toBe("on");
@@ -3378,7 +3378,7 @@ test("Mood light switches on from an inline chooser and shows only my own state"
   const until = new Date(state.moodPosts[0].until);
   expect(until.getHours()).toBe(4);
   expect(until.getTime() - Date.now()).toBeLessThanOrEqual(24 * 60 * 60_000);
-  await expect(page.getByTestId("app-announcer")).toContainText(/Your light.s on until/);
+  await expect(page.getByTestId("app-announcer")).toContainText(/You.re horny until/);
 
   const turnOff = mood.getByRole("button", { name: "Turn off" });
   const turnOffBox = await turnOff.boundingBox();
@@ -3395,7 +3395,7 @@ test("Mood light cooldown says when it can go back on, without error styling", a
   await mood.getByRole("button", { name: "Turn off" }).click();
   await expect(mood).toHaveAttribute("data-phase", "cooldown");
   await expect(mood).toContainText(/You can switch it back on at \d{1,2}:\d{2}/);
-  await expect(mood.getByRole("button", { name: "Mood light" })).toBeDisabled();
+  await expect(mood.getByRole("button", { name: "I’m horny" })).toBeDisabled();
   await expect(mood.locator("[role=alert]")).toHaveCount(0);
 
   // A 429 from the server (cooldown the GET didn't know about) lands the same way.
@@ -3403,7 +3403,7 @@ test("Mood light cooldown says when it can go back on, without error styling", a
   await mockApi(page, fresh);
   await page.goto("/sexboard");
   await expect(mood).toHaveAttribute("data-phase", "off");
-  await mood.getByRole("button", { name: "Mood light" }).click();
+  await mood.getByRole("button", { name: "I’m horny" }).click();
   fresh.mood.cooldownUntil = new Date(Date.now() + 4 * 60_000).toISOString();
   await page.getByRole("button", { name: /For the next hour/ }).click();
   await expect(mood).toHaveAttribute("data-phase", "cooldown");
@@ -3425,9 +3425,9 @@ test("Mood match forms live with a bloom, an announcement and quick actions", as
 
   await expect(mood).toHaveAttribute("data-phase", "match");
   await expect(mood).toHaveAttribute("data-blooming", "true");
-  await expect(mood.getByRole("heading", { name: /both in the mood/ })).toBeVisible();
+  await expect(mood.getByRole("heading", { name: /both horny/ })).toBeVisible();
   await expect(mood).toContainText(/Until \d{1,2}:\d{2}/);
-  await expect(page.getByTestId("app-announcer")).toHaveText("You're both in the mood.");
+  await expect(page.getByTestId("app-announcer")).toHaveText("You're both horny.");
   await expect(mood.getByRole("link", { name: "Ask" })).toHaveAttribute("href", "/ask");
   await expect(mood.getByRole("link", { name: "Sext" })).toHaveAttribute("href", "/chat");
   const bloomName = await mood.locator(".mood-light-bloom").evaluate((node) => getComputedStyle(node).animationName);
@@ -3448,9 +3448,9 @@ test("Mood match deep link focuses the mood light, and its activity row has no a
     id: "mood:match:1",
     workspaceId: workspace.id,
     resource: "mood",
-    resourceLabel: "Mood light",
+    resourceLabel: "Horny",
     action: "match",
-    label: "You're both in the mood",
+    label: "You're both horny",
     entityId: state.mood.match.since,
     at: new Date(now - 5 * 60_000).toISOString(),
     passive: false,
@@ -3465,9 +3465,9 @@ test("Mood match deep link focuses the mood light, and its activity row has no a
   // A deep link into an existing match doesn't replay the bloom.
   await expect(mood).not.toHaveAttribute("data-blooming", "true");
 
-  const row = page.locator(".live-activity-item", { hasText: "You're both in the mood" });
+  const row = page.locator(".live-activity-item", { hasText: "You're both horny" });
   await expect(row).toHaveAttribute("href", "/sexboard?mood=match");
-  await expect(row).toContainText("Both of you - Mood light");
+  await expect(row).toContainText("Both of you - Horny");
   await expect(row).not.toContainText("Jordan");
   await expect(row.locator(".live-activity-glyph.is-mood svg")).toHaveCount(1);
 });
@@ -3492,7 +3492,7 @@ test("Mood match bloom is static with reduced motion", async ({ page }) => {
   expect(motion.bloom).toBe("none");
   expect(motion.title).toBe("none");
   expect(motion.titleOpacity).toBe("1");
-  await expect(page.getByTestId("app-announcer")).toHaveText("You're both in the mood.");
+  await expect(page.getByTestId("app-announcer")).toHaveText("You're both horny.");
 });
 
 test("Mood light waits for a connection instead of queueing", async ({ page }) => {
@@ -3503,11 +3503,11 @@ test("Mood light waits for a connection instead of queueing", async ({ page }) =
   await expect(mood).toHaveAttribute("data-phase", "off");
 
   await setNavigatorOnline(page, false);
-  await expect(mood.getByRole("button", { name: "Mood light" })).toBeDisabled();
-  await expect(mood).toContainText("You're offline. The mood light needs a connection.");
+  await expect(mood.getByRole("button", { name: "I’m horny" })).toBeDisabled();
+  await expect(mood).toContainText("You're offline. This needs a connection.");
 
   await setNavigatorOnline(page, true);
-  await expect(mood.getByRole("button", { name: "Mood light" })).toBeEnabled();
+  await expect(mood.getByRole("button", { name: "I’m horny" })).toBeEnabled();
   expect(state.moodPosts || []).toHaveLength(0);
 });
 
@@ -3520,7 +3520,7 @@ test("Mood match toast away from Home links back to the mood light, once per mat
 
   await emitMoodEvent(page, "match");
   const toast = page.locator("a.live-activity-toast--mood");
-  await expect(toast).toHaveText("You're both in the mood.");
+  await expect(toast).toHaveText("You're both horny.");
   await expect(toast).toHaveAttribute("href", "/sexboard?mood=match");
   await expect(toast).not.toContainText("Jordan");
 

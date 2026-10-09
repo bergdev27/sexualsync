@@ -432,7 +432,7 @@ function ActivityRow({
     ? "Both of you"
     : sameEmail(item.actorEmail, myEmail) ? "You" : (firstName(item.actorName) || fallbackActorName || "Partner");
   const title = mood ? MOOD_MATCH_COPY : item.label;
-  const meta = mood ? "Mood light"
+  const meta = mood ? "Horny"
     : item.groupedCount && item.groupedCount > 1
     ? `${item.groupedCount} updates - ${item.resourceLabel}`
     : item.action === "focused" ? "heat signal"

@@ -4,6 +4,19 @@ User-visible changes to Sexualsync. Self-hosters on Docker update with
 `docker compose pull && docker compose up -d`; from a source clone, `git pull`
 and a rebuild (see `docs/self-host/`).
 
+## 2.0.2
+
+### Changed
+
+- The mood light is now **I'm horny**: same double-blind switch on Home, more
+  direct words. A match reads "You're both horny."
+
+### Fixed
+
+- History in Inspiration (the kinks, fantasies and confessions library, the
+  Shelf and kink detail) showed "last week" for anything older than a week.
+  Older items now show their date.
+
 ## 2.0.1
 
 ### Self-hosting
