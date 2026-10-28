@@ -14,31 +14,49 @@
  */
 
 import { useEffect, useRef } from "react";
-import { getProfileCached } from "@/lib/profile-cache";
+import { usePathname } from "next/navigation";
+import { getBootstrap } from "@/lib/api";
+import { isPwaPublicRoute } from "@/lib/pwa-reconnect";
 import { ensurePushSubscription, readStoredPushPrefs } from "@/lib/push-subscription";
 
 export default function PushReconnect() {
   const ran = useRef(false);
+  const pathname = usePathname();
 
   useEffect(() => {
+    if (!pathname || isPwaPublicRoute(pathname)) return;
     if (ran.current) return;
-    ran.current = true;
     if (typeof window === "undefined") return;
     if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
     // Only re-ensure for users who already opted in. We never prompt here.
     if (Notification.permission !== "granted") return;
+    ran.current = true;
+    let cancelled = false;
+    let settled = false;
 
     (async () => {
       try {
-        const profile = await getProfileCached();
+        // Independent from the foreground cache: background 401s must neither
+        // navigate nor suppress an overlapping foreground reconnect.
+        const profile = await getBootstrap(undefined, { suppressPwaReconnect: true });
+        if (cancelled) return;
         const workspaceId = profile.activeWorkspaceId || profile.workspaces?.[0]?.id || "";
         if (!workspaceId) return;
+        settled = true;
         await ensurePushSubscription(workspaceId, readStoredPushPrefs());
       } catch {
         // Best effort — the Space page can still enable notifications manually.
+      } finally {
+        settled = true;
       }
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+      // Preserve eligibility if route cleanup or Strict Mode replay cancelled
+      // the bootstrap before it could finish this launch's reconnect.
+      if (!settled) ran.current = false;
+    };
+  }, [pathname]);
 
   return null;
 }

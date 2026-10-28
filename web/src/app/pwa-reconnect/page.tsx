@@ -9,6 +9,7 @@ import {
 import { clearIntentionalSignOut, markIntentionalSignOut } from "@/lib/auth-state";
 import { markLaunchAuthenticated } from "@/lib/launch-auth";
 import { getPwaEnvironment } from "@/lib/pwa-environment";
+import { safePwaReturnTo } from "@/lib/pwa-reconnect";
 import "./pwa-reconnect.css";
 
 const HANDOFF_STORAGE_KEY = "ss:pwa-browser-handoff";
@@ -79,15 +80,7 @@ function isStandaloneDisplay(): boolean {
 }
 
 function safeReturnTo(value: string | null): string {
-  if (!value) return "/sexboard";
-  try {
-    const url = new URL(value, window.location.origin);
-    if (url.origin !== window.location.origin) return "/sexboard";
-    if (!url.pathname.startsWith("/") || url.pathname.startsWith("/api/auth/")) return "/sexboard";
-    return `${url.pathname}${url.search}${url.hash}`;
-  } catch {
-    return "/sexboard";
-  }
+  return safePwaReturnTo(value, window.location.origin);
 }
 
 function approvalSecret(id: string): string {

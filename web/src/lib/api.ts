@@ -15,6 +15,7 @@ import { enqueueWrite, generateIdempotencyKey } from "./offline-queue";
 import { encryptChatImage, decryptChatImage } from "./chat-media-crypto";
 import { invalidateResource } from "./resource-cache";
 import { quietHoursPayload } from "./quiet-hours";
+import { isPwaPublicRoute, safePwaReturnTo } from "./pwa-reconnect";
 
 const PROFILE_STALE_EVENT = "ss:profile-stale";
 function dispatchProfileStale(): void {
@@ -268,9 +269,7 @@ export function maybeReconnectStandalonePwa(
   if (hasIntentionalSignOut()) return false;
   if (new URLSearchParams(window.location.search).has("auth")) return false;
 
-  const target = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("/api/auth/")
-    ? returnTo
-    : "/sexboard";
+  const target = safePwaReturnTo(returnTo, window.location.origin);
   const attempt = readPwaReconnectAttempt();
   const recentlyTried = attempt.returnTo === target && Date.now() - attempt.at < PWA_AUTO_GOOGLE_COOLDOWN_MS;
   if (recentlyTried) return false;
@@ -308,6 +307,13 @@ export function maybeReconnectStandalonePwa(
   });
   window.location.replace(`/pwa-reconnect?${params.toString()}`);
   return true;
+}
+
+// Shared-client 401s are automatic; sign-in calls the deliberate helper above
+// directly, with either preferBrowserSession value.
+function maybeAutoReconnectStandalonePwa(): boolean {
+  if (typeof window === "undefined" || isPwaPublicRoute(window.location.pathname)) return false;
+  return maybeReconnectStandalonePwa();
 }
 
 function withTimeout(init: RequestInit, timeoutMs: number): { init: RequestInit; cancel: () => void } {
@@ -527,7 +533,7 @@ async function request<T>(url: string, init: RequestInit = {}, timeoutMs = DEFAU
     }
 
     if (response.status === 401) {
-      if (!queue.suppressPwaReconnect) maybeReconnectStandalonePwa();
+      if (!queue.suppressPwaReconnect) maybeAutoReconnectStandalonePwa();
       throw new ApiUnauthorizedError();
     }
 
@@ -581,7 +587,7 @@ async function requestBlob(url: string, init: RequestInit = {}, timeoutMs = MEDI
   }
 
   if (response.status === 401) {
-    maybeReconnectStandalonePwa();
+    maybeAutoReconnectStandalonePwa();
     throw new ApiUnauthorizedError();
   }
   if (!response.ok) {
@@ -2072,7 +2078,7 @@ async function requestNarration(url: string, init: RequestInit = {}): Promise<{ 
     cache: "no-store",
   });
   if (response.status === 401) {
-    maybeReconnectStandalonePwa();
+    maybeAutoReconnectStandalonePwa();
     throw new ApiUnauthorizedError();
   }
   const text = await response.text();
