@@ -290,6 +290,22 @@ export async function onRequest(context) {
           }
         }
 
+        if (payload.staySignedInDays !== undefined) {
+          // Integer days the installed app may skip the forced launch re-auth.
+          // JSON number type only (strings rejected) and capped at the server
+          // session lifetime (30 days) so a client marker can never outlive
+          // real authentication.
+          const raw = payload.staySignedInDays;
+          const staySignedInDays = typeof raw === "number" ? raw : NaN;
+          if (!Number.isInteger(staySignedInDays) || staySignedInDays < 0 || staySignedInDays > 30) {
+            return { abort: jsonResponse(400, { error: "staySignedInDays must be an integer between 0 and 30" }) };
+          }
+          if (settings.staySignedInDays !== staySignedInDays) {
+            settings.staySignedInDays = staySignedInDays;
+            settingsChanged = true;
+          }
+        }
+
         if (typeof payload.roomE2eeEnabled === "boolean") {
           if (settings.roomE2eeEnabled !== payload.roomE2eeEnabled) {
             settings.roomE2eeEnabled = payload.roomE2eeEnabled;
@@ -344,7 +360,10 @@ export async function onRequest(context) {
               metadata: {
                 reauthOnLaunch: Boolean(settings.reauthOnLaunch),
                 roomE2eeEnabled: Boolean(settings.roomE2eeEnabled),
-                roomE2eeVerifier: Boolean(settings.roomE2eeVerifier)
+                roomE2eeVerifier: Boolean(settings.roomE2eeVerifier),
+                staySignedInDays: Number.isInteger(Number(settings.staySignedInDays))
+                  ? Number(settings.staySignedInDays)
+                  : 0
               }
             } });
           }

@@ -31,6 +31,7 @@ export interface Workspace {
   members: WorkspaceMember[];
   settings: {
     reauthOnLaunch?: boolean;
+    staySignedInDays?: number;
     roomE2eeEnabled?: boolean;
     roomE2eeVerifier?: RoomEncryptedBox;
     [key: string]: unknown;

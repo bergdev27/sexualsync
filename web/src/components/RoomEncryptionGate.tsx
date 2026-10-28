@@ -5,11 +5,15 @@ import { usePathname } from "next/navigation";
 import { ApiUnauthorizedError, recoverRoomE2eeFromServerData, updateWorkspaceSettings } from "@/lib/api";
 import { markIntentionalSignOut } from "@/lib/auth-state";
 import {
+  clearPersistentLaunchStamp,
   ensureLaunchAuthenticated,
+  hasPersistentLaunchOk,
   isLaunchAuthenticated,
   launchReauthRecentlyAttempted,
   markLaunchAuthenticated,
   recordLaunchReauthAttempt,
+  shouldForceLaunchReauth,
+  stampPersistentLaunch,
 } from "@/lib/launch-auth";
 import { readLaunchHint, writeLaunchHint, type LaunchHint } from "@/lib/launch-hint";
 import { getProfileCached } from "@/lib/profile-cache";
@@ -102,6 +106,10 @@ function roomRequiresUnlock(workspace: Workspace | null | undefined) {
 function beginLaunchReauth() {
   clearRoomE2eeKeyCache();
   clearVaultKeyCache();
+  // This redirect is a sign-out; drop the persistent stay-signed-in stamp so
+  // the next account on this device cannot ride it, while leaving the
+  // re-auth cooldown counter armed against the reconnect loop.
+  clearPersistentLaunchStamp();
   markIntentionalSignOut();
   window.location.replace("/api/auth/logout?reason=launch");
 }
@@ -155,12 +163,34 @@ export default function RoomEncryptionGate({ children }: { children: ReactNode }
         const workspace = profile.activeWorkspace;
         workspaceRef.current = workspace;
         writeLaunchHint(workspace?.id ? { workspaceId: workspace.id, roomLocked: roomRequiresUnlock(workspace) } : null);
-        if (!ensureLaunchAuthenticated()) {
-          // Reauth at most once per launch — never loop. If we already forced a
-          // reauth moments ago (the launch marker didn't survive in this PWA,
-          // e.g. partitioned sessionStorage), trust the still-valid session and
-          // proceed instead of logging out again into an endless sign-in loop.
-          if (workspace?.settings?.reauthOnLaunch !== false && !launchReauthRecentlyAttempted()) {
+        if (ensureLaunchAuthenticated()) {
+          // Warm launch (session marker survived): slide the stay-signed-in
+          // window forward so daily users are never forced out mid-window
+          // (contract: every confirmed open re-stamps). "Confirmed" means a
+          // successful profile load, which may be served from the 30 s
+          // profile cache rather than a live server round trip. That is
+          // accepted by design: the stamp grants NO authentication — the
+          // HttpOnly server session cookie is the sole authority, every API
+          // 401 still routes into the reconnect flow, and cross-tab sign-out
+          // flushes all ss:* state including this stamp. The cold-start path
+          // has had the same cached-profile property since before this
+          // feature. Worst case is up to 30 s of extra staleness in a
+          // re-auth-skip decision.
+          stampPersistentLaunch();
+        } else {
+          // Decide once, from the server-provided settings:
+          // - staySignedInDays > 0 and the persistent open-stamp is fresh →
+          //   skip the forced re-auth (this is what keeps users signed in
+          //   across iOS cold-starts within their chosen window),
+          // - reauthOnLaunch === false keeps the legacy "never force" meaning,
+          // - otherwise reauth at most once per launch — never loop (the
+          //   cooldown guard from the reconnect-loop fix stays intact).
+          if (shouldForceLaunchReauth({
+            reauthOnLaunch: workspace?.settings?.reauthOnLaunch,
+            staySignedInDays: workspace?.settings?.staySignedInDays ?? 0,
+            persistentOk: hasPersistentLaunchOk(workspace?.settings?.staySignedInDays ?? 0),
+            reauthAttemptedRecently: launchReauthRecentlyAttempted(),
+          })) {
             recordLaunchReauthAttempt();
             beginLaunchReauth();
             return;

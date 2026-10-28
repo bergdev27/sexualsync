@@ -640,6 +640,7 @@ export async function updateWorkspaceSettings(payload: {
   roomE2eeEnabled?: boolean;
   roomE2eeVerifier?: RoomEncryptedBox | null;
   reauthOnLaunch?: boolean;
+  staySignedInDays?: number;
 }): Promise<ProfileResponse> {
   const next = await request<ProfileResponse>("/api/profile", {
     method: "POST",

@@ -2732,6 +2732,18 @@ h1, h2, h3, .font-display {
   line-height: 1.4;
 }
 
+.settings-select {
+  flex: 0 0 auto;
+  max-width: 170px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--cream-a02);
+  color: var(--cream);
+  font-size: var(--fs-13);
+  font-weight: 600;
+}
+
 .settings-link-chev {
   flex: 0 0 auto;
   color: var(--cream-faint);

@@ -141,7 +141,11 @@ function makeLegacyWorkspace(now, legacyMembers = []) {
     members,
     settings: {
       // Sprint 0.3 — default ON. Discretion is the category baseline.
-      reauthOnLaunch: true
+      reauthOnLaunch: true,
+      // 0 = re-authenticate on every app launch (Sprint 0.3 behaviour).
+      // 1..30 = keep signed in across launches for N days of last open;
+      // the server session cookie (30 days) remains the hard ceiling.
+      staySignedInDays: 0
     }
   };
 }
@@ -278,7 +282,11 @@ export function defaultWorkspacePayload(ownerEmail, partnerEmail, ownerName, par
     ],
     settings: {
       // Sprint 0.3 — default ON. Discretion is the category baseline.
-      reauthOnLaunch: true
+      reauthOnLaunch: true,
+      // 0 = re-authenticate on every app launch (Sprint 0.3 behaviour).
+      // 1..30 = keep signed in across launches for N days of last open;
+      // the server session cookie (30 days) remains the hard ceiling.
+      staySignedInDays: 0
     }
   };
 }
